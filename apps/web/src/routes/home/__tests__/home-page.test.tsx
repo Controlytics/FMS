@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import HomePage from '../index';
 import type { RoleAccess } from '../viewer-access';
 
@@ -167,6 +168,7 @@ describe('Module Guide — accessibility + console', () => {
     const api = mockApi(routes());
     renderPage(<HomePage />, { user: OPERATOR, api });
     await screen.findByRole('heading', { level: 3, name: 'Filter Operations' });
+    expectAllControlsNamed();
     const unl = unlabeledControls();
     expect(unl.none).toEqual([]);
     expect(unl.placeholderOnly).toEqual([]);

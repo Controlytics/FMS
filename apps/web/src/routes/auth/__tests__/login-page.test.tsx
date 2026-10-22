@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRequest } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { Routes, Route } from 'react-router-dom';
 import { brandingRoute, holdRequests, LocationProbe, findDialog } from './support';
 import { LoginPage } from '../login';
@@ -285,6 +286,7 @@ describe('Login — accessibility + console', () => {
       { path: '/api/auth/me', body: ME },
     ]);
     await screen.findByRole('heading', { name: 'Sign in' });
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     fill('jdoe01', 'Secret@123');
     submit();

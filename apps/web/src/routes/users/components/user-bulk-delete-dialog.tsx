@@ -5,7 +5,6 @@ interface UserBulkDeleteDialogProps {
   open: boolean;
   selectedIds: Set<string>;
   displayedUsers: any[];
-  bulkDeleting: boolean;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -14,7 +13,6 @@ export function UserBulkDeleteDialog({
   open,
   selectedIds,
   displayedUsers,
-  bulkDeleting,
   onClose,
   onConfirm,
 }: UserBulkDeleteDialogProps) {
@@ -64,12 +62,11 @@ export function UserBulkDeleteDialog({
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button
-          variant="destructive"
-          onClick={onConfirm}
-          disabled={bulkDeleting}
-        >
-          {bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size} User${selectedIds.size !== 1 ? 's' : ''}`}
+        {/* No in-flight state here: this dialog closes as the delete starts (the
+            password prompt and the result follow on the page). A `bulkDeleting`
+            prop used to render "Deleting..." but nothing ever set it (2026-10-22). */}
+        <Button variant="destructive" onClick={onConfirm}>
+          {`Delete ${selectedIds.size} User${selectedIds.size !== 1 ? 's' : ''}`}
         </Button>
       </DialogFooter>
     </Dialog>

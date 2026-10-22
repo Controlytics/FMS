@@ -24,6 +24,8 @@ interface ProcessOpts {
   mutateKeys?: string[];
   onSuccess?: () => void;
   onError?: (err: any) => void;
+  /** A dismissed password prompt. Without it, useReauth reports the cancel to onError. */
+  onCancel?: () => void;
 }
 
 export function useBlockChangeApproval() {
@@ -53,6 +55,7 @@ export function useBlockChangeApproval() {
           opts.onSuccess?.();
         },
         onError: opts.onError,
+        onCancel: opts.onCancel,
       },
     );
   };

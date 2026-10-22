@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within, act } from '@testing-library/react';
 import { mockApi, renderPage, clearGlobalSwrCache, type MockRequest } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { AdminRequestsPage } from '../index';
 
 /**
@@ -90,8 +91,8 @@ describe('Admin Requests — queue', () => {
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.queryByText('bob')).toBeNull();
 
-    // the × clears the search
-    fireEvent.click(screen.getByRole('button', { name: '×' }));
+    // the × clears the search (its name says so; the glyph is hidden from screen readers)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
     expect(search).toHaveValue('');
     expect(screen.getByText('bob')).toBeInTheDocument();
 
@@ -381,6 +382,9 @@ describe('Admin Requests — re-auth (APPROVE_ADMIN_REQUEST)', () => {
     expect(api.calls('POST', '/api/admin-requests/r4/process')).toHaveLength(0);
     expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    // AR-1: a dismissed prompt is not a failure (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText('Action Failed')).toBeNull();
   });
 
   it('a REAUTH_REQUIRED answer opens the prompt retroactively and the retry carries the password', async () => {
@@ -501,16 +505,16 @@ describe('Admin Requests — the queue refreshes after a decision (global SWR ca
 });
 
 describe('Admin Requests — accessibility + console', () => {
-  it('scan with the review panel open; nothing is logged', async () => {
+  it('every control is named — search, its clear button, the review panel and its response box — and nothing is logged', async () => {
     const api = mockApi(routes(REQS()));
     renderPage(<AdminRequestsPage />, { user: APPROVER, api });
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search requests by requester or employee ID' }), { target: { value: 'd' } });
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: /Forgot Password request from dave/ }));
     await act(async () => {});
-    const unl = unlabeledControls();
-    expect(unl.none).toEqual([]);
-    // Findings (reported): the search box and the "Your Response" textarea are
-    // named only by their placeholders (the h4 is not a <label>).
-    expect(unl.placeholderOnly.filter((d) => !/Search requester or ID|Enter notes about your decision/.test(d))).toEqual([]);
+    expect(screen.getByLabelText(/^Your Response/)).toHaveAttribute('placeholder', 'Enter notes about your decision (required)...');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

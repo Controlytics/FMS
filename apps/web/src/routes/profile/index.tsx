@@ -22,12 +22,21 @@ export function ProfilePage() {
   const reauth = useReauth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [formData, setFormData] = useState({
+  // The form shows /me, with the operator's own edits laid over it (P2, 2026-10-22).
+  // It used to copy `user` into state once at mount: with no cached user it stayed
+  // blank, and with a stale cached user (digilog_cached_user) it kept the old values
+  // and Save wrote them back over the server's. Untouched fields now follow /me, and
+  // Save sends only the fields the operator changed.
+  type ProfileForm = { fullName: string; email: string; department: string; photoUrl: string };
+  const seed: ProfileForm = {
     fullName: user?.fullName ?? '',
     email: user?.email ?? '',
     department: user?.department ?? '',
     photoUrl: user?.photoUrl ?? '',
-  });
+  };
+  const [edits, setEdits] = useState<Partial<ProfileForm>>({});
+  const formData: ProfileForm = { ...seed, ...edits };
+  const setField = (name: keyof ProfileForm, value: string) => setEdits((prev) => ({ ...prev, [name]: value }));
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -35,14 +44,20 @@ export function ProfilePage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setField(e.target.name as keyof ProfileForm, e.target.value);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
+
+    // Only what the operator changed: PUT /api/auth/profile treats every field as
+    // optional, so an untouched field is never sent back (P2).
+    const changes: Partial<ProfileForm> = {};
+    for (const key of Object.keys(edits) as (keyof ProfileForm)[]) {
+      if (edits[key] !== seed[key]) changes[key] = edits[key];
+    }
 
     // H1 fix: PUT /api/auth/profile is now reauth-gated server-side. Wrap the
     // call in reauth.execute() so the password challenge dialog appears when
@@ -51,14 +66,16 @@ export function ProfilePage() {
       'UPDATE_PROFILE',
       async (password?: string) => {
         if (password) {
-          await apiClient.putWithReauth('/api/auth/profile', formData, password);
+          await apiClient.putWithReauth('/api/auth/profile', changes, password);
         } else {
-          await apiClient.put('/api/auth/profile', formData);
+          await apiClient.put('/api/auth/profile', changes);
         }
       },
       {
         onSuccess: async () => {
           await mutate();
+          // The saved values are now /me's; the form follows /me again.
+          setEdits({});
           setShowSuccess(true);
           setIsSubmitting(false);
         },
@@ -66,6 +83,8 @@ export function ProfilePage() {
           setError(err?.message || 'Failed to update profile');
           setIsSubmitting(false);
         },
+        // A dismissed password prompt is not an error: unwind silently.
+        onCancel: () => setIsSubmitting(false),
       },
     );
   };
@@ -109,7 +128,7 @@ export function ProfilePage() {
       }
 
       const data = await response.json();
-      setFormData(prev => ({ ...prev, photoUrl: data.photoUrl }));
+      setField('photoUrl', data.photoUrl);
     } catch (err: any) {
       setError(err.message || 'Failed to upload photo');
     } finally {
@@ -122,7 +141,7 @@ export function ProfilePage() {
   };
 
   const handleRemovePhoto = () => {
-    setFormData(prev => ({ ...prev, photoUrl: '' }));
+    setField('photoUrl', '');
   };
 
   const triggerFileSelect = () => {
@@ -221,20 +240,21 @@ export function ProfilePage() {
             )}
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-600">User ID</label>
-              <Input value={user.username} disabled className="bg-slate-50" />
+              <label htmlFor="profile-user-id" className="text-sm font-medium text-slate-600">User ID</label>
+              <Input id="profile-user-id" value={user.username} disabled className="bg-slate-50" />
               <p className="text-xs text-slate-500">User ID cannot be changed</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Full Name *</label>
+                <label htmlFor="profile-full-name" className="text-sm font-medium">Full Name *</label>
                 <Input
+                  id="profile-full-name"
                   name="fullName"
                   value={formData.fullName}
                   onChange={(e) => {
                     const clean = e.target.value.replace(/<[^>]*>/g, '');
-                    setFormData(prev => ({ ...prev, fullName: clean }));
+                    setField('fullName', clean);
                   }}
                   required
                   minLength={2}
@@ -242,8 +262,9 @@ export function ProfilePage() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Email *</label>
+                <label htmlFor="profile-email" className="text-sm font-medium">Email *</label>
                 <Input
+                  id="profile-email"
                   name="email"
                   type="email"
                   value={formData.email}
@@ -254,14 +275,15 @@ export function ProfilePage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Department</label>
+              <label htmlFor="profile-department" className="text-sm font-medium">Department</label>
               <Input
+                id="profile-department"
                 name="department"
                 value={formData.department}
                 onChange={(e) => {
                   // Strip HTML tags on input
                   const clean = e.target.value.replace(/<[^>]*>/g, '');
-                  setFormData(prev => ({ ...prev, department: clean }));
+                  setField('department', clean);
                 }}
                 placeholder="e.g., Engineering, Quality Assurance"
               />

@@ -79,6 +79,7 @@ export function UserTable({
             <TableHead className="w-12">
               <input
                 type="checkbox"
+                aria-label="Select all users"
                 checked={allSelected}
                 ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
                 onChange={toggleSelectAll}
@@ -102,6 +103,7 @@ export function UserTable({
                 {user.id !== currentUser?.id && user.role !== 'SUPER_ADMIN' ? (
                   <input
                     type="checkbox"
+                    aria-label={`Select ${user.fullName}`}
                     checked={selectedIds.has(user.id)}
                     onChange={() => toggleSelect(user.id)}
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-brand-600/15"

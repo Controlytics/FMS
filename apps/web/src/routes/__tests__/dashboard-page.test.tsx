@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/re
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
 import { holdRequests } from '@/routes/auth/__tests__/support';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { DashboardPage } from '../dashboard';
 
 /**
@@ -26,10 +27,11 @@ const STATS = {
   deviations30: 2, completed30: 31, avgCycleHours: 5.5,
 };
 
-const INSTANCES = [
-  { id: 'ahu-1', name: 'AHU-01', status: 'Active' },
-  { id: 'f1', name: 'FLT-001', parentId: 'ahu-1', filterSet: 'SET_A', status: 'Active', attributes: { filterType: 'HEPA', micronSize: '0.3' }, lastCleanedAt: '2026-10-10T08:00:00.000Z' },
-  { id: 'f2', name: 'FLT-002', parentId: 'gone', filterSet: 'SET_A', status: 'Retired', attributes: {}, lastCleanedAt: null },
+// The typed hierarchy feeds the drill-down reads (filters only; AHU names apart).
+const AHUS = [{ id: 'ahu-1', name: 'AHU-01', status: 'Active' }];
+const FILTERS = [
+  { id: 'f1', name: 'FLT-001', ahuId: 'ahu-1', filterSet: 'SET_A', status: 'Active', attributes: { filterType: 'HEPA', micronSize: '0.3' }, lastCleanedAt: '2026-10-10T08:00:00.000Z' },
+  { id: 'f2', name: 'FLT-002', ahuId: 'gone', filterSet: 'SET_A', status: 'Retired', attributes: {}, lastCleanedAt: null },
   { id: 'f3', name: 'FLT-003', filterSet: null, status: 'Active', attributes: { filterType: 'Pre', micronSize: '10' }, lastCleanedAt: null },
   { id: 'f4', name: 'FLT-004', filterSet: 'SET_B', attributes: { filterType: 'HEPA', micronSize: '0.3' } },
 ];
@@ -46,7 +48,8 @@ function routes(opts: { cards?: Record<string, string[]>; stats?: unknown; brand
     { path: '/api/audit', body: { total: 1234, data: [] } },
     { path: '/api/notifications', body: { total: 7, data: [] } },
     { path: '/api/filters/dashboard-stats', body: opts.stats ?? STATS },
-    { path: '/api/assets/instances', body: { data: INSTANCES } },
+    { path: '/api/hierarchy/filters', body: { data: FILTERS, total: FILTERS.length } },
+    { path: '/api/hierarchy/ahus', body: { data: AHUS, total: AHUS.length } },
   ];
 }
 
@@ -86,7 +89,7 @@ describe('Dashboard — welcome, overview and quick actions', () => {
 
   it('a role with none of USER_READ / AUDIT_READ / CYCLE_READ never asks for those stats and gets only the notifications tile', async () => {
     const api = mockApi(routes());
-    renderPage(<DashboardPage />, { user: { id: 'u-op', fullName: 'Op One', role: 'OPERATOR', permissions: ['ASSET_READ'] }, api });
+    renderPage(<DashboardPage />, { user: { id: 'u-op', fullName: 'Op One', role: 'OPERATOR', permissions: ['ASSET_READ', 'NOTIFICATION_VIEW'] }, api });
     expect(await screen.findByRole('heading', { name: 'Op One' })).toBeInTheDocument();
     await waitFor(() => expect(tile('Notifications')).toHaveTextContent('7'));
     expect(screen.queryByText('Total Users')).toBeNull();
@@ -135,6 +138,48 @@ describe('Dashboard — welcome, overview and quick actions', () => {
     expect(await screen.findByText('Quick Actions')).toBeInTheDocument();
     expect(screen.getByText('Quick Overview')).toBeInTheDocument();
     expect(await screen.findByText('Active Cycles')).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — a card shows only to roles its page admits (D-1/D-2/D-3)', () => {
+  // Each card is gated on the same permission as its route in main.tsx:
+  // /audit AUDIT_READ, /users/create USER_CREATE, /config CONFIG_READ,
+  // /notifications NOTIFICATION_VIEW | NOTIFICATION_MANAGE | NOTIFICATION_DELETE.
+  it('USER_READ alone opens none of those pages, so none of their cards shows', async () => {
+    const api = mockApi(routes());
+    renderPage(<DashboardPage />, { user: { role: 'QA', fullName: 'Qa One', permissions: ['USER_READ'] }, api });
+    expect(await screen.findByRole('heading', { name: 'Qa One' })).toBeInTheDocument();
+    await waitFor(() => expect(tile('Total Users')).toHaveTextContent('42'));
+    // none of the three quick actions is open to this role: no bare "Quick Actions" heading
+    expect(screen.queryByText('Quick Actions')).toBeNull();
+    expect(screen.queryByText('View Audit Trail')).toBeNull();
+    expect(screen.queryByText('Create User')).toBeNull();
+    expect(screen.queryByText('System Configuration')).toBeNull();
+    expect(screen.queryByText('Notifications')).toBeNull();
+    // a hidden tile's count is not fetched either
+    expect(api.calls('GET', '/api/notifications')).toHaveLength(0);
+  });
+
+  it('the route permissions alone (without USER_READ) bring their cards', async () => {
+    const api = mockApi(routes());
+    renderPage(<DashboardPage />, { user: { role: 'MANAGER', fullName: 'Man Ager', permissions: ['USER_CREATE', 'CONFIG_READ', 'AUDIT_READ', 'NOTIFICATION_MANAGE'] }, api });
+    expect(await screen.findByRole('heading', { name: 'Man Ager' })).toBeInTheDocument();
+    expect(await screen.findByText('Create User')).toBeInTheDocument();
+    expect(screen.getByText('Create User').closest('a')).toHaveAttribute('href', '/users/create');
+    expect(screen.getByText('System Configuration').closest('a')).toHaveAttribute('href', '/config');
+    expect(screen.getByText('View Audit Trail').closest('a')).toHaveAttribute('href', '/audit');
+    await waitFor(() => expect(tile('Notifications')).toHaveTextContent('7'));
+    // no USER_READ: no user count tile, no /api/users/stats request
+    expect(screen.queryByText('Total Users')).toBeNull();
+    expect(api.calls('GET', '/api/users/stats')).toHaveLength(0);
+  });
+
+  it('NOTIFICATION_DELETE alone is enough for the Notifications tile', async () => {
+    const api = mockApi(routes());
+    renderPage(<DashboardPage />, { user: { role: 'SUPERVISOR', fullName: 'Sup One', permissions: ['NOTIFICATION_DELETE'] }, api });
+    expect(await screen.findByRole('heading', { name: 'Sup One' })).toBeInTheDocument();
+    await waitFor(() => expect(tile('Notifications')).toHaveTextContent('7'));
+    expect(screen.queryByText('View Audit Trail')).toBeNull();
   });
 });
 
@@ -221,7 +266,8 @@ describe('Dashboard — drill-down into the filters behind a breakdown row', () 
     expect(within(rows[0]).getByText('10/10/2026')).toBeInTheDocument();
     // unknown parent / missing attributes / never cleaned -> em dashes
     expect(within(rows[1]).getAllByText('—')).toHaveLength(4);
-    expect(api.calls('GET', '/api/assets/instances')).toHaveLength(1);
+    expect(api.calls('GET', '/api/hierarchy/filters')).toHaveLength(1);
+    expect(api.calls('GET', '/api/assets/instances')).toHaveLength(0);
   });
 
   it('Unset, Status, Type and Micron each filter on their own dimension', async () => {
@@ -229,22 +275,22 @@ describe('Dashboard — drill-down into the filters behind a breakdown row', () 
     renderPage(<DashboardPage />, { user: SA, api });
 
     await drill('Filters by Set', 'Unset');
-    // AHU-01 has no filterSet either; Unset = everything without a set
+    // Unset = every filter without a set
     expect(await screen.findByText('FLT-003')).toBeInTheDocument();
     expect(screen.queryByText('FLT-001')).toBeNull();
-    fireEvent.click(screen.getByRole('heading', { name: 'Filters · Unset' }).parentElement!.nextElementSibling as HTMLElement);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Filters · Unset' })).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Filters · Unset' })).toBeNull());
 
     await drill('Filters by Status', 'Retired');
     expect(await screen.findByText('1 filter')).toBeInTheDocument();
     expect(screen.getByText('FLT-002')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('heading', { name: 'Filters · Retired' }).parentElement!.nextElementSibling as HTMLElement);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Filters · Retired' })).getByRole('button', { name: 'Close' }));
 
     await drill('Filters by Type', 'HEPA');
     expect(await screen.findByText('2 filters')).toBeInTheDocument();
     expect(screen.getByText('FLT-004')).toBeInTheDocument();
     expect(screen.getAllByText('Set B').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('heading', { name: 'Filters · HEPA' }).parentElement!.nextElementSibling as HTMLElement);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Filters · HEPA' })).getByRole('button', { name: 'Close' }));
 
     await drill('Filters by Micron Size', '0.3');
     expect(await screen.findByText('2 filters')).toBeInTheDocument();
@@ -252,7 +298,7 @@ describe('Dashboard — drill-down into the filters behind a breakdown row', () 
 
   it('shows Loading… while the filter list is fetched, "No filters match." when nothing matches, and closes on the backdrop but not on the panel', async () => {
     const api = mockApi(routes());
-    const hold = holdRequests(/\/api\/assets\/instances/);
+    const hold = holdRequests(/\/api\/hierarchy\/filters/);
     renderPage(<DashboardPage />, { user: SA, api });
     const heading = await drill('Filters by Set', 'SET_X');
     expect(screen.getByText('Loading…')).toBeInTheDocument();
@@ -268,16 +314,54 @@ describe('Dashboard — drill-down into the filters behind a breakdown row', () 
   });
 });
 
+describe('Dashboard — the drill-down lists only filters (D-5)', () => {
+  // /api/assets/instances returns EVERY active asset (blocks, areas, AHUs, filters)
+  // with no kind field, so filtering it on `!filterSet` / `status` listed blocks and
+  // AHUs as filters. The typed /api/hierarchy/filters feed holds filters only.
+  const MIXED = [
+    { id: 'b1', name: 'BLOCK-A', status: 'Active' },
+    { id: 'a1', name: 'AHU-01', parentId: 'b1', status: 'Active' },
+    { id: 'f3', name: 'FLT-003', parentId: 'a1', filterSet: null, status: 'Active', attributes: {} },
+  ];
+  const extra: MockRoute[] = [
+    { path: '/api/assets/instances', body: { data: MIXED } },
+    { path: '/api/hierarchy/filters', body: { data: [{ id: 'f3', name: 'FLT-003', ahuId: 'a1', filterSet: null, status: 'Active', attributes: {} }], total: 1 } },
+    { path: '/api/hierarchy/ahus', body: { data: [{ id: 'a1', name: 'AHU-01', status: 'Active' }], total: 1 } },
+  ];
+
+  it('"Unset" and a status row list the filters behind the count, never a block or an AHU', async () => {
+    const api = mockApi(routes({ stats: { ...STATS, filterSetCounts: { UNSET: 1 }, filterStatusCounts: { Active: 1 } }, extra }));
+    renderPage(<DashboardPage />, { user: SA, api });
+    await screen.findByText('Filter Cleaning Analytics');
+
+    fireEvent.click(within(section('Filters by Set')).getByText('Unset'));
+    expect(await screen.findByText('1 filter')).toBeInTheDocument();
+    const names = () => screen.getAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent);
+    expect(names()).toEqual(['FLT-003']);
+    // the AHU column still names the filter's AHU
+    expect(within(screen.getAllByRole('row')[1]).getByText('AHU-01')).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Filters · Unset' })).getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(within(section('Filters by Status')).getByText('Active'));
+    expect(await screen.findByText('1 filter')).toBeInTheDocument();
+    expect(names()).toEqual(['FLT-003']);
+  });
+});
+
 describe('Dashboard — accessibility + console', () => {
-  it('flags only the drill-down close "x" (svg-only) and logs nothing', async () => {
+  it('every control is named, the drill-down is a named modal dialog with a named Close, and nothing is logged', async () => {
     const api = mockApi(routes());
     renderPage(<DashboardPage />, { user: SA, api });
     await screen.findByText('Filter Cleaning Analytics');
+    expectAllControlsNamed();
     fireEvent.click(within(section('Filters by Set')).getByText('Set A'));
     await screen.findByText('2 filters');
+    const dlg = screen.getByRole('dialog', { name: 'Filters · Set A' });
+    expect(dlg).toHaveAttribute('aria-modal', 'true');
+    expect(within(dlg).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expectAllControlsNamed();
     const unl = unlabeledControls();
-    // Finding: the drill-down close button is an svg with no name (dashboard.tsx:312).
-    expect(unl.none.filter((d) => !d.includes('text-white/80 hover:text-white'))).toEqual([]);
+    expect(unl.none).toEqual([]);
     expect(unl.placeholderOnly).toEqual([]);
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);

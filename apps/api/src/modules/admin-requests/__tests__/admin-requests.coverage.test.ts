@@ -446,13 +446,13 @@ describe('admin-requests', () => {
       expect(res.json().message).toBe('Unknown request type: CVA_WEIRD');
       await expectHandedBack(id);
 
-      // Rejecting it needs no action, and the audit names the raw type.
-      const rej = await authPost(app, `/api/admin-requests/${id}/process`, appTok, { action: 'reject' });
+      // Rejecting it needs no action, and the audit names the raw type. (Remarks
+      // are required for every decision since 2026-10-22: admin-request-remarks.test.ts.)
+      const rej = await authPost(app, `/api/admin-requests/${id}/process`, appTok, { action: 'reject', adminRemarks: 'unknown type' });
       expect(rej.statusCode).toBe(200);
       const audit = await auditFor('ADMIN_REQUEST_REJECTED', id);
-      expect(audit?.afterValue).toMatchObject({ operation: 'CVA_WEIRD', name: `CVA_WEIRD: ${T_ON}`, adminRemarks: '' });
-      // No remarks given -> none stored.
-      expect((await prisma.adminRequest.findUnique({ where: { id } }))?.adminRemarks).toBeNull();
+      expect(audit?.afterValue).toMatchObject({ operation: 'CVA_WEIRD', name: `CVA_WEIRD: ${T_ON}`, adminRemarks: 'unknown type' });
+      expect((await prisma.adminRequest.findUnique({ where: { id } }))?.adminRemarks).toBe('unknown type');
     });
 
     it('CREATE_USER without a full name uses the requester name; FORGOT_PASSWORD without a User ID key is refused', async () => {

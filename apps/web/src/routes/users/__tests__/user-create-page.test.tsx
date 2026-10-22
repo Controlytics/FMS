@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from './support/page-findings';
 import { holdRequests, LocationProbe } from '@/routes/auth/__tests__/support';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { CreateUserPage } from '../create';
 
 /** Create User. Real react-hook-form + zod, SWR, apiClient, useReauth; fetch stubbed. */
@@ -161,6 +162,11 @@ describe('Create User — form', () => {
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
     expect(api.calls('POST', '/api/users')).toHaveLength(0);
     expect(screen.getByTestId('location')).toHaveTextContent('/users/create');
+    // C-1: a dismissed prompt is not an error — no dialog, no banner (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText('User creation failed')).toBeNull();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Create User' })).toBeEnabled();
   });
 });
 
@@ -207,16 +213,19 @@ describe('Create User — temporary password', () => {
 });
 
 describe('Create User — accessibility + console', () => {
-  it('flags only the known unnamed controls and logs nothing', async () => {
+  it('every control is named by its label (not its placeholder) and the page logs nothing', async () => {
     const api = mockApi(routes());
     renderPage(<Page />, { route: '/users/create', user: SA, api });
     await screen.findByRole('option', { name: 'Operator' });
-    const unl = unlabeledControls();
-    // Findings: every form label lacks htmlFor, so the inputs are named only by
-    // their placeholders (create.tsx:147,:165,:186,:203); the role <Select>
-    // (:221) and the read-only temporary-password input (:281) have no name.
-    expect(unl.none.filter((d) => !(d.startsWith('select') || d.startsWith('input[type=password]')))).toEqual([]);
-    expect(unl.placeholderOnly.filter((d) => !/Enter employee id|Enter full name|user@example\.com|Enter department/.test(d))).toEqual([]);
+    // each label is tied to its field
+    expect(screen.getByLabelText(/^Employee ID/)).toHaveAttribute('name', 'username');
+    expect(screen.getByLabelText(/^Full Name/)).toHaveAttribute('name', 'fullName');
+    expect(screen.getByLabelText(/^Email/)).toHaveAttribute('name', 'email');
+    expect(screen.getByLabelText(/^Department/)).toHaveAttribute('name', 'department');
+    expect(screen.getByLabelText(/^Role/)).toHaveAttribute('name', 'role');
+    expect(screen.getByLabelText('Auto-Generated Password')).toHaveAttribute('readonly');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

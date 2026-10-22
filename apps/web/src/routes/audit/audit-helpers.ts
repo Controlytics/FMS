@@ -461,6 +461,17 @@ export interface AuditFieldChange { field: string; from: string; to: string; }
  *
  * Also skips id/uuid keys and masks sensitive values.
  */
+/**
+ * An identifier key: `id`, `snake_id` / `kebab-id`, or camelCase `somethingId`.
+ * Case-sensitive on purpose, so `paid`, `valid` or `idleMinutes` are not ids.
+ * ONE rule for the change list (below) and the detail dialog's full record: the
+ * dialog had its own `/(^|[^a-z])id$/i`, whose `i` flag made `[^a-z]` reject
+ * capitals too, so `ownerId` was never recognised there (D4, 2026-10-22).
+ */
+export function isIdKey(key: string): boolean {
+  return /^id$|[_-]id$|Id$/.test(key);
+}
+
 export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
   const b = before && typeof before === 'object' ? before : {};
   const a = after && typeof after === 'object' ? after : {};
@@ -468,7 +479,7 @@ export function diffAuditValues(before: any, after: any): AuditFieldChange[] {
   const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
   const changes: AuditFieldChange[] = [];
   for (const key of keys) {
-    if (/^id$|[_-]id$|Id$/.test(key)) continue;
+    if (isIdKey(key)) continue;
     if (!has(b, key) || !has(a, key)) continue; // one-sided — not a change
     const bv = b[key];
     const av = a[key];

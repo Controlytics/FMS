@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRequest, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { DebugTracesPage } from '../index';
 import type { PipelineTrace, TraceStats } from '../types';
 
@@ -205,6 +206,24 @@ describe('Debug traces — expanding a row', () => {
     ],
   });
 
+  it('a keyboard user can expand and collapse a trace with its named button (aria-expanded follows)', async () => {
+    const api = mockApi(routes({ list: list([TRACE()]), extra: [{ path: '/api/debug/traces/t1', body: DETAIL }] }));
+    renderPage(<DebugTracesPage />, { user: SA, api });
+    const btn = await screen.findByRole('button', { name: 'Expand trace AHU-01' });
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    btn.focus();
+    expect(btn).toHaveFocus();
+    fireEvent.click(btn);
+    expect(await screen.findByText('payload.temp must be a number')).toBeInTheDocument();
+    const collapse = screen.getByRole('button', { name: 'Collapse trace AHU-01' });
+    expect(collapse).toHaveAttribute('aria-expanded', 'true');
+    // the button's click does not also bubble to the row (one toggle, not two)
+    expect(api.calls('GET', '/api/debug/traces/t1')).toHaveLength(1);
+    fireEvent.click(collapse);
+    await waitFor(() => expect(screen.queryByText('payload.temp must be a number')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Expand trace AHU-01' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('fetches the full trace, shows the detail panel and stage timeline, and collapses on a second click', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
@@ -303,6 +322,20 @@ describe('Debug traces — pagination', () => {
     expect(screen.getByRole('button', { name: '50' })).toHaveClass('bg-cyan-500');
   });
 
+  it('D1: a page change made right after load is not undone by the mount-time debounce', async () => {
+    const api = mockApi(routes({ list: (req: MockRequest) => list([TRACE()], { total: 60, totalPages: 3, page: Number(req.query.get('page')) }) }));
+    renderPage(<DebugTracesPage />, { user: SA, api });
+    await screen.findByText('AHU-01');
+    // the page size has settled (its change legitimately resets the page)
+    await waitFor(() => expect(lastList(api).query.get('pageSize')).toBe('10'));
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText(/^Page/).textContent).toMatch(/Page 2 of 3/));
+    // past the 300 ms debounce window: still page 2, and the last request asked for it
+    await new Promise((r) => setTimeout(r, 450));
+    expect(screen.getByText(/^Page/).textContent).toMatch(/Page 2 of 3/);
+    expect(lastList(api).query.get('page')).toBe('2');
+  });
+
   it('Refresh re-requests the list', async () => {
     const api = mockApi(routes({ list: list([TRACE()]) }));
     renderPage(<DebugTracesPage />, { user: SA, api });
@@ -391,18 +424,17 @@ describe('Debug traces — operation-trace toggle (MANAGE_DEBUG_TRACES)', () => 
 });
 
 describe('Debug traces — accessibility + console', () => {
-  it('reports controls without an accessible name and logs nothing in normal use', async () => {
+  it('every control is named — each filter by its label — and nothing is logged in normal use', async () => {
     const api = mockApi(routes({ list: list([TRACE()]), stats: STATS }));
     renderPage(<DebugTracesPage />, { user: SA, api });
     await screen.findByText('AHU-01');
     await screen.findByText('Top Error Codes');
-    const unl = unlabeledControls();
-    // Finding: the Status / Transport <label>s are not associated with their
-    // <select>s (no htmlFor/id), so both selects have no accessible name, and
-    // the Error Code / Entity inputs are named only by their placeholders.
-    // Only the known findings may be unnamed; fixing them must not fail this test.
-    expect(unl.none.filter((d) => !d.startsWith('select'))).toEqual([]);
-    expect(unl.placeholderOnly.filter((d) => !/e\.g\. ENTITY_NOT_FOUND|Entity ID or name\.\.\./.test(d))).toEqual([]);
+    expect(screen.getByLabelText('Status')).toHaveDisplayValue('All Statuses');
+    expect(screen.getByLabelText('Transport')).toHaveDisplayValue('All Transports');
+    expect(screen.getByLabelText('Error Code')).toHaveAttribute('placeholder', 'e.g. ENTITY_NOT_FOUND');
+    expect(screen.getByLabelText('Entity')).toHaveAttribute('placeholder', 'Entity ID or name...');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

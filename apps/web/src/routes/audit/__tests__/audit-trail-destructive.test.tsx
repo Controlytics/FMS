@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach, beforeEach, vi, type MockInstance } fr
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
-import { DELETER, SA, REC, page, auditRoutes as routes, listCalls, myActionsLoaded, rowOf, ack, signWith } from './audit-page-fixtures';
+import { DELETER, SA, REC, page, auditRoutes as routes, listCalls, lastList, myActionsLoaded, rowOf, ack, signWith } from './audit-page-fixtures';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { AuditTrailPage } from '../index';
 
 // Full-page renders through the real SWR/auth/re-auth stack; under a loaded machine the
@@ -184,6 +185,68 @@ describe('SUPER_ADMIN — selection and redact (chain-preserving)', () => {
     await signWith('Pw@12345');
     await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(1));
     expect(api.calls('POST', '/api/audit/bulk-redact')[0].headers['x-reauth-password']).toBe('Pw@12345');
+  });
+});
+
+describe('Cancelling the password prompt is silent (D2, D-OPS-8 pattern)', () => {
+  // A dismissed prompt is not a failure: no "… Failed" dialog, nothing sent, and
+  // any busy button usable again.
+  const cancelPrompt = async () => {
+    await screen.findByText('Confirm Your Identity');
+    const cancels = screen.getAllByRole('button', { name: 'Cancel' });
+    fireEvent.click(cancels[cancels.length - 1]);
+    await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
+    await new Promise((r) => setTimeout(r, 30));
+  };
+
+  it('single redact', async () => {
+    const api = mockApi(routes({ reauth: ['REDACT_AUDIT_RECORD'] }));
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    prompt.mockReturnValue('Entered in error');
+    fireEvent.click(within(rowOf(A1)).getByTitle(/^Redact record/));
+    await cancelPrompt();
+    expect(screen.queryByText('Redaction Failed')).toBeNull();
+    expect(api.calls('POST', '/api/audit/a1/redact')).toHaveLength(0);
+  });
+
+  it('bulk redact', async () => {
+    const api = mockApi(routes({ reauth: ['BULK_REDACT_AUDIT_RECORDS'] }));
+    renderPage(<AuditTrailPage />, { user: SA, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    prompt.mockReturnValue('Duplicate test entries');
+    fireEvent.click(screen.getByRole('button', { name: 'Redact 1 Record' }));
+    await cancelPrompt();
+    expect(screen.queryByText('Bulk Redaction Failed')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Redact 1 Record' })).toBeEnabled();
+    expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(0);
+  });
+
+  it('single hard delete', async () => {
+    const api = mockApi(routes({ reauth: ['DELETE_AUDIT_RECORD'] }));
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    prompt.mockReturnValue('Test data from OQ run');
+    fireEvent.click(within(rowOf(A2)).getByTitle(/^Delete permanently/));
+    await cancelPrompt();
+    expect(screen.queryByText('Delete Failed')).toBeNull();
+    expect(api.calls('DELETE', '/api/audit/a2')).toHaveLength(0);
+  });
+
+  it('bulk hard delete', async () => {
+    const api = mockApi(routes({ reauth: ['BULK_DELETE_AUDIT_RECORDS'] }));
+    renderPage(<AuditTrailPage />, { user: DELETER, api });
+    await ready(api);
+    fireEvent.click(box(1));
+    fireEvent.click(screen.getByRole('button', { name: /Delete Permanently/ }));
+    prompt.mockReturnValue('Test data from OQ run');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
+    await cancelPrompt();
+    expect(screen.queryByText('Bulk Delete Failed')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Delete 1 Record' })).toBeEnabled();
+    expect(api.calls('POST', '/api/audit/bulk-delete')).toHaveLength(0);
   });
 });
 
@@ -383,22 +446,39 @@ describe('SUPER_ADMIN row edit (UPDATE_AUDIT_RECORD)', () => {
 });
 
 describe('Accessibility + console (SUPER_ADMIN view with a filter chip)', () => {
-  it('reports unnamed controls; normal use logs nothing', async () => {
+  it('every control is named — filters with all three chips, selection, the record dialog and the redact confirm — and nothing is logged', async () => {
     const api = mockApi(routes());
     renderPage(<AuditTrailPage />, { user: SA, api });
     await ready(api);
-    fireEvent.change(screen.getByPlaceholderText('Search by user, action, target...'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('From Date & Time'), { target: { value: '2026-10-01T08:00' } });
+    fireEvent.change(screen.getByLabelText('To Date & Time'), { target: { value: '2026-10-21T08:00' } });
     await screen.findByText('Search: x');
-    const unl = unlabeledControls();
-    // Findings: the select-all + 5 row checkboxes have no label; the two
-    // datetime inputs' <label>s are not associated (no htmlFor/id); the
-    // "Search: x" chip's remove (x) button is an unlabeled svg; the search box
-    // is named only by its placeholder.
-    // Only the known findings may be unnamed; fixing them must not fail this test.
-    const known = (d: string) => d.startsWith('input[type=checkbox]')
-      || d.startsWith('input[type=datetime-local]') || d.startsWith('button class="ml-1');
-    expect(unl.none.filter((d) => !known(d))).toEqual([]);
-    expect(unl.placeholderOnly.filter((d) => !d.includes('Search by user, action, target...'))).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Remove search filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove from-date filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove to-date filter' })).toBeInTheDocument();
+    // the search is debounced (300 ms) and a filter change clears the selection:
+    // select only once the filtered list has settled
+    await waitFor(() => {
+      const q = lastList(api).query;
+      expect(q.get('search')).toBe('x');
+      expect(q.get('startDate')).not.toBeNull();
+      expect(q.get('endDate')).not.toBeNull();
+    });
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(6));
+    expect(screen.getByRole('checkbox', { name: 'Select all audit records on this page' })).toBeInTheDocument();
+    fireEvent.click(box(1));
+    await screen.findByText('1 audit record selected');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    await screen.findByRole('button', { name: 'Redact 1 Record' });
+    expectAllControlsNamed();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getAllByTitle('View record details')[0]);
+    expectAllControlsNamed();
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

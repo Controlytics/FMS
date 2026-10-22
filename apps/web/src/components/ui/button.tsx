@@ -26,10 +26,14 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: keyof typeof sizes;
 }
 
+// `type` defaults to "button", not the HTML default "submit": a Button inside a
+// <form> without an explicit type used to submit it (My Profile's Cancel saved the
+// edits, P1 2026-10-22). A submit button says type="submit".
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'default', size = 'default', ...props }, ref) => (
+  ({ className, variant = 'default', size = 'default', type = 'button', ...props }, ref) => (
     <button
       ref={ref}
+      type={type}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium',
         // Focus ring comes from the global :focus-visible rule (theme colour).

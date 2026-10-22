@@ -1,4 +1,5 @@
 import { useAuth } from '@/hooks/use-auth';
+import { useCan } from '@/hooks/use-can';
 import { useBranding } from '@/hooks/use-branding';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -29,11 +30,22 @@ export function DashboardPage() {
   // SHIFTOFFICER and OPERATOR hold no AUDIT_READ, and ADMIN no CYCLE_READ.
   const canReadAudit = isSuperAdmin || (user?.permissions?.includes('AUDIT_READ') ?? false);
   const canReadCycles = isSuperAdmin || (user?.permissions?.includes('CYCLE_READ') ?? false);
+  // A card that opens a page shows only to roles that page admits: the same
+  // permission as its route in main.tsx, read through the permission tree's gates
+  // (D-1/D-2/D-3, 2026-10-22). "View Audit Trail" and the Notifications tile used
+  // to show to every role, and "Create User" / "System Configuration" on USER_READ,
+  // so a click could land on Access Denied.
+  const can = useCan();
+  const canOpenAudit = can('audit.view');      // /audit         AUDIT_READ
+  const canCreateUser = can('users.create');   // /users/create  USER_CREATE
+  const canOpenConfig = can('config.view');    // /config        CONFIG_READ
+  // /notifications admits any of NOTIFICATION_VIEW / _MANAGE / _DELETE
+  const canOpenNotifications = can('notifications.view') || can('notifications.manage') || can('notifications.delete');
 
   const swrOpts = { revalidateOnMount: true, revalidateOnFocus: true, dedupingInterval: 2000, refreshInterval: 30000 };
   const { data: userStats } = useSWR(isAdmin ? '/api/users/stats' : null, swrOpts);
   const { data: auditStats } = useSWR(canReadAudit ? '/api/audit?limit=1' : null, swrOpts);
-  const { data: notifStats } = useSWR('/api/notifications?limit=1', swrOpts);
+  const { data: notifStats } = useSWR(canOpenNotifications ? '/api/notifications?limit=1' : null, swrOpts);
   const { data: dashStats } = useSWR<any>(canReadCycles ? '/api/filters/dashboard-stats' : null, { ...swrOpts, refreshInterval: 20000 });
   const { data: cardConfig } = useSWR<any>('/api/config/dashboard-cards/current', { revalidateOnFocus: false, dedupingInterval: 10000 });
 
@@ -87,7 +99,7 @@ export function DashboardPage() {
           Overview" title over an empty grid. Each condition below is repeated
           here rather than inferred, so the section can never disagree with the
           cards it contains. */}
-      {(isAdmin && showCard('total_users')) || (canReadAudit && showCard('audit_trail')) || showCard('notifications') ? (
+      {(isAdmin && showCard('total_users')) || (canReadAudit && showCard('audit_trail')) || (canOpenNotifications && showCard('notifications')) ? (
       <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Overview</h2>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -111,7 +123,7 @@ export function DashboardPage() {
             />
           )}
 
-          {showCard('notifications') && (
+          {canOpenNotifications && showCard('notifications') && (
             <StatCard
               size="lg"
               label="Notifications"
@@ -128,10 +140,11 @@ export function DashboardPage() {
       {dashStats && showCard('filter_analytics') && <FilterAnalytics stats={dashStats} showCard={showCard} />}
 
       {/* Quick Actions */}
-      {showCard('quick_actions') && <div>
+      {/* Hidden when the role may open none of its pages: no bare heading over an empty grid. */}
+      {showCard('quick_actions') && (canCreateUser || canOpenAudit || canOpenConfig) && <div>
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {isAdmin && (
+          {canCreateUser && (
             <Link to="/users/create">
               <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
                 <CardContent className="p-5 flex items-center gap-4">
@@ -152,6 +165,7 @@ export function DashboardPage() {
             </Link>
           )}
 
+          {canOpenAudit && (
           <Link to="/audit">
             <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
               <CardContent className="p-5 flex items-center gap-4">
@@ -170,8 +184,9 @@ export function DashboardPage() {
               </CardContent>
             </Card>
           </Link>
+          )}
 
-          {isAdmin && (
+          {canOpenConfig && (
             <Link to="/config">
               <Card className="group cursor-pointer" style={{ borderColor: 'transparent' }}>
                 <CardContent className="p-5 flex items-center gap-4">
@@ -287,9 +302,14 @@ function MiniBreakdown({ title, items, color, emptyText = 'No data', onItemClick
 // Status / Type / Micron). Lazy-fetches the filter list only when opened.
 function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value: string; title: string }; onClose: () => void }) {
   const { formatDate } = useDatetimeFormat();
-  const { data, isLoading } = useSWR<any>('/api/assets/instances');
+  // The typed filters feed, not /api/assets/instances: that one returns EVERY active
+  // asset (blocks, areas, AHUs) with no kind field, so "Unset" and the status rows
+  // listed blocks and AHUs as filters (D-5, 2026-10-22). The breakdown counts come
+  // from filters only (filter-operations.service.ts dashboard stats).
+  const { data, isLoading } = useSWR<any>('/api/hierarchy/filters');
+  const { data: ahuData } = useSWR<any>('/api/hierarchy/ahus');
   const all = useMemo(() => (data?.data ?? []) as any[], [data]);
-  const nameById = useMemo(() => new Map(all.map((i: any) => [i.id, i.name])), [all]);
+  const nameById = useMemo(() => new Map(((ahuData?.data ?? []) as any[]).map((a) => [a.id, a.name])), [ahuData]);
   const matches = useMemo(() => all.filter((f: any) => {
     switch (drill.dimension) {
       case 'set': return drill.value === 'UNSET' ? !f.filterSet : f.filterSet === drill.value;
@@ -303,13 +323,13 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
   const setLabel = (s: string | null) => s === 'SET_A' ? 'Set A' : s === 'SET_B' ? 'Set B' : '—';
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-labelledby="dash-drill-title" className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
           <div>
-            <h2 className="text-lg font-bold text-white">{drill.title}</h2>
+            <h2 id="dash-drill-title" className="text-lg font-bold text-white">{drill.title}</h2>
             <p className="text-white/70 text-sm">{matches.length} filter{matches.length === 1 ? '' : 's'}</p>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+          <button type="button" aria-label="Close" onClick={onClose} className="text-white/80 hover:text-white"><svg aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
         <div className="overflow-auto flex-1">
           {isLoading ? (
@@ -325,7 +345,7 @@ function FilterDrillDown({ drill, onClose }: { drill: { dimension: string; value
                 {matches.map((f: any) => (
                   <tr key={f.id} className="[&>td]:px-4 [&>td]:py-2.5 [&>td]:whitespace-nowrap hover:bg-slate-50">
                     <td className="font-medium text-slate-700">{f.name}</td>
-                    <td className="text-slate-500">{nameById.get(f.parentId) ?? '—'}</td>
+                    <td className="text-slate-500">{nameById.get(f.ahuId) ?? '—'}</td>
                     <td className="text-slate-500">{setLabel(f.filterSet)}</td>
                     <td className="text-slate-500">{f.attributes?.filterType ?? '—'}</td>
                     <td className="text-slate-500">{f.attributes?.micronSize ?? '—'}</td>

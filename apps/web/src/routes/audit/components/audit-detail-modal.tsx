@@ -1,6 +1,6 @@
 import { Dialog, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/use-auth';
-import { diffAuditValues, maskAuditValue, prettyFieldName, isRedacted, redactionDetail } from '../audit-helpers';
+import { diffAuditValues, maskAuditValue, prettyFieldName, isRedacted, redactionDetail, isIdKey } from '../audit-helpers';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -13,7 +13,7 @@ function pruneUuids(obj: Record<string, unknown> | null | undefined): Array<[str
   if (!obj || typeof obj !== 'object') return [];
   return Object.entries(obj).filter(([key, value]) => {
     if (isUuidLike(value)) return false;
-    if (/(^|[^a-z])id$/i.test(key) && typeof value === 'string') return false;
+    if (isIdKey(key) && typeof value === 'string') return false;
     return true;
   });
 }

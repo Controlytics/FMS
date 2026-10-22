@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from './support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { UserListPage } from '../list';
 
 /**
@@ -344,6 +345,43 @@ describe('User list — single-user actions', () => {
     fireEvent.click(within(dlg as HTMLElement).getAllByRole('button', { name: 'Cancel' }).slice(-1)[0]);
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
     expect(api.calls('POST', '/api/users/u-2/enable')).toHaveLength(0);
+    // U-1: a dismissed prompt is not an error (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText('Action failed')).toBeNull();
+  });
+
+  const cancelPrompt = async () => {
+    await screen.findByText('Confirm Your Identity');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).slice(-1)[0]);
+    await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
+    await new Promise((r) => setTimeout(r, 30));
+  };
+
+  it('cancelling the BULK_DELETE_USERS prompt is silent and keeps the selection', async () => {
+    const api = mockApi(routes({ reauth: ['BULK_DELETE_USERS'] }));
+    renderPage(<UserListPage />, { user: SA, api });
+    await screen.findByText('Jane Doe');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(within(rowOf('Jane Doe')).getByRole('checkbox'));
+    fireEvent.click(await screen.findByRole('button', { name: /Delete Selected/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete 1 User' }));
+    await cancelPrompt();
+    expect(screen.queryByText('Bulk delete failed')).toBeNull();
+    expect(api.calls('POST', '/api/users/bulk-delete')).toHaveLength(0);
+    expect(screen.getByText('1 user selected')).toBeInTheDocument();
+  });
+
+  it('cancelling the UNLOCK_USER prompt is silent', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const api = mockApi(routes({ reauth: ['UNLOCK_USER'] }));
+    renderPage(<UserListPage />, { user: SA, api });
+    await screen.findByText('Lena Locke');
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(within(rowOf('Lena Locke')).getByRole('button', { name: 'Unlock' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Unlock Account' }));
+    await cancelPrompt();
+    expect(screen.queryByText('Unlock failed')).toBeNull();
+    expect(api.calls('POST', '/api/users/u-3/unlock')).toHaveLength(0);
   });
 });
 
@@ -508,37 +546,36 @@ describe('User list — unlock with a temporary password', () => {
 });
 
 describe('User list — accessibility + console', () => {
-  // Known unnamed controls, reported as findings (not asserted as correct):
-  // header/row checkboxes (user-table.tsx:80,:103), Role/Status selects whose
-  // <label>s have no htmlFor (user-filters.tsx:310,:331), svg-only filter-chip
-  // remove buttons (user-filters.tsx:375,:388,:401), and in the unlock dialog
-  // the svg-only show/hide button + the unassociated read-only password input
-  // (user-unlock-dialog.tsx:240,:246). Anything else unnamed fails the test.
-  const KNOWN = [
-    (d: string) => d.startsWith('input[type=checkbox]'),
-    // the two filter <Select>s (ui/select base classes); the Rows selector is label-wrapped and named
-    (d: string) => d.startsWith('select class="flex w-full rounded-lg'),
-    (d: string) => d.startsWith('button') && /hover:text-(blue|brand|emerald)-900/.test(d),
-    (d: string) => d.startsWith('button') && d.includes('absolute right-3 top-1/2'),
-    (d: string) => /^input\[type=(password|text)\]/.test(d) && d.includes('w-full px-4 py-3 bg-slate-50'),
-  ];
-
-  it('flags only the known unnamed controls and logs nothing in normal use', async () => {
+  it('every control is named — filters + chips, selection toolbar, bulk and unlock dialogs — and nothing is logged', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const api = mockApi(routes({ total: 35 }));
     renderPage(<UserListPage />, { user: SA, api });
     await screen.findByText('Jane Doe');
-    fireEvent.change(screen.getByPlaceholderText('Search by name, User ID, or email...'), { target: { value: 'x' } });
-    fireEvent.change(screen.getByDisplayValue('All Roles'), { target: { value: 'QA' } });
-    fireEvent.change(screen.getByDisplayValue('All Statuses'), { target: { value: 'LOCKED' } });
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'QA' } });
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'LOCKED' } });
     await screen.findByText('"x"');
+    expect(screen.getByRole('button', { name: 'Remove search filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove role filter' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove status filter' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select all users' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Jane Doe' }));
+    await screen.findByText('1 user selected');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete Selected/ }));
+    await screen.findByRole('button', { name: 'Delete 1 User' });
+    expectAllControlsNamed();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await screen.findByText('Lena Locke');
     fireEvent.click(within(rowOf('Lena Locke')).getByRole('button', { name: 'Unlock' }));
     await screen.findByText(/with a temporary password/);
-
-    const unl = unlabeledControls();
-    expect(unl.none.filter((d) => !KNOWN.some((k) => k(d)))).toEqual([]);
-    // the search box is named only by its placeholder (finding)
-    expect(unl.placeholderOnly.every((d) => d.includes('Search by name, User ID, or email...'))).toBe(true);
+    expect(screen.getByLabelText('Temporary Password')).toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: 'Show password' })).toBeInTheDocument();
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

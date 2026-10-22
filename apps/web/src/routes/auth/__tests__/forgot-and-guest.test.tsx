@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRequest, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { brandingRoute, holdRequests, LocationProbe } from './support';
 import { ForgotPasswordPage } from '../forgot-password';
 import { GuestRequestPage } from '../guest-request';
@@ -69,6 +70,7 @@ describe('Forgot password (signed out)', () => {
   it('the "Back to sign in" link above the heading points at /login; every control is named; nothing logged', async () => {
     const api = render(<ForgotPasswordPage />, '/forgot-password');
     expect(await screen.findByRole('link', { name: 'Back to sign in' })).toHaveAttribute('href', '/login');
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
@@ -156,6 +158,7 @@ describe('Guest cleaning request (signed out)', () => {
     const api = render(<GuestRequestPage />, '/guest-request');
     await screen.findByRole('button', { name: 'Send request' });
     expect(screen.getByRole('textbox', { name: /Employee ID/ })).toBeInTheDocument();
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);

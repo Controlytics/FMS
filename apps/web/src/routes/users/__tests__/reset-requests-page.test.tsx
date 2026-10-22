@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from './support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { ResetRequestsPage } from '../reset-requests';
 
 /** Password Reset Requests: real SWR -> apiClient -> fetch, real useReauth. */
@@ -127,7 +128,7 @@ describe('Reset requests — approve', () => {
     await waitFor(() => expect(screen.queryByText('Copied!')).toBeNull(), { timeout: 3000 });
   });
 
-  it('Approve POSTs action + the shown password, shows a dismissible success banner, and re-reads the list', async () => {
+  it('Approve needs remarks (decision rule); then POSTs action + the shown password + the remarks, shows a dismissible banner, and re-reads', async () => {
     const api = mockApi(routes({ extra: [{ method: 'POST', path: '/api/users/reset-requests/r1/process', body: { ok: true } }] }));
     renderPage(<ResetRequestsPage />, { user: SA, api });
     await screen.findByText('Asha Rao');
@@ -135,10 +136,17 @@ describe('Reset requests — approve', () => {
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: /Approve & Reset/ }));
     await screen.findByText('Approve Password Reset');
     const pw = tempPassword();
-    fireEvent.click(screen.getByRole('button', { name: /Approve & Reset Password/ }));
+    // Approval/decision flows require remarks (CLAUDE.md): blank or whitespace keeps it disabled
+    const approveBtn = screen.getByRole('button', { name: /Approve & Reset Password/ });
+    expect(approveBtn).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/^Remarks/), { target: { value: '   ' } });
+    expect(approveBtn).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/^Remarks/), { target: { value: '  Identity verified by phone ' } });
+    expect(approveBtn).toBeEnabled();
+    fireEvent.click(approveBtn);
 
     await waitFor(() => expect(api.calls('POST', '/api/users/reset-requests/r1/process')).toHaveLength(1));
-    expect(api.calls('POST', '/api/users/reset-requests/r1/process')[0].json).toEqual({ action: 'approve', newPassword: pw });
+    expect(api.calls('POST', '/api/users/reset-requests/r1/process')[0].json).toEqual({ action: 'approve', newPassword: pw, notes: 'Identity verified by phone' });
     const banner = await screen.findByText('Password reset approved for emp1001. Make sure to share the temporary password securely.');
     await waitFor(() => expect(screen.queryByText('Approve Password Reset')).toBeNull());
     await waitFor(() => expect(api.calls('GET', '/api/users/reset-requests').length).toBeGreaterThan(reads));
@@ -151,7 +159,8 @@ describe('Reset requests — approve', () => {
     renderPage(<ResetRequestsPage />, { user: SA, api });
     await screen.findByText('Asha Rao');
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: /Approve & Reset/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Approve & Reset Password/ }));
+    fireEvent.change(await screen.findByLabelText(/^Remarks/), { target: { value: 'ok' } });
+    fireEvent.click(screen.getByRole('button', { name: /Approve & Reset Password/ }));
     expect(await screen.findByText('Request already processed')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Approve & Reset Password/ })).toBeEnabled();
     expect(screen.queryByText(/Password reset approved/)).toBeNull();
@@ -165,6 +174,7 @@ describe('Reset requests — approve', () => {
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: /Approve & Reset/ }));
     await screen.findByText('Approve Password Reset');
     const pw = tempPassword();
+    fireEvent.change(screen.getByLabelText(/^Remarks/), { target: { value: 'Verified' } });
     fireEvent.click(screen.getByRole('button', { name: /Approve & Reset Password/ }));
     expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
     // the decision dialog shows it is waiting
@@ -173,7 +183,7 @@ describe('Reset requests — approve', () => {
     fireEvent.click(screen.getByRole('button', { name: /^(Confirm|Verify)/ }));
     await waitFor(() => expect(api.calls('POST', '/api/users/reset-requests/r1/process')).toHaveLength(1));
     const sent = api.calls('POST', '/api/users/reset-requests/r1/process')[0];
-    expect(sent.json).toEqual({ action: 'approve', newPassword: pw, _currentPassword: 'sig1' });
+    expect(sent.json).toEqual({ action: 'approve', newPassword: pw, notes: 'Verified', _currentPassword: 'sig1' });
     expect(sent.headers['x-reauth-password']).toBe('sig1');
     expect(await screen.findByText(/Password reset approved for emp1001/)).toBeInTheDocument();
   });
@@ -184,7 +194,8 @@ describe('Reset requests — approve', () => {
     await screen.findByText('Asha Rao');
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: /Approve & Reset/ }));
-    fireEvent.click(await screen.findByRole('button', { name: /Approve & Reset Password/ }));
+    fireEvent.change(await screen.findByLabelText(/^Remarks/), { target: { value: 'Verified' } });
+    fireEvent.click(screen.getByRole('button', { name: /Approve & Reset Password/ }));
     await screen.findByText('Confirm Your Identity');
     fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).slice(-1)[0]);
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
@@ -201,26 +212,30 @@ describe('Reset requests — reject', () => {
     await screen.findByText('Asha Rao');
     fireEvent.click(within(card('emp2002')).getByRole('button', { name: 'Reject' }));
     expect(await screen.findByText('Reject Password Reset Request')).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText('e.g., User should contact IT directly'), { target: { value: 'Contact IT' } });
+    fireEvent.change(screen.getByLabelText(/^Reason for rejection/), { target: { value: 'Contact IT' } });
     fireEvent.click(screen.getByRole('button', { name: /Reject Request/ }));
     await waitFor(() => expect(api.calls('POST', '/api/users/reset-requests/r2/process')).toHaveLength(1));
     expect(api.calls('POST', '/api/users/reset-requests/r2/process')[0].json).toEqual({ action: 'reject', notes: 'Contact IT' });
     expect(await screen.findByText('Password reset request rejected for emp2002.')).toBeInTheDocument();
   });
 
-  it('Reject without a reason omits notes (the field is optional); Cancel closes the dialog', async () => {
+  it('Reject needs a reason (decision rule): disabled while blank; Cancel closes the dialog sending nothing', async () => {
     const api = mockApi(routes({ extra: [{ method: 'POST', path: '/api/users/reset-requests/r1/process', body: { ok: true } }] }));
     renderPage(<ResetRequestsPage />, { user: SA, api });
     await screen.findByText('Asha Rao');
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: 'Reject' }));
     await screen.findByText('Reject Password Reset Request');
+    expect(screen.getByRole('button', { name: /Reject Request/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/^Reason for rejection/), { target: { value: '  ' } });
+    expect(screen.getByRole('button', { name: /Reject Request/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Reject Password Reset Request')).toBeNull());
+    expect(api.calls('POST', '/api/users/reset-requests/r1/process')).toHaveLength(0);
 
+    // reopening starts with an empty reason again
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: 'Reject' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Reject Request/ }));
-    await waitFor(() => expect(api.calls('POST', '/api/users/reset-requests/r1/process')).toHaveLength(1));
-    expect(api.calls('POST', '/api/users/reset-requests/r1/process')[0].json).toEqual({ action: 'reject' });
+    expect(await screen.findByLabelText(/^Reason for rejection/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: /Reject Request/ })).toBeDisabled();
   });
 
   it('a refused reject shows the error inside the reject dialog', async () => {
@@ -228,31 +243,36 @@ describe('Reset requests — reject', () => {
     renderPage(<ResetRequestsPage />, { user: SA, api });
     await screen.findByText('Asha Rao');
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: 'Reject' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Reject Request/ }));
+    fireEvent.change(await screen.findByLabelText(/^Reason for rejection/), { target: { value: 'Not verified' } });
+    fireEvent.click(screen.getByRole('button', { name: /Reject Request/ }));
     expect(await screen.findByText('Server exploded')).toBeInTheDocument();
     expect(screen.getByText('Reject Password Reset Request')).toBeInTheDocument();
   });
 });
 
 describe('Reset requests — accessibility + console', () => {
-  it('flags only the known unnamed controls and logs nothing', async () => {
+  it('every control is named — lists, reject dialog, success banner, approve dialog — and the page logs nothing', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const api = mockApi(routes({ extra: [{ method: 'POST', path: '/api/users/reset-requests/r2/process', body: { ok: true } }] }));
     renderPage(<ResetRequestsPage />, { user: SA, api });
     await screen.findByText('Asha Rao');
-    // produce the success banner (its dismiss button is svg-only)
+    expectAllControlsNamed();
+
     fireEvent.click(within(card('emp2002')).getByRole('button', { name: 'Reject' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Reject Request/ }));
+    fireEvent.change(await screen.findByLabelText(/^Reason for rejection/), { target: { value: 'Contact IT' } });
+    expectAllControlsNamed();
+    fireEvent.click(screen.getByRole('button', { name: /Reject Request/ }));
     await screen.findByText(/rejected for emp2002/);
+    // the success banner's dismiss button
+    expect(screen.getByRole('button', { name: 'Dismiss message' })).toBeInTheDocument();
+    expectAllControlsNamed();
+
     fireEvent.click(within(card('Asha Rao')).getByRole('button', { name: /Approve & Reset/ }));
     await screen.findByText('Approve Password Reset');
-    const unl = unlabeledControls();
-    // Findings: the success banner's dismiss "x" is svg-only (reset-requests.tsx:188),
-    // the approve dialog's read-only password input has no label association (:463).
-    const KNOWN = (d: string) => (d.startsWith('button') && d.includes('text-emerald-600 hover:bg-emerald-100'))
-      || d.startsWith('input[type=password]');
-    expect(unl.none.filter((d) => !KNOWN(d))).toEqual([]);
-    expect(unl.placeholderOnly).toEqual([]);
+    expectAllControlsNamed();
+    // the read-only temporary password field is tied to its label too
+    expect(screen.getByLabelText('Temporary Password')).toHaveAttribute('readonly');
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

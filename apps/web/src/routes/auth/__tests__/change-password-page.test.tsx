@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRequest, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { brandingRoute, holdRequests, LocationProbe } from './support';
 import { ChangePasswordPage } from '../change-password';
 
@@ -210,19 +211,19 @@ describe('Change password — submit', () => {
 });
 
 describe('Change password — show/hide', () => {
-  it('each of the three Show buttons reveals only its own field', async () => {
+  it('each of the three Show buttons names its field and reveals only that field', async () => {
     page();
     await waitFor(() => expect(field('currentPassword')).toBeInTheDocument());
-    const shows = screen.getAllByRole('button', { name: 'Show' });
-    expect(shows).toHaveLength(3);
-    fireEvent.click(shows[0]);
+    // every Show button still shows the visible word "Show" (its name contains it)
+    expect(screen.getAllByRole('button', { name: /^Show / })).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Show current password' }));
     expect(field('currentPassword')).toHaveAttribute('type', 'text');
     expect(field('newPassword')).toHaveAttribute('type', 'password');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Show new password' }));
     expect(field('newPassword')).toHaveAttribute('type', 'text');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Show' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Show new password confirmation' }));
     expect(field('confirmPassword')).toHaveAttribute('type', 'text');
-    const hides = screen.getAllByRole('button', { name: 'Hide' });
+    const hides = screen.getAllByRole('button', { name: /^Hide / });
     expect(hides).toHaveLength(3);
     hides.forEach((b) => fireEvent.click(b));
     expect(field('currentPassword')).toHaveAttribute('type', 'password');
@@ -232,15 +233,14 @@ describe('Change password — show/hide', () => {
 });
 
 describe('Change password — accessibility + console', () => {
-  it('apart from the three password inputs (finding: label not associated), every control is named; logs nothing', async () => {
+  it('every control is named — the three password inputs by their labels — and nothing is logged', async () => {
     const { api } = page();
     await waitFor(() => expect(field('currentPassword')).toBeInTheDocument());
-    const unl = unlabeledControls();
-    // Finding: change-password.tsx:122/139/190 render <label> with no htmlFor and the
-    // <Input> is not nested in it, so all three password inputs have no accessible name.
-    // Reported, not asserted as correct: every OTHER control must be named.
-    expect(unl.none.filter((d) => !/name=(currentPassword|newPassword|confirmPassword)/.test(d))).toEqual([]);
-    expect(unl.placeholderOnly).toEqual([]);
+    expect(screen.getByLabelText('Current Password')).toBe(field('currentPassword'));
+    expect(screen.getByLabelText('New Password')).toBe(field('newPassword'));
+    expect(screen.getByLabelText('Confirm New Password')).toBe(field('confirmPassword'));
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

@@ -49,10 +49,11 @@ export function UserUnlockDialog({
         </p>
 
         <div className="space-y-3">
-          <label className="block text-sm font-semibold text-slate-700">Temporary Password</label>
+          <label htmlFor="unlock-temp-password" className="block text-sm font-semibold text-slate-700">Temporary Password</label>
           <div className="flex items-center gap-2">
             <div className="flex-1 relative">
               <input
+                id="unlock-temp-password"
                 type={showUnlockPassword ? 'text' : 'password'}
                 value={unlockPassword}
                 readOnly
@@ -60,6 +61,7 @@ export function UserUnlockDialog({
               />
               <button
                 type="button"
+                aria-label={showUnlockPassword ? 'Hide password' : 'Show password'}
                 onClick={onToggleShowPassword}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               >

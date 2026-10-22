@@ -3,6 +3,8 @@ import { screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { Routes, Route } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from './support/page-findings';
+import { holdRequests } from '@/routes/auth/__tests__/support';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { EditUserPage } from '../edit';
 
 /**
@@ -191,6 +193,10 @@ describe('Edit User — save', () => {
     expect(api.calls('PUT', '/api/users/u-1')).toHaveLength(0);
     expect(screen.queryByText('users-list-page')).toBeNull();
     expect(screen.getByRole('heading', { name: 'Jane Doe' })).toBeInTheDocument();
+    // E-1: a dismissed prompt is not an error — no dialog, no banner (D-OPS-8 pattern)
+    expect(screen.queryByText('User update failed')).toBeNull();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
   });
 });
 
@@ -276,16 +282,40 @@ describe('Edit User — temporary password', () => {
     await waitFor(() => expect(screen.queryByText('Copied!')).toBeNull(), { timeout: 3000 });
   });
 
-  it('Confirm & Set Password POSTs the shown password and closes the dialog', async () => {
+  it('Confirm & Set Password shows "Setting Password..." while it runs, POSTs the shown password, closes and confirms (E-2)', async () => {
     const api = mockApi(routes({ extra: [{ method: 'POST', path: '/api/users/u-1/reset-password', body: { ok: true } }] }));
     await openDialog(api);
     const pw = tempPassword();
+    const hold = holdRequests(/\/api\/users\/u-1\/reset-password/);
     fireEvent.click(screen.getByRole('button', { name: /Confirm & Set Password/ }));
+    // E-2: the in-flight state is visible (the dialog used to close before it rendered)
+    expect(await screen.findByRole('button', { name: /Setting Password/ })).toBeDisabled();
+    hold.release();
     await waitFor(() => expect(api.calls('POST', '/api/users/u-1/reset-password')).toHaveLength(1));
     expect(api.calls('POST', '/api/users/u-1/reset-password')[0].json).toEqual({ newPassword: pw });
     await waitFor(() => expect(screen.queryByText(/A temporary password has been generated/)).toBeNull());
+    // E-2: a successful reset is acknowledged, like unlock on the Users list
+    expect(await screen.findByText('Password reset')).toBeInTheDocument();
+    expect(screen.getByText('User "jdoe" must sign in with the temporary password and change it.')).toBeInTheDocument();
     // the user is re-read so the activity panel reflects the change
     await waitFor(() => expect(api.calls('GET', '/api/users/u-1').length).toBeGreaterThan(1));
+  });
+
+  it('cancelling the RESET_PASSWORD prompt is silent and returns to the dialog (E-3)', async () => {
+    const api = mockApi(routes({ reauth: ['RESET_PASSWORD'] }));
+    await openDialog(api);
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    const pw = tempPassword();
+    fireEvent.click(screen.getByRole('button', { name: /Confirm & Set Password/ }));
+    await screen.findByPlaceholderText('Enter your password');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' }).slice(-1)[0]);
+    await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
+    expect(api.calls('POST', '/api/users/u-1/reset-password')).toHaveLength(0);
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    // still on the temporary-password dialog, same password, ready to confirm again
+    expect(screen.getByText(/A temporary password has been generated/)).toBeInTheDocument();
+    expect(tempPassword()).toBe(pw);
+    expect(screen.getByRole('button', { name: /Confirm & Set Password/ })).toBeEnabled();
   });
 
   it('a refused reset is reported in the page banner', async () => {
@@ -312,21 +342,23 @@ describe('Edit User — temporary password', () => {
 });
 
 describe('Edit User — accessibility + console', () => {
-  it('flags only the known unnamed controls and logs nothing', async () => {
+  it('every control is named by its label — form and temporary-password dialog — and the page logs nothing', async () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const api = mockApi(routes());
     open(api);
     await waitFor(() => expect(byValue('Jane Doe')).toBeInTheDocument());
+    expect(screen.getByLabelText(/^User ID/)).toHaveValue('jdoe');
+    expect(screen.getByLabelText(/^Full Name/)).toHaveValue('Jane Doe');
+    expect(screen.getByLabelText(/^Email/)).toHaveValue('jane@x.io');
+    expect(screen.getByLabelText(/^Department/)).toHaveValue('QC');
+    expect(screen.getByLabelText(/^Role/)).toHaveAttribute('name', 'role');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     fireEvent.click(screen.getByRole('button', { name: /Generate Temporary Password/ }));
     await screen.findByText(/A temporary password has been generated/);
-    const unl = unlabeledControls();
-    // Findings: none of this page's <label>s has htmlFor, so the User ID,
-    // Full Name, Email, Department inputs, the role <Select> and the dialog's
-    // read-only password input have no accessible name (edit.tsx:246,:259,
-    // :275,:297,:311,:470).
-    const KNOWN = (d: string) => d.startsWith('input') || d.startsWith('select');
-    expect(unl.none.filter((d) => !KNOWN(d))).toEqual([]);
-    expect(unl.placeholderOnly).toEqual([]);
+    expect(screen.getByLabelText('Temporary Password')).toHaveAttribute('readonly');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

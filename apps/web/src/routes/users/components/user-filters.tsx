@@ -47,7 +47,7 @@ export function UserFilters({
       </div>
       <div className="flex flex-wrap gap-4">
         <div className="flex-1 min-w-[280px]">
-          <label className="block text-xs font-semibold text-slate-500 mb-2">Search</label>
+          <label htmlFor="user-filter-search" className="block text-xs font-semibold text-slate-500 mb-2">Search</label>
           <div className="relative group">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 p-1 rounded-md bg-slate-100 group-focus-within:bg-brand-100 transition-colors">
               <svg className="w-4 h-4 text-slate-400 group-focus-within:text-brand-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,6 +55,7 @@ export function UserFilters({
               </svg>
             </div>
             <Input
+              id="user-filter-search"
               placeholder="Search by name, User ID, or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -64,7 +65,7 @@ export function UserFilters({
         </div>
         <div className="flex gap-4">
           <div className="min-w-[200px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-2">Role</label>
+            <label htmlFor="user-filter-role" className="block text-xs font-semibold text-slate-500 mb-2">Role</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -72,6 +73,7 @@ export function UserFilters({
                 </svg>
               </div>
               <Select
+                id="user-filter-role"
                 value={roleFilter}
                 onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
                 variant="filled"
@@ -85,7 +87,7 @@ export function UserFilters({
             </div>
           </div>
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-2">Status</label>
+            <label htmlFor="user-filter-status" className="block text-xs font-semibold text-slate-500 mb-2">Status</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-emerald-100 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,6 +95,7 @@ export function UserFilters({
                 </svg>
               </div>
               <Select
+                id="user-filter-status"
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
                 variant="filled"
@@ -136,7 +139,7 @@ export function UserFilters({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               "{search}"
-              <button onClick={() => { setSearch(''); setPage(1); }} className="hover:text-blue-900">
+              <button type="button" aria-label="Remove search filter" onClick={() => { setSearch(''); setPage(1); }} className="hover:text-blue-900">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -149,7 +152,7 @@ export function UserFilters({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
               {rolesData?.find(r => r.name === roleFilter)?.displayName || roleFilter.replace('_', ' ')}
-              <button onClick={() => { setRoleFilter(''); setPage(1); }} className="hover:text-brand-900">
+              <button type="button" aria-label="Remove role filter" onClick={() => { setRoleFilter(''); setPage(1); }} className="hover:text-brand-900">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -162,7 +165,7 @@ export function UserFilters({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {statusFilter}
-              <button onClick={() => { setStatusFilter(''); setPage(1); }} className="hover:text-emerald-900">
+              <button type="button" aria-label="Remove status filter" onClick={() => { setStatusFilter(''); setPage(1); }} className="hover:text-emerald-900">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>

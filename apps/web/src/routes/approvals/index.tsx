@@ -58,6 +58,8 @@ export function ApprovalsPage() {
         toast.error('Error', e.message || `Failed to ${action}`);
         setProcessingId(null);
       },
+      // A dismissed password prompt is not an error (AP-1, 2026-10-22).
+      onCancel: () => setProcessingId(null),
     });
   };
 
@@ -173,6 +175,7 @@ export function ApprovalsPage() {
                     {can('block_change.approve') && r.status === 'PENDING' && (
                       <div className="flex items-center gap-2 ml-4 shrink-0">
                         <Input
+                          aria-label={`Comment on the block change for ${r.filterName} (required)`}
                           className="w-48 h-8 text-xs [@media(pointer:coarse)]:h-10"
                           style={{ ['--tw-ring-color' as any]: 'var(--theme-focus-ring)' }}
                           onFocus={e => e.currentTarget.style.borderColor = 'var(--theme-primary-light)'}

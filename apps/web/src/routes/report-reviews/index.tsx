@@ -73,6 +73,8 @@ export function ReportReviewsPage() {
         setDlg(null); setBusy(false); refresh();
       },
       onError: (e: any) => { toast.error('Failed', e?.message ?? 'Action failed'); setBusy(false); },
+      // A dismissed password prompt is not a failure (RR-1, 2026-10-22): back to the dialog.
+      onCancel: () => setBusy(false),
     });
   };
 
@@ -159,16 +161,16 @@ export function ReportReviewsPage() {
       {/* Action dialog */}
       {dlg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !busy && setDlg(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby="rr-dialog-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 rounded-t-2xl text-white" style={{ background: 'linear-gradient(to right, var(--theme-gradient-from), var(--theme-gradient-to))' }}>
-              <h3 className="font-bold">{dlg.action === 'approve' ? (dlg.item.stage === 'REVIEW' ? 'Review report' : 'Approve report') : 'Reject report'}</h3>
+              <h3 id="rr-dialog-title" className="font-bold">{dlg.action === 'approve' ? (dlg.item.stage === 'REVIEW' ? 'Review report' : 'Approve report') : 'Reject report'}</h3>
               <p className="text-white/80 text-[12px] mt-0.5">{dlg.item.title}</p>
             </div>
             <div className="p-6 space-y-4">
               {dlg.item.stage === 'REVIEW' && dlg.action === 'approve' && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-500">Send to (approver role)</label>
-                  <Select value={approverRole} onChange={(e) => setApproverRole(e.target.value)}
+                  <label htmlFor="rr-approver-role" className="text-xs font-semibold text-slate-500">Send to (approver role)</label>
+                  <Select id="rr-approver-role" value={approverRole} onChange={(e) => setApproverRole(e.target.value)}
                     className="mt-1">
                     <option value="">Select a role…</option>
                     {roles.map((r) => <option key={r.name} value={r.name}>{r.displayName || r.name}</option>)}
@@ -176,8 +178,8 @@ export function ReportReviewsPage() {
                 </div>
               )}
               <div>
-                <label className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
-                <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
+                <label htmlFor="rr-remarks" className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <textarea id="rr-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 hover:border-slate-400 focus:outline-none focus:border-brand-600 focus:ring-3 focus:ring-brand-600/15"
                   placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
               </div>

@@ -91,6 +91,8 @@ export function CreateUserPage() {
         setError(message);
         toast.error('User creation failed', message);
       },
+      // A dismissed password prompt is not an error (C-1, 2026-10-22): stay on the form.
+      onCancel: () => {},
     });
   };
 
@@ -141,10 +143,11 @@ export function CreateUserPage() {
 
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
+                <label htmlFor="create-user-id" className="text-sm font-semibold text-slate-700">
                   {userLabels.userId} <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  id="create-user-id"
                   {...register('username')}
                   placeholder={`Enter ${userLabels.userId.toLowerCase()} (6-50 characters)`}
                   className="h-12"
@@ -159,10 +162,11 @@ export function CreateUserPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
+                <label htmlFor="create-full-name" className="text-sm font-semibold text-slate-700">
                   {userLabels.fullName} <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  id="create-full-name"
                   {...register('fullName')}
                   placeholder={`Enter ${userLabels.fullName.toLowerCase()}`}
                   className="h-12"
@@ -180,10 +184,11 @@ export function CreateUserPage() {
 
             <div className="grid grid-cols-2 gap-6 mt-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
+                <label htmlFor="create-email" className="text-sm font-semibold text-slate-700">
                   {userLabels.email} <span className="text-xs font-normal text-slate-400">(optional)</span>
                 </label>
                 <Input
+                  id="create-email"
                   {...register('email')}
                   type="email"
                   placeholder="user@example.com (optional)"
@@ -199,8 +204,9 @@ export function CreateUserPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">{userLabels.department}</label>
+                <label htmlFor="create-department" className="text-sm font-semibold text-slate-700">{userLabels.department}</label>
                 <Input
+                  id="create-department"
                   {...register('department')}
                   placeholder={`Enter ${userLabels.department.toLowerCase()} (optional)`}
                   className="h-12"
@@ -209,7 +215,7 @@ export function CreateUserPage() {
             </div>
 
             <div className="mt-6 space-y-2">
-              <label className="text-sm font-semibold text-slate-700">
+              <label htmlFor="create-role" className="text-sm font-semibold text-slate-700">
                 {userLabels.role} <span className="text-red-500">*</span>
               </label>
               <div className="relative group">
@@ -218,7 +224,7 @@ export function CreateUserPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
-                <Select {...register('role')} variant="filled" className="pl-12 h-12">
+                <Select id="create-role" {...register('role')} variant="filled" className="pl-12 h-12">
                   <option value="">Select a role</option>
                   {creatableRoles.map((r) => (
                     <option key={r.name} value={r.name}>{r.displayName}</option>
@@ -250,7 +256,7 @@ export function CreateUserPage() {
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-slate-700">Auto-Generated Password</label>
+                <label htmlFor="create-temp-password" className="text-sm font-semibold text-slate-700">Auto-Generated Password</label>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={regeneratePassword} className="gap-1.5">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -279,6 +285,7 @@ export function CreateUserPage() {
               </div>
               <div className="relative">
                 <Input
+                  id="create-temp-password"
                   value={generatedPassword}
                   readOnly
                   type={showPassword ? 'text' : 'password'}

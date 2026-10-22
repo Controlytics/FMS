@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRequest, type MockRoute, type MockApi } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { findDialog } from '@/routes/auth/__tests__/support';
 import { NotificationsPage } from '../index';
 
@@ -344,6 +345,20 @@ describe('Notifications — bulk delete', () => {
     await waitFor(() => expect(screen.queryByText('Delete Notifications')).toBeNull());
   });
 
+  it('cancelling the BULK_DELETE_NOTIFICATIONS prompt deletes nothing, is silent and keeps the confirm dialog', async () => {
+    const api = page({ reauth: ['BULK_DELETE_NOTIFICATIONS'] });
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    const dlg = await selectTwoAndOpen();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Delete 2 Notifications' }));
+    const pw = await findDialog('Confirm Your Identity');
+    fireEvent.click(within(pw).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(api.calls('POST', '/api/notifications/bulk-delete')).toHaveLength(0);
+    expect(screen.queryByText('Failed to delete notifications')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Delete 2 Notifications' })).toBeEnabled();
+  });
+
   it('a refused bulk delete toasts and keeps the dialog open', async () => {
     page({ routes: [{ method: 'POST', path: '/api/notifications/bulk-delete', status: 403, body: { error: 'FORBIDDEN', message: 'Not allowed' } }] });
     const dlg = await selectTwoAndOpen();
@@ -388,10 +403,7 @@ describe('Notifications — single delete', () => {
     expect(sent.json).toEqual({ _currentPassword: 'Pw#1' });
   });
 
-  // Not asserted: with no onCancel the page currently raises a "Failed to delete
-  // notification" error for the cancel (reported defect class); a test must not
-  // fail when that is fixed.
-  it('cancelling the prompt deletes nothing', async () => {
+  it('cancelling the prompt deletes nothing and is silent', async () => {
     const api = page({ reauth: ['DELETE_NOTIFICATION'] });
     await screen.findByText('PM overdue');
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
@@ -401,6 +413,9 @@ describe('Notifications — single delete', () => {
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
     expect(api.calls('DELETE', '/api/notifications/n3')).toHaveLength(0);
     expect(screen.getByText('PM overdue')).toBeInTheDocument();
+    // a dismissed prompt is not a failure (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText('Failed to delete notification')).toBeNull();
   });
 
   it('REAUTH_REQUIRED from the server opens the prompt even when the feed said no', async () => {
@@ -655,22 +670,18 @@ describe('Notifications — SUPER_ADMIN record edit', () => {
 });
 
 describe('Notifications — accessibility + console', () => {
-  it('reports unnamed controls; logs nothing in normal use', async () => {
+  it('every control is named — filters, the custom range, row checkboxes and delete buttons — and nothing is logged', async () => {
     const api = page({ routes: [{ method: 'PUT', path: '/api/notifications/n1/read', body: { ok: true } }] });
     await screen.findByText('Account locked');
-    fireEvent.click(rowBox('Account locked'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select notification: Account locked' }));
     await screen.findByText('1 selected');
-    const unl = unlabeledControls();
-    // Findings (reported, not asserted as correct) — index.tsx:
-    //  - 642 per-row selection checkbox: no label / aria-label
-    //  - 707 per-row delete button: svg-only, no aria-label / title
-    //  - 507 / 555 Time Period + Status <Select>: the <label>s at 500 / 547 have no htmlFor
-    // Everything else on the page must be named.
-    const known = (d: string) => d.startsWith('input[type=checkbox] class="w-4 h-4 rounded border-slate-300"')
-      || d.startsWith('button class="inline-flex items-center justify-center')
-      || d.startsWith('select ');
-    expect(unl.none.filter((d) => !known(d))).toEqual([]);
-    expect(unl.placeholderOnly).toEqual([]);
+    expect(screen.getByRole('button', { name: 'Delete notification: Account locked' })).toBe(rowDelete('Account locked'));
+    expect(screen.getByLabelText('Time Period')).toBe(periodSelect());
+    expect(screen.getByLabelText('Status')).toBe(statusSelect());
+    fireEvent.change(periodSelect(), { target: { value: 'custom' } });
+    expect(await screen.findByRole('group', { name: 'From / To' })).toBeInTheDocument();
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     fireEvent.click(within(row('Account locked')).getByRole('button', { name: 'Mark Read' }));
     await waitFor(() => expect(api.calls('PUT', '/api/notifications/n1/read')).toHaveLength(1));
     expect(con.errors).toEqual([]);

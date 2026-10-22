@@ -75,7 +75,7 @@ export function AuditFilters({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Search Filter */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <label htmlFor="audit-filter-search" className="flex items-center gap-2 text-xs font-semibold text-slate-600">
               <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
@@ -87,6 +87,7 @@ export function AuditFilters({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 <Input
+                  id="audit-filter-search"
                   placeholder="Search by user, action, target..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -98,7 +99,7 @@ export function AuditFilters({
 
           {/* From Date & Time - Combined */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <label htmlFor="audit-filter-from" className="flex items-center gap-2 text-xs font-semibold text-slate-600">
               <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -113,6 +114,7 @@ export function AuditFilters({
                     </svg>
                   </div>
                   <input
+                    id="audit-filter-from"
                     type="datetime-local"
                     value={fromDateTime}
                     max={toDateTime || undefined}
@@ -141,7 +143,7 @@ export function AuditFilters({
 
           {/* To Date & Time - Combined */}
           <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <label htmlFor="audit-filter-to" className="flex items-center gap-2 text-xs font-semibold text-slate-600">
               <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -156,6 +158,7 @@ export function AuditFilters({
                     </svg>
                   </div>
                   <input
+                    id="audit-filter-to"
                     type="datetime-local"
                     value={toDateTime}
                     min={fromDateTime || undefined}
@@ -204,6 +207,8 @@ export function AuditFilters({
                   </svg>
                   Search: {search}
                   <button
+                    type="button"
+                    aria-label="Remove search filter"
                     onClick={() => setSearch('')}
                     className="ml-1 hover:text-brand-900 transition-colors"
                   >
@@ -220,6 +225,8 @@ export function AuditFilters({
                   </svg>
                   From: {formatDateTimeDisplay(fromDateTime)}
                   <button
+                    type="button"
+                    aria-label="Remove from-date filter"
                     onClick={() => setFromDateTime('')}
                     className="ml-1 hover:text-emerald-900 transition-colors"
                   >
@@ -236,6 +243,8 @@ export function AuditFilters({
                   </svg>
                   To: {formatDateTimeDisplay(toDateTime)}
                   <button
+                    type="button"
+                    aria-label="Remove to-date filter"
                     onClick={() => setToDateTime('')}
                     className="ml-1 hover:text-rose-900 transition-colors"
                   >

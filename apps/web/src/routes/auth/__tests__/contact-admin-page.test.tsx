@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRequest, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { brandingRoute, holdRequests } from './support';
 import { ContactAdminPage } from '../contact-admin';
 
@@ -329,14 +330,17 @@ describe('Contact admin — submit failures', () => {
 describe('Contact admin — accessibility + console', () => {
   it('every control in each request form is named; nothing logged', async () => {
     const api = page([lookup({ exists: true, username: 'asha01', fullName: 'Asha Rao', role: 'OPERATOR' })]);
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     setType('CREATE_USER');
     await within(screen.getByLabelText(/^Role/)).findByRole('option', { name: 'Operator' });
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     setType('MODIFY_USER');
     fireEvent.change(target(), { target: { value: 'asha01' } });
     find();
     await screen.findByRole('combobox', { name: 'New role' });
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);

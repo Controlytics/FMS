@@ -641,11 +641,14 @@ function SnapshotModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="vh-snapshot-title"
         className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-800">Frozen snapshot · v{version}</h3>
+          <h3 id="vh-snapshot-title" className="font-semibold text-slate-800">Frozen snapshot · v{version}</h3>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowRaw(s => !s)}
@@ -653,7 +656,7 @@ function SnapshotModal({
             >
               {showRaw ? 'Hide raw JSON' : 'Show raw JSON'}
             </button>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+            <button type="button" aria-label="Close snapshot" onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl leading-none"><span aria-hidden="true">×</span></button>
           </div>
         </div>
         <div className="px-6 py-4 overflow-y-auto flex-1 space-y-4">

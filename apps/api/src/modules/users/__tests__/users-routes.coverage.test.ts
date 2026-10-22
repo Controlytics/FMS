@@ -382,20 +382,20 @@ describe('users routes', () => {
     });
 
     it('validates before approving: unknown id 404, missing / weak password 400, ghost user 404', async () => {
-      expect((await authPost(app, '/api/users/reset-requests/00000000-0000-4000-8000-0000000000d1/process', saTok, { action: 'reject' })).statusCode).toBe(404);
-      const noPw = await authPost(app, `/api/users/reset-requests/${reqA}/process`, saTok, { action: 'approve' });
+      expect((await authPost(app, '/api/users/reset-requests/00000000-0000-4000-8000-0000000000d1/process', saTok, { action: 'reject', notes: 'unknown id' })).statusCode).toBe(404);
+      const noPw = await authPost(app, `/api/users/reset-requests/${reqA}/process`, saTok, { action: 'approve', notes: 'no password' });
       expect(noPw.statusCode).toBe(400);
       expect(noPw.json().message).toBe('New password is required');
-      const weak = await authPost(app, `/api/users/reset-requests/${reqA}/process`, saTok, { action: 'approve', newPassword: 'weakweak' });
+      const weak = await authPost(app, `/api/users/reset-requests/${reqA}/process`, saTok, { action: 'approve', newPassword: 'weakweak', notes: 'weak' });
       expect(weak.statusCode).toBe(400);
-      const ghost = await authPost(app, `/api/users/reset-requests/${reqGhost}/process`, saTok, { action: 'reject' });
+      const ghost = await authPost(app, `/api/users/reset-requests/${reqGhost}/process`, saTok, { action: 'reject', notes: 'ghost' });
       expect(ghost.statusCode).toBe(404);
       expect(ghost.json().message).toBe('User not found');
       expect((await prisma.passwordResetRequest.findUnique({ where: { id: reqA } }))?.status).toBe('PENDING');
     });
 
     it('a manager may not process a request for a user above it', async () => {
-      const res = await authPost(app, `/api/users/reset-requests/${reqHigh}/process`, mgrTok, { action: 'reject' });
+      const res = await authPost(app, `/api/users/reset-requests/${reqHigh}/process`, mgrTok, { action: 'reject', notes: 'above me' });
       expect(res.statusCode).toBe(403);
       expect((await prisma.passwordResetRequest.findUnique({ where: { id: reqHigh } }))?.status).toBe('PENDING');
     });
@@ -411,7 +411,7 @@ describe('users routes', () => {
       expect(await auditFor('PASSWORD_RESET_REQUEST_APPROVED', ids.LOW1)).toMatchObject({ afterValue: { requestId: reqA, username: LOW1 } });
       expect(await prisma.notification.count({ where: { type: 'PASSWORD_RESET_APPROVED', targetUserId: LOW1 } })).toBe(2);
 
-      const again = await authPost(app, `/api/users/reset-requests/${reqA}/process`, mgrTok, { action: 'reject' });
+      const again = await authPost(app, `/api/users/reset-requests/${reqA}/process`, mgrTok, { action: 'reject', notes: 'again' });
       expect(again.statusCode).toBe(400);
       expect(again.json().message).toBe('Reset request has already been processed');
     });
@@ -437,7 +437,7 @@ describe('users routes', () => {
         ['DISABLE_USER', () => authPost(app, `/api/users/${ids.LOW3}/disable`, rauTok)],
         ['UNLOCK_USER', () => authPost(app, `/api/users/${ids.LOW3}/unlock`, rauTok, { newPassword: NEW_PW })],
         ['RESET_PASSWORD', () => authPost(app, `/api/users/${ids.LOW3}/reset-password`, rauTok, { newPassword: NEW_PW })],
-        ['PROCESS_RESET_REQUEST', () => authPost(app, `/api/users/reset-requests/${resetRequestIds[2]}/process`, rauTok, { action: 'reject' })],
+        ['PROCESS_RESET_REQUEST', () => authPost(app, `/api/users/reset-requests/${resetRequestIds[2]}/process`, rauTok, { action: 'reject', notes: 'signed' })],
       ];
       for (const [action, call] of calls) {
         const res = await call();

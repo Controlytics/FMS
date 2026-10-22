@@ -44,7 +44,6 @@ export function UserListPage() {
   const [actionDialog, setActionDialog] = useState<{ type: string; userId: string; username: string; fullName?: string } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [unlockDialog, setUnlockDialog] = useState<{ userId: string; username: string } | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [showUnlockPassword, setShowUnlockPassword] = useState(false);
@@ -126,6 +125,9 @@ export function UserListPage() {
       onError: (err: any) => {
         toast.error('Action failed', err?.message || `Failed to ${type} user "${username}".`);
       },
+      // A dismissed password prompt is not an error (U-1, 2026-10-22). Without
+      // onCancel, useReauth routes the cancel into onError above.
+      onCancel: () => {},
     });
   };
 
@@ -186,6 +188,7 @@ export function UserListPage() {
       onError: (err: any) => {
         toast.error('Bulk delete failed', err?.message || 'Failed to delete selected users.');
       },
+      onCancel: () => {},
     });
   };
 
@@ -224,6 +227,7 @@ export function UserListPage() {
       onError: (err: any) => {
         toast.error('Unlock failed', err?.message || `Failed to unlock user "${username}".`);
       },
+      onCancel: () => {},
     });
   }, [unlockDialog, unlockPassword, reauth, mutate, mutateStats, toast]);
 
@@ -392,7 +396,6 @@ export function UserListPage() {
         open={bulkDeleteDialog}
         selectedIds={selectedIds}
         displayedUsers={displayedUsers}
-        bulkDeleting={bulkDeleting}
         onClose={() => setBulkDeleteDialog(false)}
         onConfirm={handleBulkDelete}
       />

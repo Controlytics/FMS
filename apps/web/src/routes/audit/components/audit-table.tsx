@@ -107,6 +107,7 @@ export function AuditTable({
                     <TableHead className="w-10">
                       <input
                         type="checkbox"
+                        aria-label="Select all audit records on this page"
                         checked={isAllSelected}
                         onChange={toggleSelectAll}
                         className="w-4 h-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15"
@@ -154,6 +155,7 @@ export function AuditTable({
                       <TableCell className="w-10">
                         <input
                           type="checkbox"
+                          aria-label={`Select audit record: ${formatActionLabel(record.action, record.afterValue, record.beforeValue)}, ${formatDate(record.timestamp)} ${formatTime(record.timestamp)}`}
                           checked={selectedIds.has(record.id)}
                           onChange={() => toggleSelect(record.id)}
                           className="w-4 h-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600/15 cursor-pointer"

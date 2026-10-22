@@ -57,23 +57,27 @@ export function DebugTracesPage() {
   const entityDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const errorCodeDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Debounce entity search
+  // Debounce entity search. Only when the typed value differs from the applied one:
+  // on mount (and after typing back to the applied value) there is nothing to apply,
+  // and the timer's page reset undid a page change made in its 300 ms (D1, 2026-10-22).
   useEffect(() => {
+    if (entitySearch === debouncedEntitySearch) return;
     entityDebounceRef.current = setTimeout(() => {
       setDebouncedEntitySearch(entitySearch);
       setPage(1);
     }, 300);
     return () => clearTimeout(entityDebounceRef.current);
-  }, [entitySearch]);
+  }, [entitySearch, debouncedEntitySearch]);
 
-  // Debounce error code
+  // Debounce error code (same rule as the entity search)
   useEffect(() => {
+    if (errorCodeFilter === debouncedErrorCode) return;
     errorCodeDebounceRef.current = setTimeout(() => {
       setDebouncedErrorCode(errorCodeFilter);
       setPage(1);
     }, 300);
     return () => clearTimeout(errorCodeDebounceRef.current);
-  }, [errorCodeFilter]);
+  }, [errorCodeFilter, debouncedErrorCode]);
 
   // Reset page when non-debounced filters change
   useEffect(() => {
@@ -172,20 +176,9 @@ export function DebugTracesPage() {
     setPage(1);
   };
 
-  // ---------------------------------------------------------------------------
-  // Toggle per-entity tracing
-  // ---------------------------------------------------------------------------
-
-  const handleToggleEntityTracing = async (entityId: string) => {
-    try {
-      await apiClient.put(`/api/debug/traces/entity/${entityId}/toggle`, {});
-      toast.success('Tracing Toggled', `Tracing updated for entity ${entityId}.`);
-      mutate();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to toggle entity tracing.';
-      toast.error('Toggle Failed', msg);
-    }
-  };
+  // (A per-entity tracing toggle handler was never wired to any control; it was
+  // removed 2026-10-22. Its endpoint, PUT /api/debug/traces/entity/:id/toggle,
+  // is a documented no-op since traces are read from the audit trail.)
 
   // ---------------------------------------------------------------------------
   // Render
@@ -250,8 +243,9 @@ export function DebugTracesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Status */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
+            <label htmlFor="trace-filter-status" className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
             <Select
+              id="trace-filter-status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               variant="filled"
@@ -267,8 +261,9 @@ export function DebugTracesPage() {
 
           {/* Transport */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Transport</label>
+            <label htmlFor="trace-filter-transport" className="text-xs font-semibold text-slate-500 mb-2 block">Transport</label>
             <Select
+              id="trace-filter-transport"
               value={transportFilter}
               onChange={(e) => setTransportFilter(e.target.value)}
               variant="filled"
@@ -284,8 +279,9 @@ export function DebugTracesPage() {
 
           {/* Error Code */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Error Code</label>
+            <label htmlFor="trace-filter-error-code" className="text-xs font-semibold text-slate-500 mb-2 block">Error Code</label>
             <Input
+              id="trace-filter-error-code"
               type="text"
               placeholder="e.g. ENTITY_NOT_FOUND"
               value={errorCodeFilter}
@@ -296,8 +292,9 @@ export function DebugTracesPage() {
 
           {/* Entity Search */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Entity</label>
+            <label htmlFor="trace-filter-entity" className="text-xs font-semibold text-slate-500 mb-2 block">Entity</label>
             <Input
+              id="trace-filter-entity"
               type="text"
               placeholder="Entity ID or name..."
               value={entitySearch}
@@ -410,16 +407,26 @@ export function DebugTracesPage() {
                           : 'hover:bg-slate-50'
                       }`}
                     >
-                      {/* Expand chevron */}
+                      {/* Expand chevron — a real button, so a keyboard user can open a
+                          trace too (the row click below is a mouse convenience only). */}
                       <td className="px-4 py-2.5 text-slate-700">
-                        <svg
-                          className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} trace ${trace.entityName ?? trace.entityId ?? trace.id}`}
+                          onClick={(e) => { e.stopPropagation(); handleRowClick(trace); }}
+                          className="p-0.5 rounded"
                         >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                          <svg
+                            aria-hidden="true"
+                            className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
                       </td>
 
                       {/* Time */}

@@ -9,6 +9,7 @@ import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, t
 const renderSnapshotToPdf = vi.fn(async (..._args: unknown[]) => {});
 vi.mock('@/lib/pdf-report', () => ({ renderSnapshotToPdf: (...a: unknown[]) => renderSnapshotToPdf(...a) }));
 
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { ReportReviewsPage } from '../index';
 
 /**
@@ -217,6 +218,9 @@ describe('Report Reviews — queue', () => {
     // the decision dialog is still open and usable again
     expect(screen.getByText('Reject report')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Reject' }).at(-1)).toBeEnabled();
+    // RR-1: a dismissed prompt is not a failure (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText('Failed')).toBeNull();
   });
 
   it('REAUTH_REQUIRED from the server opens the prompt even when my-actions said no', async () => {
@@ -328,17 +332,18 @@ describe('Report Reviews — All Reports', () => {
 });
 
 describe('Report Reviews — accessibility + console', () => {
-  it('scans the queue and the decision dialog for unnamed controls; the page logs nothing', async () => {
+  it('every control is named — the queue and the decision dialog, itself a named modal dialog — and the page logs nothing', async () => {
     const api = mockApi(routes([ROW()], []));
     renderPage(<ReportReviewsPage />, { user: REVIEWER, api });
-    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
-    const unl = unlabeledControls();
-    // Findings (reported): the "Send to (approver role)" <label> is not
-    // associated with its <select> (no htmlFor/id), so the select has no name;
-    // the remarks <textarea> is named only by its placeholder.
-    // Only the known findings may be unnamed; fixing them must not fail this test.
-    expect(unl.none.filter((d) => !d.startsWith('select'))).toEqual([]);
-    expect(unl.placeholderOnly.filter((d) => !d.includes('Optional remarks'))).toEqual([]);
+    await screen.findByRole('button', { name: 'Review' });
+    expectAllControlsNamed();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Review report' });
+    expect(dlg).toHaveAttribute('aria-modal', 'true');
+    expect(within(dlg).getByLabelText('Send to (approver role)')).toHaveDisplayValue('Select a role…');
+    expect(within(dlg).getByLabelText(/^Remarks/)).toHaveAttribute('placeholder', 'Optional remarks');
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

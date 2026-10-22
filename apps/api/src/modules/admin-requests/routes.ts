@@ -248,6 +248,16 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // Approval/decision flows require remarks (CLAUDE.md): approve and reject both
+    // say why (2026-10-22; only the web page asked before). After the per-action
+    // permission gate (preHandler), BEFORE the re-auth gate, so no signature is
+    // spent on a decision that will be refused.
+    const { action, adminRemarks } = req.body as { action: 'approve' | 'reject'; adminRemarks?: string };
+    const remarks = typeof adminRemarks === 'string' ? adminRemarks.trim() : '';
+    if (!remarks) {
+      return reply.code(400).send({ error: 'VALIDATION', message: 'Remarks are required to approve or reject an admin request.' });
+    }
+
     // M1 (audit 2026-05-04): use APPROVE_ADMIN_REQUEST instead of CREATE_USER.
     // The admin-request approve/reject flow covers password-reset / unlock /
     // modify-user as well, none of which are user-creation. The dedicated
@@ -256,10 +266,9 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     if (!ok) return;
 
     const { id } = req.params as { id: string };
-    const { action, adminRemarks } = req.body as { action: 'approve' | 'reject'; adminRemarks?: string };
     const ctx = buildContext(req);
 
-    const result = await adminRequestService.process(id, action, adminRemarks ?? '', ctx);
+    const result = await adminRequestService.process(id, action, remarks, ctx);
     const { username, temporaryPassword, message, ...rest } = result as any;
     return {
       success: true, data: rest,

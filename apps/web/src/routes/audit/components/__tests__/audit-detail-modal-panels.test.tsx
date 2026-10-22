@@ -128,6 +128,29 @@ describe('AuditDetailModal — full record + record details are SUPER_ADMIN only
     expect(screen.queryByText('Record details')).toBeNull();
   });
 
+  it('D4: the full record hides id keys (id, *_id, camelCase *Id) and uuid values, and keeps other keys', async () => {
+    const api = show({
+      ...BASE,
+      beforeValue: {
+        id: 'row-7', ownerId: 'plain-text-id', user_id: 'snake-id', ref: UUID_OLD,
+        paid: 'yes-paid', status: 'ENABLED', idleMinutes: 15,
+      },
+      afterValue: { status: 'ENABLED' },
+    }, 'SUPER_ADMIN');
+    await settled(api);
+    const full = (await screen.findByText('Full record (previous / new)')).closest('details') as HTMLDetailsElement;
+    // id keys with string values are hidden, whatever their casing style
+    expect(within(full).queryByText('row-7')).toBeNull();
+    expect(within(full).queryByText('plain-text-id')).toBeNull();
+    expect(within(full).queryByText('snake-id')).toBeNull();
+    // a uuid value is hidden under any key
+    expect(within(full).queryByText(UUID_OLD)).toBeNull();
+    // keys that merely END in "id" letters, or start with "id", are not id keys
+    expect(within(full).getByText('yes-paid')).toBeInTheDocument();
+    expect(within(full).getByText('15')).toBeInTheDocument();
+    expect(within(full).getAllByText('ENABLED').length).toBeGreaterThan(0);
+  });
+
   it('SUPER_ADMIN: no changes -> pointed at the full record, opened by default, with ids pruned', async () => {
     const api = show(NO_CHANGE, 'SUPER_ADMIN');
     await settled(api);

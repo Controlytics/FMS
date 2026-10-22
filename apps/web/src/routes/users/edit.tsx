@@ -97,6 +97,8 @@ export function EditUserPage() {
         setError(message);
         toast.error('User update failed', message);
       },
+      // A dismissed password prompt is not an error (E-1): stay on the form, say nothing.
+      onCancel: () => {},
     });
   };
 
@@ -132,18 +134,31 @@ export function EditUserPage() {
     }
   };
 
-  const handleGenerateTempPassword = async () => {
+  // The dialog stays open while the password is being set, so its "Setting
+  // Password..." state is seen; success closes it with an acknowledgement, a
+  // failure closes it onto the page banner, and a dismissed password prompt comes
+  // back to it silently (E-2/E-3, 2026-10-22). It used to close before the
+  // request, and a success said nothing at all.
+  const handleGenerateTempPassword = () => {
     setIsGenerating(true);
-    setTempPasswordDialog(false);
-    await reauth.execute('RESET_PASSWORD', async (password?) => {
+    reauth.execute('RESET_PASSWORD', async (password?) => {
       if (password) await apiClient.postWithReauth(`/api/users/${id}/reset-password`, { newPassword: generatedPassword }, password);
       else await apiClient.post(`/api/users/${id}/reset-password`, { newPassword: generatedPassword });
-      setGeneratedPassword('');
-      mutate();
     }, {
-      onError: (err: any) => setError(err.message || 'Failed to generate temporary password'),
+      onSuccess: () => {
+        setTempPasswordDialog(false);
+        setGeneratedPassword('');
+        setIsGenerating(false);
+        mutate();
+        toast.success('Password reset', `User "${userData?.username}" must sign in with the temporary password and change it.`);
+      },
+      onError: (err: any) => {
+        setTempPasswordDialog(false);
+        setIsGenerating(false);
+        setError(err.message || 'Failed to generate temporary password');
+      },
+      onCancel: () => setIsGenerating(false),
     });
-    setIsGenerating(false);
   };
 
   // M66: a failed fetch (deleted user, 403, server down) used to leave the
@@ -242,8 +257,9 @@ export function EditUserPage() {
             </div>
 
             <div className="space-y-2 mb-6">
-              <label className="text-sm font-semibold text-slate-500">{userLabels.userId} (read-only)</label>
+              <label htmlFor="edit-user-id" className="text-sm font-semibold text-slate-500">{userLabels.userId} (read-only)</label>
               <Input
+                id="edit-user-id"
                 value={userData.username}
                 disabled
                 className="h-12 bg-slate-50 font-mono"
@@ -252,11 +268,12 @@ export function EditUserPage() {
 
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
+                <label htmlFor="edit-full-name" className="text-sm font-semibold text-slate-700">
                   {userLabels.fullName}
                   {isAdmin && <span className="ml-2 text-xs text-slate-400 font-normal">(User can edit)</span>}
                 </label>
                 <Input
+                  id="edit-full-name"
                   {...register('fullName')}
                   disabled={isAdmin}
                   className={`h-12 ${isAdmin ? 'bg-slate-50 text-slate-500' : ''}`}
@@ -271,8 +288,9 @@ export function EditUserPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">{userLabels.email}</label>
+                <label htmlFor="edit-email" className="text-sm font-semibold text-slate-700">{userLabels.email}</label>
                 <Input
+                  id="edit-email"
                   {...register('email')}
                   type="email"
                   className="h-12"
@@ -290,25 +308,26 @@ export function EditUserPage() {
 
             <div className="grid grid-cols-2 gap-6 mt-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
+                <label htmlFor="edit-department" className="text-sm font-semibold text-slate-700">
                   {userLabels.department}
                   {isAdmin && <span className="ml-2 text-xs text-slate-400 font-normal">(User can edit)</span>}
                 </label>
                 <Input
+                  id="edit-department"
                   {...register('department')}
                   disabled={isAdmin}
                   className={`h-12 ${isAdmin ? 'bg-slate-50 text-slate-500' : ''}`}
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">{userLabels.role}</label>
+                <label htmlFor="edit-role" className="text-sm font-semibold text-slate-700">{userLabels.role}</label>
                 <div className="relative group">
                   <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-100 z-10 pointer-events-none">
                     <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                   </div>
-                  <Select {...register('role')} variant="filled" className="pl-12 h-12">
+                  <Select id="edit-role" {...register('role')} variant="filled" className="pl-12 h-12">
                     {/* Always offer the user's CURRENT role. /creatable is
                         USER_CREATE-gated, so an editor holding only USER_UPDATE
                         gets a 403 and an empty list — the control then rendered
@@ -439,7 +458,7 @@ export function EditUserPage() {
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-semibold text-slate-700">Temporary Password</label>
+              <label htmlFor="edit-temp-password" className="text-sm font-semibold text-slate-700">Temporary Password</label>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={regeneratePassword} className="gap-1.5">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -468,6 +487,7 @@ export function EditUserPage() {
             </div>
             <div className="relative">
               <Input
+                id="edit-temp-password"
                 value={generatedPassword}
                 readOnly
                 type={showPassword ? 'text' : 'password'}

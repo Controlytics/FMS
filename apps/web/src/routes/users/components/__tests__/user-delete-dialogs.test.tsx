@@ -72,7 +72,6 @@ describe('UserBulkDeleteDialog — bulk copy matches deleteMany', () => {
         open
         selectedIds={new Set(['u1', 'u2'])}
         displayedUsers={users}
-        bulkDeleting={false}
         onClose={() => {}}
         onConfirm={() => {}}
       />,

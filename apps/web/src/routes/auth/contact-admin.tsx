@@ -16,7 +16,6 @@ const REQUEST_TYPES = [
 export function ContactAdminPage() {
   const [requestType, setRequestType] = useState('');
   const [requesterEmployeeId, setRequesterEmployeeId] = useState('');
-  const [requesterEmail, setRequesterEmail] = useState('');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -128,24 +127,10 @@ export function ContactAdminPage() {
   // is server-side at approval time, where the actor is authenticated and the
   // state is current. See admin-request.service.ts executeApproval.
 
-  const canSubmit = () => {
-    if (!requestType || !requesterEmployeeId.trim() || !remarks.trim()) return false;
-    switch (requestType) {
-      case 'CREATE_USER':
-        return newUserId.trim().length >= 6 && fullName.trim() && requestedRole;
-      case 'MODIFY_USER':
-        return !!lookupUser && !!lookupUser.role && !!newRole && newRole !== lookupUser.role;
-      case 'UNLOCK':
-      case 'ENABLE_ACCOUNT':
-      case 'DISABLE_ACCOUNT':
-        return !!lookupUser;
-      case 'FORGOT_PASSWORD':
-        return !!lookupUser;
-      default:
-        return false;
-    }
-  };
-
+  // getMissingFields is the one submit check. (A `canSubmit` with the same rules
+  // was never called; removed 2026-10-22. Its one extra rule, "new role differs
+  // from the current one", is already guaranteed: the New role picker omits the
+  // current role and a new lookup clears the pick.)
   const getMissingFields = (): string[] => {
     const missing: string[] = [];
     if (!requesterEmployeeId.trim()) missing.push('Your employee ID');
@@ -187,7 +172,8 @@ export function ContactAdminPage() {
         // stored full name when the Employee ID matches one.
         requesterName: requesterEmployeeId.trim(),
         requesterEmployeeId: requesterEmployeeId.trim(),
-        requesterEmail: requesterEmail.trim() || undefined,
+        // (No requesterEmail: the form has no email field, so the dead state that
+        // always sent `undefined` was removed 2026-10-22.)
         requestData: buildRequestData(),
         remarks: remarks.trim(),
       };

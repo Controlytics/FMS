@@ -211,6 +211,8 @@ export function AdminRequestsPage() {
           toast.error('Action Failed', err.message ?? 'Something went wrong');
           setProcessing(false);
         },
+        // A dismissed password prompt is not a failure (AR-1, 2026-10-22).
+        onCancel: () => setProcessing(false),
       },
     );
   };
@@ -295,13 +297,14 @@ export function AdminRequestsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
               </svg>
               <Input
+                aria-label="Search requests by requester or employee ID"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search requester or ID…"
                 className="pl-9 pr-8"
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
+                <button type="button" aria-label="Clear search" onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 text-lg leading-none"><span aria-hidden="true">×</span></button>
               )}
             </div>
           }
@@ -573,8 +576,9 @@ export function AdminRequestsPage() {
               {/* Admin response textarea */}
               {(canApprove || canReject) && selectedRequest.status === 'PENDING' && (
                 <div>
-                  <h4 className="text-xs font-bold text-slate-500 mb-2">Your Response <span className="text-red-500">*</span></h4>
+                  <label htmlFor="admin-request-response" className="block text-xs font-bold text-slate-500 mb-2">Your Response <span className="text-red-500">*</span></label>
                   <textarea
+                    id="admin-request-response"
                     value={adminRemarks}
                     onChange={e => setAdminRemarks(e.target.value)}
                     placeholder="Enter notes about your decision (required)..."

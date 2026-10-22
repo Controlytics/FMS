@@ -173,6 +173,16 @@ export default async function userRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Approval/decision flows require remarks (CLAUDE.md): an approve and a reject
+    // both say why (2026-10-22; notes used to be optional). Checked BEFORE the
+    // re-auth gate, so no signature is spent on a decision that will be refused.
+    const notes = typeof (req.body as { notes?: unknown })?.notes === 'string'
+      ? ((req.body as { notes: string }).notes).trim()
+      : '';
+    if (!notes) {
+      return reply.code(400).send({ error: 'VALIDATION', message: 'Remarks are required to approve or reject a password reset request.' });
+    }
+
     const { ok } = await enforceReauth('PROCESS_RESET_REQUEST', req, reply);
     if (!ok) return;
 
@@ -183,7 +193,7 @@ export default async function userRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION', message: 'Invalid action. Must be "approve" or "reject".' });
     }
 
-    const result = await userService.processResetRequest(id, body.action, body.newPassword, body.notes, buildContext(req));
+    const result = await userService.processResetRequest(id, body.action, body.newPassword, notes, buildContext(req));
     return { success: true, ...result };
   });
 

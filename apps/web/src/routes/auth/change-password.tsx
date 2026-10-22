@@ -119,15 +119,17 @@ export function ChangePasswordPage() {
             {/* Only show current password field if NOT using temporary password */}
             {!user?.isTemporaryPassword && (
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700">Current Password</label>
+                <label htmlFor="cp-current" className="block text-sm font-medium text-slate-700">Current Password</label>
                 <div className="relative">
                   <Input
+                    id="cp-current"
                     className="h-11 pr-16"
                     {...register('currentPassword')}
                     type={showPasswords.current ? 'text' : 'password'}
                     secureField
                   />
                   <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
+                    aria-label={`${showPasswords.current ? 'Hide' : 'Show'} current password`}
                     onClick={() => setShowPasswords(p => ({ ...p, current: !p.current }))} tabIndex={-1}>
                     {showPasswords.current ? 'Hide' : 'Show'}
                   </button>
@@ -136,15 +138,17 @@ export function ChangePasswordPage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700">New Password</label>
+              <label htmlFor="cp-new" className="block text-sm font-medium text-slate-700">New Password</label>
               <div className="relative">
                 <Input
+                  id="cp-new"
                   className="h-11 pr-16"
                   {...register('newPassword')}
                   type={showPasswords.new ? 'text' : 'password'}
                   secureField
                 />
                 <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
+                  aria-label={`${showPasswords.new ? 'Hide' : 'Show'} new password`}
                   onClick={() => setShowPasswords(p => ({ ...p, new: !p.new }))} tabIndex={-1}>
                   {showPasswords.new ? 'Hide' : 'Show'}
                 </button>
@@ -187,15 +191,17 @@ export function ChangePasswordPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700">Confirm New Password</label>
+              <label htmlFor="cp-confirm" className="block text-sm font-medium text-slate-700">Confirm New Password</label>
               <div className="relative">
                 <Input
+                  id="cp-confirm"
                   className="h-11 pr-16"
                   {...register('confirmPassword')}
                   type={showPasswords.confirm ? 'text' : 'password'}
                   secureField
                 />
                 <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500 hover:text-slate-800"
+                  aria-label={`${showPasswords.confirm ? 'Hide' : 'Show'} new password confirmation`}
                   onClick={() => setShowPasswords(p => ({ ...p, confirm: !p.confirm }))} tabIndex={-1}>
                   {showPasswords.confirm ? 'Hide' : 'Show'}
                 </button>

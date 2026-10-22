@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { ApprovalsPage } from '../index';
 
 /**
@@ -135,6 +136,9 @@ describe('Approvals page — approver', () => {
     expect(api.calls('POST', '/api/block-change-requests/bcr-1/reject')).toHaveLength(0);
     // processingId reset -> the comment box no longer shows the typed text
     expect(screen.getByPlaceholderText('Comment (required) *')).toHaveValue('');
+    // AP-1: a dismissed prompt is not an error — no "Error" dialog (D-OPS-8 pattern)
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText(/Cancelled — password confirmation/)).toBeNull();
   });
 
   it('switching tabs re-queries by status and resets to page 1; empty tab names the status', async () => {
@@ -194,15 +198,13 @@ describe('Approvals page — requester (no BLOCK_CHANGE_APPROVE)', () => {
 });
 
 describe('Approvals page — accessibility + console', () => {
-  it('every control has a name (the comment box is named only by its placeholder) and the page logs nothing', async () => {
+  it('every control has a name — the comment box says which request it is for — and the page logs nothing', async () => {
     const api = mockApi(baseRoutes({ data: [REQ()], total: 1 }, 1));
     renderPage(<ApprovalsPage />, { user: APPROVER, api });
     await screen.findByRole('button', { name: 'Approve' });
-    const unl = unlabeledControls();
-    expect(unl.none).toEqual([]);
-    // Finding (reported, not asserted as a pass condition): the per-row comment
-    // input has no <label>/aria-label; its only name is the placeholder.
-    expect(unl.placeholderOnly.filter((d) => !d.includes('Comment (required) *'))).toEqual([]);
+    expect(screen.getByRole('textbox', { name: 'Comment on the block change for FLT-0001 (required)' })).toBeInTheDocument();
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);
     expect(api.unmatched).toEqual([]);

@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/re
 import { mockApi, renderPage, type MockRequest, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, reauthActions, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
 import { brandingRoute, holdRequests, findDialog } from '@/routes/auth/__tests__/support';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { ProfilePage } from '../index';
 
 /**
@@ -97,7 +98,7 @@ describe('Profile — editing', () => {
     expect(input('department')).toHaveValue('Microbiology');
   });
 
-  it('Save PUTs the whole form, refreshes /me and confirms in a dialog that Close dismisses', async () => {
+  it('Save PUTs the changed fields, refreshes /me and confirms in a dialog that Close dismisses', async () => {
     const api = page({ routes: [{ method: 'PUT', path: '/api/auth/profile', body: (r: MockRequest) => ({ ...ME, ...r.json }) }] });
     await screen.findByRole('heading', { name: 'Jane Doe' });
     fireEvent.change(input('fullName'), { target: { value: 'Jane Q. Doe' } });
@@ -111,7 +112,8 @@ describe('Profile — editing', () => {
     const dlg = await findDialog('Profile Updated');
     expect(within(dlg).getByText('Your profile has been updated successfully.')).toBeInTheDocument();
     const put = api.calls('PUT', '/api/auth/profile')[0];
-    expect(put.json).toEqual({ fullName: 'Jane Q. Doe', email: 'jq@example.com', department: 'QA Lab', photoUrl: '' });
+    // only what the operator changed (P2): department and photo were not touched
+    expect(put.json).toEqual({ fullName: 'Jane Q. Doe', email: 'jq@example.com' });
     expect(put.headers['x-reauth-password']).toBeUndefined();
     expect(api.calls('GET', '/api/auth/me').length).toBeGreaterThan(meBefore);
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
@@ -120,17 +122,17 @@ describe('Profile — editing', () => {
     await waitFor(() => expect(screen.queryByText('Profile Updated')).toBeNull());
   });
 
-  it('Cancel goes back in history', async () => {
-    page({ routes: [{ method: 'PUT', path: '/api/auth/profile', body: { ok: true } }] });
+  it('Cancel goes back in history and saves nothing (P1)', async () => {
+    const api = page({ routes: [{ method: 'PUT', path: '/api/auth/profile', body: { ok: true } }] });
     await screen.findByRole('heading', { name: 'Jane Doe' });
+    fireEvent.change(input('fullName'), { target: { value: 'Changed Name' } });
     const back = vi.spyOn(window.history, 'back').mockImplementation(() => {});
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(back).toHaveBeenCalledTimes(1);
-    // DEFECT (recorded in the report, not asserted here): Cancel is a submit
-    // button inside the form, so it ALSO saves the edits (PUT /api/auth/profile).
-    // Let that stray save settle before teardown; true with or without the fix.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled());
+    // P1: Cancel used to be a submit button inside the form, so it also saved the edits.
     await new Promise((r) => setTimeout(r, 50));
+    expect(api.calls('PUT', '/api/auth/profile')).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
   });
 
   it('Escape dismisses the success dialog', async () => {
@@ -158,11 +160,60 @@ describe('Profile — editing', () => {
   });
 });
 
+describe('Profile — the form follows /me until the operator types (P2)', () => {
+  // The cached user (digilog_cached_user) can be stale: another session or an
+  // admin changed the account since. /me is the truth.
+  const STALE = { ...ME, fullName: 'Jane Old', email: 'old@example.com', department: 'Old Dept' };
+
+  function stalePage(opts: { holdMe?: boolean; routes?: MockRoute[] } = {}) {
+    localStorage.setItem('digilog_cached_user', JSON.stringify(STALE));
+    const api = mockApi([
+      ...(opts.routes ?? []),
+      ...commonConfigRoutes(), brandingRoute(), reauthActions(),
+      { path: '/api/roles/active', body: ROLES },
+    ]);
+    const hold = opts.holdMe ? holdRequests(/\/api\/auth\/me/) : undefined;
+    renderPage(<ProfilePage />, { route: '/profile', api, user: ME as { role: string } });
+    return { api, hold };
+  }
+
+  it('with no cached user, the fields fill in when /me arrives', async () => {
+    page({ cached: false });
+    await waitFor(() => expect(input('fullName')).toHaveValue('Jane Doe'));
+    expect(input('email')).toHaveValue('jane@example.com');
+    expect(input('department')).toHaveValue('QA Lab');
+  });
+
+  it('a stale cached user is replaced by /me before the operator types', async () => {
+    stalePage();
+    await waitFor(() => expect(input('email')).toHaveValue('jane@example.com'));
+    expect(input('fullName')).toHaveValue('Jane Doe');
+    expect(input('department')).toHaveValue('QA Lab');
+  });
+
+  it('a field typed before /me arrives is kept, the others follow /me, and Save sends only the typed field', async () => {
+    const { api, hold } = stalePage({ holdMe: true, routes: [{ method: 'PUT', path: '/api/auth/profile', body: { ok: true } }] });
+    // still the cached (stale) values
+    await waitFor(() => expect(input('email')).toHaveValue('old@example.com'));
+    fireEvent.change(input('fullName'), { target: { value: 'Jane Typed' } });
+    hold!.release();
+    await waitFor(() => expect(input('email')).toHaveValue('jane@example.com'));
+    expect(input('department')).toHaveValue('QA Lab');
+    expect(input('fullName')).toHaveValue('Jane Typed');
+
+    save();
+    await findDialog('Profile Updated');
+    // never the stale cached email: untouched fields are not sent at all
+    expect(api.calls('PUT', '/api/auth/profile')[0].json).toEqual({ fullName: 'Jane Typed' });
+  });
+});
+
 describe('Profile — re-authentication (UPDATE_PROFILE)', () => {
   it('when the role must sign: prompts, then sends the password in header + body', async () => {
     const api = page({ reauth: ['UPDATE_PROFILE'], routes: [{ method: 'PUT', path: '/api/auth/profile', body: { ok: true } }] });
     await screen.findByRole('heading', { name: 'Jane Doe' });
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.change(input('fullName'), { target: { value: 'Jane R. Doe' } });
     save();
     const dlg = await findDialog('Confirm Your Identity');
     expect(within(dlg).getByText(/Performing "Update Own Profile" requires identity verification/)).toBeInTheDocument();
@@ -173,7 +224,7 @@ describe('Profile — re-authentication (UPDATE_PROFILE)', () => {
     await findDialog('Profile Updated');
     const put = api.calls('PUT', '/api/auth/profile')[0];
     expect(put.headers['x-reauth-password']).toBe('Secret@1');
-    expect(put.json).toMatchObject({ fullName: 'Jane Doe', _currentPassword: 'Secret@1' });
+    expect(put.json).toEqual({ fullName: 'Jane R. Doe', _currentPassword: 'Secret@1' });
   });
 
   it('cancelling the prompt sends nothing and re-enables Save', async () => {
@@ -187,6 +238,8 @@ describe('Profile — re-authentication (UPDATE_PROFILE)', () => {
     await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
     expect(api.calls('PUT', '/api/auth/profile')).toHaveLength(0);
+    // A dismissed prompt is not an error: no message at all (D-OPS-8 pattern).
+    expect(screen.queryByText(/Cancelled|Failed to update profile/)).toBeNull();
   });
 
   it('a REAUTH_REQUIRED from the server opens the prompt retroactively; a wrong password is reported in the dialog', async () => {
@@ -241,10 +294,13 @@ describe('Profile — photo', () => {
   });
 
   it('uploads with the bearer token, shows the new photo, saves its URL; Remove clears it', async () => {
+    // a server whose /me reflects what was saved (the form follows /me after a save)
+    let server: Record<string, unknown> = { ...ME };
     const api = page({
       routes: [
         { method: 'POST', path: '/api/uploads/photo', body: { photoUrl: '/uploads/photos/p1.png' } },
-        { method: 'PUT', path: '/api/auth/profile', body: { ok: true } },
+        { method: 'PUT', path: '/api/auth/profile', body: (r: MockRequest) => { server = { ...server, ...r.json }; return server; } },
+        { path: '/api/auth/me', body: () => server },
       ],
     });
     await screen.findByRole('heading', { name: 'Jane Doe' });
@@ -295,15 +351,15 @@ describe('Profile — photo', () => {
 });
 
 describe('Profile — accessibility + console', () => {
-  it('every button is named; logs nothing during a normal save', async () => {
+  it('every control is named — each field by its label — and a normal save logs nothing', async () => {
     const api = page({ routes: [{ method: 'PUT', path: '/api/auth/profile', body: { ok: true } }] });
     await screen.findByRole('heading', { name: 'Jane Doe' });
-    const unl = unlabeledControls();
-    // Finding (reported, not asserted as correct): the form labels at
-    // index.tsx:224/231/245/257 have no htmlFor and do not wrap their <Input>,
-    // so User ID / Full Name / Email have no accessible name and Department is
-    // named only by its placeholder. Every other control must be named.
-    expect(unl.none.filter((d) => !d.startsWith('input'))).toEqual([]);
+    expect(screen.getByLabelText('User ID')).toHaveValue('jdoe01');
+    expect(screen.getByLabelText('Full Name *')).toBe(input('fullName'));
+    expect(screen.getByLabelText('Email *')).toBe(input('email'));
+    expect(screen.getByLabelText('Department')).toBe(input('department'));
+    expectAllControlsNamed();
+    expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     save();
     await findDialog('Profile Updated');
     expect(con.errors).toEqual([]);

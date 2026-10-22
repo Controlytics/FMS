@@ -333,6 +333,9 @@ export function NotificationsPage() {
         onError: (err: any) => {
           toast.error('Failed to delete notifications', err.message || 'Operation failed');
         },
+        // A dismissed password prompt is not a failure (2026-10-22): the confirm
+        // dialog stays, nothing is said.
+        onCancel: () => {},
       },
     );
   };
@@ -360,6 +363,7 @@ export function NotificationsPage() {
         onError: (err: any) => {
           toast.error('Failed to delete notification', err.message || 'Operation failed');
         },
+        onCancel: () => {},
       },
     );
   };
@@ -497,7 +501,7 @@ export function NotificationsPage() {
             </div>
           </div>
           <div className="min-w-[200px]">
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Time Period</label>
+            <label htmlFor="notif-filter-period" className="text-xs font-semibold text-slate-500 mb-2 block">Time Period</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-50 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -505,6 +509,7 @@ export function NotificationsPage() {
                 </svg>
               </div>
               <Select
+                id="notif-filter-period"
                 value={period}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -530,11 +535,13 @@ export function NotificationsPage() {
           </div>
           {period === 'custom' && (
             <div>
-              <label className="text-xs font-semibold text-slate-500 mb-2 block">From / To</label>
               {/* The one From/To control in the app — it is what stops a To
                   earlier than the From, which the API answers with an empty
-                  list indistinguishable from "no matching records". */}
+                  list indistinguishable from "no matching records". Its own
+                  caption names the pair as a group (a bare <label> here was
+                  bound to no control). */}
               <DateRangeFilter
+                label="From / To"
                 from={dateFrom}
                 to={dateTo}
                 onFromChange={(v) => { setDateFrom(v); setPage(1); }}
@@ -544,7 +551,7 @@ export function NotificationsPage() {
             </div>
           )}
           <div className="min-w-[180px]">
-            <label className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
+            <label htmlFor="notif-filter-status" className="text-xs font-semibold text-slate-500 mb-2 block">Status</label>
             <div className="relative group">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-brand-50 z-10 pointer-events-none">
                 <svg className="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -553,6 +560,7 @@ export function NotificationsPage() {
                 </svg>
               </div>
               <Select
+                id="notif-filter-status"
                 value={readFilter}
                 onChange={(e) => { setReadFilter(e.target.value); setPage(1); }}
                 variant="filled"
@@ -641,6 +649,7 @@ export function NotificationsPage() {
               <div className="flex-shrink-0 pt-1">
                 <input
                   type="checkbox"
+                  aria-label={`Select notification: ${notification.title}`}
                   checked={isSelected}
                   onChange={() => toggleSelect(notification.id)}
                   className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-brand-600/15 cursor-pointer"
@@ -708,9 +717,11 @@ export function NotificationsPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => deleteSingle(notification.id)}
+                          aria-label={`Delete notification: ${notification.title}`}
+                          title="Delete notification"
                           className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg aria-hidden="true" className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </Button>

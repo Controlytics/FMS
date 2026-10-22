@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/re
 import { useLocation } from 'react-router-dom';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { VersionHistoryPage } from '../index';
 
 /**
@@ -152,7 +153,7 @@ describe('Version History — cleaning profiles', () => {
     // a click inside the modal keeps it; × closes it
     fireEvent.click(screen.getByText('Frozen snapshot · v2'));
     expect(screen.getByText('Frozen snapshot · v2')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '×' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close snapshot' }));
     expect(screen.queryByText('Frozen snapshot · v2')).toBeNull();
   });
 
@@ -486,7 +487,7 @@ describe('Version History — deep link (?entity=&id=&v=)', () => {
     expect(await screen.findByText('Deep · v4')).toBeInTheDocument();
     expect(screen.getByTestId('url')).toHaveTextContent('?entity=checklist-profile');
 
-    fireEvent.click(screen.getByRole('button', { name: '×' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close snapshot' }));
     fireEvent.click(screen.getByRole('button', { name: 'Equipment Groups' }));
     expect(await screen.findByText('No equipment groups yet.')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent(/^$/));
@@ -520,12 +521,16 @@ describe('Version History — deep link (?entity=&id=&v=)', () => {
 });
 
 describe('Version History — accessibility + console', () => {
-  it('scans the page with the snapshot modal open; nothing is logged', async () => {
+  it('every control is named, the snapshot is a named modal dialog, and nothing is logged', async () => {
     const api = mockApi(cpRoutes());
     renderPage(<Page />, { route: '/version-history', user: USER, api });
     fireEvent.click(await screen.findByRole('button', { name: /Dry Storage · v3/ }));
     fireEvent.click(await screen.findByRole('button', { name: /^v2/ }));
     await screen.findByText('Adds a checklist');
+    expectAllControlsNamed();
+    const snapshot = screen.getByRole('dialog', { name: 'Frozen snapshot · v2' });
+    expect(snapshot).toHaveAttribute('aria-modal', 'true');
+    expect(within(snapshot).getByRole('button', { name: 'Close snapshot' })).toBeInTheDocument();
     const unl = unlabeledControls();
     expect(unl.none).toEqual([]);
     expect(unl.placeholderOnly).toEqual([]);

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { unlabeledControls, captureConsole, commonConfigRoutes, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 import { SystemHealthPage } from '../index';
 
 /** System Health page: real SWR -> apiClient -> fetch; only fetch is stubbed. */
@@ -182,6 +183,7 @@ describe('System Health — accessibility + console', () => {
     const api = mockApi(routes(HEALTH()));
     renderPage(<SystemHealthPage />, { user: SA, api });
     await screen.findByRole('heading', { name: 'System Health' });
+    expectAllControlsNamed();
     expect(unlabeledControls()).toEqual({ none: [], placeholderOnly: [] });
     expect(con.errors).toEqual([]);
     expect(con.warnings).toEqual([]);

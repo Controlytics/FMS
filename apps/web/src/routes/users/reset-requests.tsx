@@ -105,43 +105,43 @@ export function ResetRequestsPage() {
     const body = {
       action: actionDialog,
       newPassword: actionDialog === 'approve' ? newPassword : undefined,
-      notes: notes || undefined,
+      // Approval/decision flows require remarks (CLAUDE.md), so both approve and
+      // reject carry them; the buttons stay disabled until they are given and the
+      // server refuses a decision without them (2026-10-22).
+      notes: notes.trim(),
     };
 
-    try {
-      await reauth.execute(
-        'PROCESS_RESET_REQUEST',
-        async (password?: string) => {
-          if (password) {
-            await apiClient.postWithReauth(`/api/users/reset-requests/${selectedRequest.id}/process`, body, password);
-          } else {
-            await apiClient.post(`/api/users/reset-requests/${selectedRequest.id}/process`, body);
-          }
+    // No try/catch around this: reauth.execute never throws a request failure —
+    // it hands it to onError (a catch here was unreachable; removed 2026-10-22).
+    await reauth.execute(
+      'PROCESS_RESET_REQUEST',
+      async (password?: string) => {
+        if (password) {
+          await apiClient.postWithReauth(`/api/users/reset-requests/${selectedRequest.id}/process`, body, password);
+        } else {
+          await apiClient.post(`/api/users/reset-requests/${selectedRequest.id}/process`, body);
+        }
+      },
+      {
+        onSuccess: () => {
+          setSuccessMessage(
+            actionDialog === 'approve'
+              ? `Password reset approved for ${selectedRequest.userId}. Make sure to share the temporary password securely.`
+              : `Password reset request rejected for ${selectedRequest.userId}.`
+          );
+          closeDialog();
+          mutate();
+          setIsProcessing(false);
         },
-        {
-          onSuccess: () => {
-            setSuccessMessage(
-              actionDialog === 'approve'
-                ? `Password reset approved for ${selectedRequest.userId}. Make sure to share the temporary password securely.`
-                : `Password reset request rejected for ${selectedRequest.userId}.`
-            );
-            closeDialog();
-            mutate();
-            setIsProcessing(false);
-          },
-          onError: (err: any) => {
-            setError(err.message || 'Failed to process request');
-            setIsProcessing(false);
-          },
-          // M64: cancelling the password prompt left this dialog wedged on
-          // 'Processing…'. Unwind silently — the operator chose to back out.
-          onCancel: () => setIsProcessing(false),
+        onError: (err: any) => {
+          setError(err.message || 'Failed to process request');
+          setIsProcessing(false);
         },
-      );
-    } catch (err: any) {
-      setError(err.message || 'Failed to process request');
-      setIsProcessing(false);
-    }
+        // M64: cancelling the password prompt left this dialog wedged on
+        // 'Processing…'. Unwind silently — the operator chose to back out.
+        onCancel: () => setIsProcessing(false),
+      },
+    );
   };
 
   const getStatusBadge = (status: string) => {
@@ -186,10 +186,12 @@ export function ResetRequestsPage() {
           </div>
           <p className="text-sm text-emerald-700 flex-1">{successMessage}</p>
           <button
+            type="button"
+            aria-label="Dismiss message"
             className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-100 transition-colors"
             onClick={() => setSuccessMessage('')}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -418,7 +420,7 @@ export function ResetRequestsPage() {
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-semibold text-slate-700">Temporary Password</label>
+              <label htmlFor="reset-temp-password" className="text-sm font-semibold text-slate-700">Temporary Password</label>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={regeneratePassword} className="gap-1.5">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -447,6 +449,7 @@ export function ResetRequestsPage() {
             </div>
             <div className="relative">
               <Input
+                id="reset-temp-password"
                 value={newPassword}
                 readOnly
                 type={showPassword ? 'text' : 'password'}
@@ -477,13 +480,26 @@ export function ResetRequestsPage() {
               </div>
             </div>
           </div>
+
+          <div className="space-y-2">
+            <label htmlFor="reset-approve-remarks" className="text-sm font-semibold text-slate-700">
+              Remarks <span className="text-red-500">*</span>
+            </label>
+            <Input
+              id="reset-approve-remarks"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g., Identity verified by phone"
+              className="h-12"
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={closeDialog}>Cancel</Button>
           <Button
             className="bg-emerald-700 hover:bg-emerald-800"
             onClick={handleProcess}
-            disabled={isProcessing || !newPassword}
+            disabled={isProcessing || !newPassword || !notes.trim()}
           >
             {isProcessing ? (
               <>
@@ -538,8 +554,11 @@ export function ResetRequestsPage() {
           )}
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">Reason for rejection (optional)</label>
+            <label htmlFor="reset-reject-reason" className="text-sm font-semibold text-slate-700">
+              Reason for rejection <span className="text-red-500">*</span>
+            </label>
             <Input
+              id="reset-reject-reason"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g., User should contact IT directly"
@@ -552,7 +571,7 @@ export function ResetRequestsPage() {
           <Button
             variant="destructive"
             onClick={handleProcess}
-            disabled={isProcessing}
+            disabled={isProcessing || !notes.trim()}
           >
             {isProcessing ? (
               <>
