@@ -129,13 +129,10 @@ describe('PM Entries tab', () => {
     setField(dlg, 'Notes', '');
     typeReason(dlg, 'Window extended by QA');
     await click(within(dlg).getByRole('button', { name: 'Save Changes' }));
-    // SUPER_ADMIN_DATA_EDIT is always-on (OD-01): the prompt opens before any request.
-    expect(api.calls('PUT', `${PM}/pm1`)).toHaveLength(0);
-    await signReauth();
     const [put] = await waitForCalls(api, 'PUT', `${PM}/pm1`, 1);
     expect(put.json).toEqual({
       month: 4, plannedDate: '2026-03-10T00:00:00.000Z', windowStart: '2026-03-01T00:00:00.000Z', windowEnd: '2026-03-25T00:00:00.000Z',
-      toleranceDays: 7, approvalStatus: 'APPROVED', approvalRemarks: 'ok', _changeReason: 'Window extended by QA', _currentPassword: 'Secret@123',
+      toleranceDays: 7, approvalStatus: 'APPROVED', approvalRemarks: 'ok', _changeReason: 'Window extended by QA',
     });
     expect(await ackMessage('Updated')).toContain('PM entry updated and audited');
   });
@@ -150,9 +147,8 @@ describe('PM Entries tab', () => {
     expect(field(dlg, 'Approval Status').value).toBe('');
     typeReason(dlg, 'touch for audit');
     await click(within(dlg).getByRole('button', { name: 'Save Changes' }));
-    await signReauth();
     const [put] = await waitForCalls(api, 'PUT', `${PM}/pm6`, 1);
-    expect(put.json).toEqual({ windowStart: expect.any(String), windowEnd: expect.any(String), _changeReason: 'touch for audit', _currentPassword: 'Secret@123' });
+    expect(put.json).toEqual({ windowStart: expect.any(String), windowEnd: expect.any(String), _changeReason: 'touch for audit' });
   });
 
   it('delete names the month and hits the pm-entries endpoint', async () => {
@@ -164,11 +160,8 @@ describe('PM Entries tab', () => {
     expect(dlg).toHaveTextContent('Apr entry will be permanently removed');
     typeReason(dlg, 'Duplicate visit');
     await click(within(dlg).getByRole('button', { name: 'Delete Forever' }));
-    // SUPER_ADMIN_DATA_EDIT is always-on (OD-01): the prompt opens before any request.
-    expect(api.calls('DELETE', `${PM}/pm2`)).toHaveLength(0);
-    await signReauth();
     const [del] = await waitForCalls(api, 'DELETE', `${PM}/pm2`, 1);
-    expect(del.json).toEqual({ _changeReason: 'Duplicate visit', _currentPassword: 'Secret@123' });
+    expect(del.json).toEqual({ _changeReason: 'Duplicate visit' });
     await ackMessage('Deleted');
   });
 
@@ -198,14 +191,11 @@ describe('PM Entries tab', () => {
     setField(dlg, 'Notes', 'from paper');
     typeReason(dlg, 'Add missed visit');
     await click(within(dlg).getByRole('button', { name: 'Create Record' }));
-    // SUPER_ADMIN_DATA_EDIT is always-on (OD-01): the prompt opens before any request.
-    expect(api.calls('POST', PM)).toHaveLength(0);
-    await signReauth();
     const [post] = await waitForCalls(api, 'POST', PM, 1);
     expect(post.json).toEqual({
       scheduleId: 's1', month: 8, plannedDate: '2026-08-15T00:00:00.000Z', windowStart: '2026-08-10T00:00:00.000Z',
       windowEnd: '2026-08-20T00:00:00.000Z', toleranceDays: 5, approvalStatus: 'APPROVED', approvalRemarks: 'pre-approved',
-      notes: 'from paper', _changeReason: 'Add missed visit', _currentPassword: 'Secret@123',
+      notes: 'from paper', _changeReason: 'Add missed visit',
     });
     expect(await ackMessage('Created')).toContain('PM entry added');
   });
@@ -226,9 +216,8 @@ describe('PM Entries tab', () => {
     setField(dlg, 'Planned Date', '2026-02-01T00:00');
     typeReason(dlg, 'Add missed visit');
     await click(within(dlg).getByRole('button', { name: 'Create Record' }));
-    await signReauth();
     const [post] = await waitForCalls(api, 'POST', PM, 1);
-    expect(post.json).toEqual({ scheduleId: 'sched-uuid', month: 2, plannedDate: '2026-02-01T00:00:00.000Z', _changeReason: 'Add missed visit', _currentPassword: 'Secret@123' });
+    expect(post.json).toEqual({ scheduleId: 'sched-uuid', month: 2, plannedDate: '2026-02-01T00:00:00.000Z', _changeReason: 'Add missed visit' });
   });
 });
 
@@ -309,13 +298,10 @@ describe('Audit Trail tab', () => {
     setField(dlg, 'Timestamp', '2026-07-05T06:30');
     typeReason(dlg, 'Wrong role captured');
     await click(save);
-    // UPDATE_AUDIT_RECORD is always-on (OD-01): the prompt opens before any request.
-    expect(api.calls('PUT', `${AUDIT}/a1`)).toHaveLength(0);
-    await signReauth();
     const [put] = await waitForCalls(api, 'PUT', `${AUDIT}/a1`, 1);
     expect(put.json).toEqual({
       reason: 'Wrong role captured', timestamp: '2026-07-05T06:30:00.000Z', userName: 'Admin User', userRole: 'SUPERVISOR',
-      action: 'USER_CREATED', targetType: 'USER', targetId: 'abcdef1234567890', signatureMeaning: 'Created', _currentPassword: 'Secret@123',
+      action: 'USER_CREATED', targetType: 'USER', targetId: 'abcdef1234567890', signatureMeaning: 'Created',
     });
     expect(await ackMessage('Audit record edited')).toContain('the hash chain is now broken at this record');
     expect(screen.queryByRole('heading', { name: 'Edit audit record' })).toBeNull();
@@ -331,7 +317,6 @@ describe('Audit Trail tab', () => {
     setField(dlg, 'Timestamp', '');
     typeReason(dlg, 'Try editing meta row');
     await click(within(dlg).getByRole('button', { name: 'Save & break chain' }));
-    await signReauth();
     const [put] = await waitForCalls(api, 'PUT', `${AUDIT}/a2`, 1);
     expect(put.json).not.toHaveProperty('timestamp');
     expect(put.json).toMatchObject({ reason: 'Try editing meta row', action: 'LOGIN_FAILED', userName: '', targetType: '' });
@@ -364,7 +349,7 @@ describe('Audit Trail tab', () => {
   });
 
   it('Redact: recommended path, POST /redact with the reason (REDACT_AUDIT_RECORD)', async () => {
-    const api = renderFdm([...routes(), { method: 'POST', path: `${AUDIT}/a1/redact`, body: {} }]);
+    const api = renderFdm([...routes(), reauthRequired('POST', `${AUDIT}/a1/redact`), { method: 'POST', path: `${AUDIT}/a1/redact`, body: {} }]);
     await openTab('Audit Trail');
     await screen.findByText('USER_CREATED');
     await click(within(row('USER_CREATED')).getByRole('button', { name: 'Redact' }));
@@ -372,13 +357,10 @@ describe('Audit Trail tab', () => {
     expect(dlg).toHaveTextContent('the audit chain stays intact — this is the recommended alternative to deleting');
     typeReason(dlg, 'PII in payload');
     await click(within(dlg).getByRole('button', { name: 'Redact record' }));
-    // REDACT_AUDIT_RECORD is always-on (OD-01): asked up front, never sent unsigned.
-    expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
-    expect(api.calls('POST', `${AUDIT}/a1/redact`)).toHaveLength(0);
     await signReauth('pw-red');
-    const posts = await waitForCalls(api, 'POST', `${AUDIT}/a1/redact`, 1);
-    expect(posts[0].json).toEqual({ reason: 'PII in payload', _currentPassword: 'pw-red' });
-    expect(posts[0].headers['x-reauth-password']).toBe('pw-red');
+    const posts = await waitForCalls(api, 'POST', `${AUDIT}/a1/redact`, 2);
+    expect(posts[0].json).toEqual({ reason: 'PII in payload' });
+    expect(posts[1].json).toEqual({ reason: 'PII in payload', _currentPassword: 'pw-red' });
     expect(await ackMessage('Redacted')).toContain('Payload masked; hash chain preserved');
   });
 
@@ -406,7 +388,7 @@ describe('Audit Trail tab', () => {
     expect(await ackMessage('Deleted')).toContain('Audit record destroyed; the deletion itself is recorded');
   });
 
-  it('Delete and redact prompt first even with nothing in /my-actions (always-on, OD-01); one signed request each', async () => {
+  it('Delete and redact without a signature requirement go straight through', async () => {
     const api = renderFdm([
       ...routes(),
       { method: 'DELETE', path: `${AUDIT}/a1`, body: {} },
@@ -418,23 +400,13 @@ describe('Audit Trail tab', () => {
     let dlg = modal('Delete audit record');
     typeReason(dlg, 'Test data');
     await click(within(dlg).getByRole('button', { name: 'Delete permanently' }));
-    expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
-    expect(api.calls('DELETE', `${AUDIT}/a1`)).toHaveLength(0);
-    await signReauth('pw-del');
-    const [del] = await waitForCalls(api, 'DELETE', `${AUDIT}/a1`, 1);
-    expect(del.json).toEqual({ reason: 'Test data', _currentPassword: 'pw-del' });
-    expect(del.headers['x-reauth-password']).toBe('pw-del');
+    expect((await waitForCalls(api, 'DELETE', `${AUDIT}/a1`, 1))[0].json).toEqual({ reason: 'Test data' });
     await ackMessage('Deleted');
     await click(within(row('LOGIN_FAILED')).getByRole('button', { name: 'Redact' }));
     dlg = modal('Redact audit record');
     typeReason(dlg, 'Mask payload');
     await click(within(dlg).getByRole('button', { name: 'Redact record' }));
-    expect(await screen.findByText('Confirm Your Identity')).toBeInTheDocument();
-    expect(api.calls('POST', `${AUDIT}/a2/redact`)).toHaveLength(0);
-    await signReauth('pw-red2');
-    const [red] = await waitForCalls(api, 'POST', `${AUDIT}/a2/redact`, 1);
-    expect(red.json).toEqual({ reason: 'Mask payload', _currentPassword: 'pw-red2' });
-    expect(red.headers['x-reauth-password']).toBe('pw-red2');
+    expect((await waitForCalls(api, 'POST', `${AUDIT}/a2/redact`, 1))[0].json).toEqual({ reason: 'Mask payload' });
     await ackMessage('Redacted');
   });
 
