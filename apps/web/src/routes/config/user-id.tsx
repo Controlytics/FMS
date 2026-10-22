@@ -199,9 +199,9 @@ export function UserIdConfigPage() {
             <div className="space-y-5">
               {/* Format Type */}
               <div>
-                <label className="text-sm font-semibold text-slate-700 mb-2 block">Format Type</label>
+                <label htmlFor="uid-format" className="text-sm font-semibold text-slate-700 mb-2 block">Format Type</label>
                 <Select
-                  value={form.format}
+                  id="uid-format" value={form.format}
                   onChange={(e) => { const fmt = e.target.value; setForm({ ...form, format: fmt, ...(fmt.startsWith('PREFIX_') ? {} : { prefix: '', prefixSeparator: '-' }) }); }}
                   disabled={!isSuperAdmin}
                   className="w-full"
@@ -219,14 +219,14 @@ export function UserIdConfigPage() {
 
               {/* Length */}
               <div>
-                <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                <label htmlFor="uid-length" className="text-sm font-semibold text-slate-700 mb-2 block">
                   Fixed Length
                 </label>
                 <Input
                   type="number"
                   min={3}
                   max={20}
-                  value={form.length}
+                  id="uid-length" value={form.length}
                   onChange={(e) => setForm({ ...form, length: parseInt(e.target.value) || 6 })}
                   disabled={!isSuperAdmin}
                   className="w-32"
@@ -240,20 +240,20 @@ export function UserIdConfigPage() {
               {showPrefixOptions && (
                 <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl">
                   <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">Prefix</label>
+                    <label htmlFor="uid-prefix" className="text-sm font-semibold text-slate-700 mb-2 block">Prefix</label>
                     <Input
                       type="text"
                       maxLength={10}
-                      value={form.prefix}
+                      id="uid-prefix" value={form.prefix}
                       onChange={(e) => setForm({ ...form, prefix: e.target.value.toUpperCase() })}
                       disabled={!isSuperAdmin}
                       placeholder="e.g., EMP, USR"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">Separator</label>
+                    <label htmlFor="uid-separator" className="text-sm font-semibold text-slate-700 mb-2 block">Separator</label>
                     <Select
-                      value={form.prefixSeparator}
+                      id="uid-separator" value={form.prefixSeparator}
                       onChange={(e) => setForm({ ...form, prefixSeparator: e.target.value })}
                       disabled={!isSuperAdmin}
                     >
@@ -271,12 +271,12 @@ export function UserIdConfigPage() {
               {showCustomPattern && (
                 <div className="p-4 bg-slate-50 rounded-xl space-y-4">
                   <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                    <label htmlFor="uid-pattern" className="text-sm font-semibold text-slate-700 mb-2 block">
                       Regex Pattern
                     </label>
                     <Input
                       type="text"
-                      value={form.customPattern}
+                      id="uid-pattern" value={form.customPattern}
                       onChange={(e) => setForm({ ...form, customPattern: e.target.value })}
                       disabled={!isSuperAdmin}
                       placeholder="e.g., [A-Z]{2}\\d{4}"
@@ -284,24 +284,24 @@ export function UserIdConfigPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                    <label htmlFor="uid-pattern-example" className="text-sm font-semibold text-slate-700 mb-2 block">
                       Example (for display)
                     </label>
                     <Input
                       type="text"
-                      value={form.customPatternExample}
+                      id="uid-pattern-example" value={form.customPatternExample}
                       onChange={(e) => setForm({ ...form, customPatternExample: e.target.value })}
                       disabled={!isSuperAdmin}
                       placeholder="e.g., AB1234"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                    <label htmlFor="uid-pattern-description" className="text-sm font-semibold text-slate-700 mb-2 block">
                       Description (for error messages)
                     </label>
                     <Input
                       type="text"
-                      value={form.customPatternDescription}
+                      id="uid-pattern-description" value={form.customPatternDescription}
                       onChange={(e) => setForm({ ...form, customPatternDescription: e.target.value })}
                       disabled={!isSuperAdmin}
                       placeholder="e.g., 2 letters followed by 4 digits"
@@ -312,9 +312,9 @@ export function UserIdConfigPage() {
 
               {/* Letter Case */}
               <div>
-                <label className="text-sm font-semibold text-slate-700 mb-2 block">Letter Case</label>
+                <label htmlFor="uid-case" className="text-sm font-semibold text-slate-700 mb-2 block">Letter Case</label>
                 <Select
-                  value={form.letterCase}
+                  id="uid-case" value={form.letterCase}
                   onChange={(e) => setForm({ ...form, letterCase: e.target.value })}
                   disabled={!isSuperAdmin}
                   className="w-48"
@@ -354,13 +354,13 @@ export function UserIdConfigPage() {
 
               {form.autoGenerate && (
                 <div>
-                  <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                  <label htmlFor="uid-start" className="text-sm font-semibold text-slate-700 mb-2 block">
                     Start Number
                   </label>
                   <Input
                     type="number"
                     min={1}
-                    value={form.startNumber}
+                    id="uid-start" value={form.startNumber}
                     onChange={(e) => setForm({ ...form, startNumber: parseInt(e.target.value) || 1 })}
                     disabled={!isSuperAdmin}
                     className="w-32"
@@ -460,7 +460,7 @@ export function UserIdConfigPage() {
             <div className="space-y-4">
               <Input
                 type="text"
-                value={testUserId}
+                aria-label="User ID to test" value={testUserId}
                 onChange={(e) => {
                   setTestUserId(e.target.value);
                   setValidationResult(null);

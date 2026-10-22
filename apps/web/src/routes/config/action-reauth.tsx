@@ -327,6 +327,7 @@ export function ActionReauthPage() {
       back={
         <Link
           to="/config"
+          aria-label="Back to configuration"
           className="p-2 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:shadow-md transition-all"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

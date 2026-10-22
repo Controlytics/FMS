@@ -331,6 +331,7 @@ export function HelpArticlesPage() {
         back={
           <Link
             to="/config"
+            aria-label="Back to configuration"
             className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
           >
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

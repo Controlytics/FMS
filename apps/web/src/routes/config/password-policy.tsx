@@ -61,7 +61,7 @@ export function PasswordPolicyPage() {
         subtitle="Configure security and authentication policies"
         icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />}
         back={
-          <Link to="/config" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
+          <Link to="/config" aria-label="Back to configuration" className="p-2 rounded-xl hover:bg-slate-100 transition-colors">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -128,13 +128,13 @@ export function PasswordPolicyPage() {
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <label htmlFor="pp-maxFailedAttempts" className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                   Max Failed Login Attempts
                 </label>
-                <Input {...register('maxFailedAttempts', { valueAsNumber: true })} type="number" min={3} max={10} className="h-11" />
+                <Input id="pp-maxFailedAttempts" {...register('maxFailedAttempts', { valueAsNumber: true })} type="number" min={3} max={10} className="h-11" />
                 <p className="text-xs text-slate-500 flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -160,17 +160,17 @@ export function PasswordPolicyPage() {
               {autoLogoutEnabled && (
                 <div className="grid grid-cols-2 gap-4 pl-14 animate-fade-in">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-600">Idle Timeout</label>
+                    <label htmlFor="pp-idleTimeoutMinutes" className="text-sm font-medium text-slate-600">Idle Timeout</label>
                     <div className="relative">
-                      <Input {...register('idleTimeoutMinutes', { valueAsNumber: true })} type="number" min={5} max={60} className="h-11 pr-16" />
+                      <Input id="pp-idleTimeoutMinutes" {...register('idleTimeoutMinutes', { valueAsNumber: true })} type="number" min={5} max={60} className="h-11 pr-16" />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">minutes</span>
                     </div>
                     <p className="text-xs text-slate-400">5-60 minutes</p>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-600">Warning Before Logout</label>
+                    <label htmlFor="pp-warningMinutes" className="text-sm font-medium text-slate-600">Warning Before Logout</label>
                     <div className="relative">
-                      <Input {...register('warningMinutes', { valueAsNumber: true })} type="number" min={1} max={5} className="h-11 pr-16" />
+                      <Input id="pp-warningMinutes" {...register('warningMinutes', { valueAsNumber: true })} type="number" min={1} max={5} className="h-11 pr-16" />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">minutes</span>
                     </div>
                     <p className="text-xs text-slate-400">1-5 minutes</p>
@@ -209,17 +209,17 @@ export function PasswordPolicyPage() {
               </h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-600">Minimum Length</label>
+                  <label htmlFor="pp-minLength" className="text-sm font-medium text-slate-600">Minimum Length</label>
                   <div className="relative">
-                    <Input {...register('minLength', { valueAsNumber: true })} type="number" min={8} max={32} className="h-11 pr-20" />
+                    <Input id="pp-minLength" {...register('minLength', { valueAsNumber: true })} type="number" min={8} max={32} className="h-11 pr-20" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">characters</span>
                   </div>
                   <p className="text-xs text-slate-400">8-32 characters</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-600">Maximum Length</label>
+                  <label htmlFor="pp-maxLength" className="text-sm font-medium text-slate-600">Maximum Length</label>
                   <div className="relative">
-                    <Input {...register('maxLength', { valueAsNumber: true })} type="number" min={32} max={128} className="h-11 pr-20" />
+                    <Input id="pp-maxLength" {...register('maxLength', { valueAsNumber: true })} type="number" min={32} max={128} className="h-11 pr-20" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">characters</span>
                   </div>
                   <p className="text-xs text-slate-400">32-128 characters</p>
@@ -244,7 +244,7 @@ export function PasswordPolicyPage() {
                     <span className="text-lg font-bold text-blue-600">A-Z</span>
                   </div>
                   <label className="text-xs text-blue-600">Minimum required</label>
-                  <Input {...register('minUppercase', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
+                  <Input aria-label="Minimum uppercase letters" {...register('minUppercase', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
                 </div>
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
                   <div className="flex items-center justify-between">
@@ -252,7 +252,7 @@ export function PasswordPolicyPage() {
                     <span className="text-lg font-bold text-emerald-600">a-z</span>
                   </div>
                   <label className="text-xs text-emerald-600">Minimum required</label>
-                  <Input {...register('minLowercase', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
+                  <Input aria-label="Minimum lowercase letters" {...register('minLowercase', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
                 </div>
                 <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
                   <div className="flex items-center justify-between">
@@ -260,7 +260,7 @@ export function PasswordPolicyPage() {
                     <span className="text-lg font-bold text-amber-600">0-9</span>
                   </div>
                   <label className="text-xs text-amber-600">Minimum required</label>
-                  <Input {...register('minNumbers', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
+                  <Input aria-label="Minimum numbers" {...register('minNumbers', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
                 </div>
                 <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
                   <div className="flex items-center justify-between">
@@ -268,7 +268,7 @@ export function PasswordPolicyPage() {
                     <span className="text-lg font-bold text-rose-600">!@#</span>
                   </div>
                   <label className="text-xs text-rose-600">Minimum required</label>
-                  <Input {...register('minSpecialChars', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
+                  <Input aria-label="Minimum special characters" {...register('minSpecialChars', { valueAsNumber: true })} type="number" min={0} className="h-10 bg-white/70" />
                 </div>
               </div>
             </div>
@@ -284,9 +284,9 @@ export function PasswordPolicyPage() {
                 Password History
               </h3>
               <div className="max-w-md space-y-2">
-                <label className="text-sm font-medium text-slate-600">Prevent Password Reuse</label>
+                <label htmlFor="pp-preventReuseCount" className="text-sm font-medium text-slate-600">Prevent Password Reuse</label>
                 <div className="relative">
-                  <Input {...register('preventReuseCount', { valueAsNumber: true })} type="number" min={1} max={24} className="h-11 pr-28" />
+                  <Input id="pp-preventReuseCount" {...register('preventReuseCount', { valueAsNumber: true })} type="number" min={1} max={24} className="h-11 pr-28" />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">past passwords</span>
                 </div>
                 <p className="text-xs text-slate-500">Users cannot reuse any of their last N passwords (1-24)</p>
@@ -305,17 +305,17 @@ export function PasswordPolicyPage() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-600">Password Expiry Period</label>
+                  <label htmlFor="pp-passwordExpiryDays" className="text-sm font-medium text-slate-600">Password Expiry Period</label>
                   <div className="relative">
-                    <Input {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="h-11 pr-16" />
+                    <Input id="pp-passwordExpiryDays" {...register('passwordExpiryDays', { valueAsNumber: true })} type="number" min={0} max={365} className="h-11 pr-16" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
                   </div>
                   <p className="text-xs text-slate-500">Users must change their password after this many days. Set to 0 to disable password expiry. (0–365, default: 90)</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-600">Expiry Notification</label>
+                  <label htmlFor="pp-expiryNotificationDays" className="text-sm font-medium text-slate-600">Expiry Notification</label>
                   <div className="relative">
-                    <Input {...register('expiryNotificationDays', { valueAsNumber: true })} type="number" min={0} max={90} className="h-11 pr-16" />
+                    <Input id="pp-expiryNotificationDays" {...register('expiryNotificationDays', { valueAsNumber: true })} type="number" min={0} max={90} className="h-11 pr-16" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">days</span>
                   </div>
                   <p className="text-xs text-slate-500">Warn each user daily for this many days before their password expires (plus a one-time notice on the expiry day). Set to 0 to disable. Requires a password expiry period above. (0–90, default: 0)</p>

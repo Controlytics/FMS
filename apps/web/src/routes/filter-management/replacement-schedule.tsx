@@ -498,7 +498,7 @@ export function ReplacementSchedulePage() {
                 <h2 className="text-lg font-bold text-white">Upload Replacement Schedule</h2>
                 <p className="text-white/70 text-sm">Excel (.xlsx) with the template columns</p>
               </div>
-              <button onClick={closeDialog} className="text-white/80 hover:text-white">
+              <button type="button" onClick={closeDialog} aria-label="Close upload dialog" className="text-white/80 hover:text-white">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
