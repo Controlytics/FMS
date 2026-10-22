@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import type { MockRequest, MockRoute } from '@/test-utils/page-harness';
-import { useMobileLifecycle, flush, queuedOps, passReauth, cancelReauth, allowConsoleError } from './support/mobile-kit';
+import { useMobileLifecycle, flush, queuedOps, passReauth, cancelReauth, allowConsoleError, cachedValue } from './support/mobile-kit';
 import {
   renderOps, scanTag, inQueue, state, adv, graph, bulkOk, bulkItems, submitButton, message, dismissAll, submitChecklist,
   OPS_INSTANCES, F1, F2, CHECKLIST_PROFILE,
@@ -456,6 +456,25 @@ describe('block change — APPROVAL mode', () => {
     expect(await message('Already requested')).toBeInTheDocument();
   });
 
+  it('losing the connection with the dialog open keeps it an APPROVAL request (never a self-confirm)', async () => {
+    const { api } = await openApproval();
+    await act(async () => { setOnline(false); });
+    await flush(50);
+    // The mode read online stays in force offline; it used to fall back to CONFIRM,
+    // turning the dialog into "Continue with cleaning" — a self-confirm.
+    expect(screen.getByText('Block change approval needed')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue with cleaning' })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Why does this filter need to be cleaned in a different block?'), { target: { value: 'North washer down' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request approval' }));
+    expect(await message('Block change requests need an internet connection.')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/block-change-requests')).toHaveLength(0);
+  });
+
+  it('the mode read online is remembered for the next offline start of the page', async () => {
+    const view = await renderOps({ stage: 'WASH_IN', blockChangeMode: 'NONE' });
+    await waitFor(() => expect(cachedValue('block-change-mode')).toBe('NONE'));
+    view.unmount();
+  });
 });
 
 describe('AHU completion pre-flight (POPUP / INTERLOCK)', () => {

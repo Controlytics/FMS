@@ -39,11 +39,15 @@ describe('tablet cycle start — refusal handling', () => {
   });
 
   it('a refused start in the readings dialog reports the server reason', () => {
+    // 2026-10-22: awaited through reauth.executeWithResult, which re-throws, so
+    // the refusal reaches this catch (with START re-auth on, `execute` returned
+    // before the start ran — see ops-start-and-equipment.test.tsx).
     const start = src.indexOf('startWithPmGate(equipFiltId,');
-    const block = src.slice(start, start + 4000);
-    expect(block).toMatch(/onError: \(e: any\) => \{\n\s+startFailed = true;/);
-    expect(block).toMatch(/setError\(`\$\{equipFiltName\}: \$\{e\?\.message/);
-    expect(block).toMatch(/if \(startFailed \|\| startCancelled \|\| typeof executed !== 'boolean'\)/);
+    const block = src.slice(start - 600, start + 4000);
+    expect(block).toMatch(/started = await reauth\.executeWithResult\(/);
+    expect(block).toMatch(/\} catch \(e: any\) \{\n[^]*?setError\(`\$\{equipFiltName\}: \$\{e\?\.message/);
+    // the start payload is spent only AFTER the start went through
+    expect(block).toMatch(/if \(started\.cancelled\) \{ setLoading\(false\); return; \}\n[^]*?setPendingCyclePayload\(null\);/);
   });
 
   it('a batch start refused for a missed PM asks the question and retries', () => {
@@ -51,6 +55,11 @@ describe('tablet cycle start — refusal handling', () => {
   });
 
   it('a filter with no cycle is told its first stage before anything is started', () => {
-    expect(src).toMatch(/const firstStages = firstStagesFromGraph\(state\.pipelineGraph\);/);
+    // The live (queue) path: a filter this tablet never opened has its state read
+    // once, so the shared gate's first-stage rule (validateOfflineGate) applies
+    // before the reason is asked. (The single-scan copy of this check went with
+    // the dead handleSubmit, 2026-10-22; behaviour: ops-scan-queue.test.tsx.)
+    expect(src).toMatch(/if \(online && !cachedState\.pipelineGraph\?\.stages && !\(cachedState\.currentCycle\?\.id \|\| cached\?\.currentCycleId\)\)/);
+    expect(src).toMatch(/const runGate = \(\) => validateOfflineGate\(\{/);
   });
 });

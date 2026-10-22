@@ -5,6 +5,7 @@
  * apiClient -> fetch. Only global `fetch` is stubbed, so the request bodies,
  * headers and storage writes asserted here are the ones the browser makes.
  */
+import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
@@ -209,6 +210,40 @@ describe('useAuth.logout', () => {
     await act(async () => { await latest.logout(); });
     expect(sessionStorage.getItem('access_token')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('path')).toHaveTextContent('/login'));
+  });
+});
+
+describe('useAuth.user identity', () => {
+  // Consumers key effects on `user` (the tablet's open-time sync, the JWT refresh
+  // timer). A fresh object per render re-ran them on every render while /me was
+  // pending — the tablet downloaded its master data 5 times per open (2026-10-22).
+  it('is the SAME object on every render while /me is pending, and stays stable once it answers', async () => {
+    const api = mockApi();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: any, init?: any) => {
+      if (String(input).includes('/api/auth/me')) await gate;
+      return (real as any)(input, init);
+    }));
+    localStorage.setItem('digilog_cached_user', JSON.stringify(meUser));
+    const seen: unknown[] = [];
+    function Rerendering() {
+      const auth = useAuth();
+      const [n, setN] = React.useState(0);
+      seen.push(auth.user);
+      return <button onClick={() => setN(n + 1)}>again</button>;
+    }
+    renderPage(<Rerendering />, { user: { ...meUser, fullName: 'Alice (server)' }, api });
+    for (let i = 0; i < 3; i++) await act(async () => { screen.getByRole('button', { name: 'again' }).click(); });
+    expect(seen.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(seen).size).toBe(1); // one cached object, however many renders
+    expect((seen[0] as any).fullName).toBe('Alice Doe');
+    await act(async () => { release(); });
+    await waitFor(() => expect((seen.at(-1) as any).fullName).toBe('Alice (server)'));
+    const fetched = seen.at(-1);
+    for (let i = 0; i < 2; i++) await act(async () => { screen.getByRole('button', { name: 'again' }).click(); });
+    expect(seen.at(-1)).toBe(fetched);
   });
 });
 

@@ -102,10 +102,10 @@ describe('"offline" flag, reachable server', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     expect(await message('F-003: Replacement overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-    expect(await message('Queued 2 cycle(s)')).toBeInTheDocument();
+    expect(await message('Queued 1 cycle(s)')).toBeInTheDocument(); // the refused one is not counted
   });
 
-  it('a batch START with readings tries every filter (the follow-on refusal is NOT reported — see report)', async () => {
+  it('a batch START with readings tries every filter; a follow-on refusal is named and not counted', async () => {
     const NO_CYCLE = { currentState: null, currentCycle: null, actions: [], pipelineGraph: graph(['WASH_IN', 'WASH_OUT']) };
     const G = { id: 'gw', name: 'Wash Bay', blockId: 'b1', instruments: [{ id: 'ro', description: 'RO', stageKey: 'WASH_IN', uom: 'bar', operatingMin: 1, operatingMax: 2, leastCount: 1 }] };
     const { api } = await renderOps({
@@ -131,8 +131,11 @@ describe('"offline" flag, reachable server', () => {
     // Both STARTs reach the server with the same reason and readings…
     expect(api.calls('POST', '/api/filters/f1/advance')[0].json.instrumentReadings).toEqual({ ro: 1 });
     expect(api.calls('POST', '/api/filters/f3/start-cycle')[0].json.cleaningReasonKey).toBe('PM');
-    // …but F-003's 409 is swallowed by reauth.execute in the continuation loop
-    // (no onError there), so the page reports both as started. Defect recorded.
+    // …and F-003's 409 is shown, not swallowed (it was, until 2026-10-22: the
+    // continuation loop ran inside reauth.execute, which never re-throws).
+    expect(await message('F-003: Blocked filter')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(await message('Started 1 cycle successfully')).toBeInTheDocument();
   });
 
   it('an offline batch checklist the server accepts reads as submitted, not queued', async () => {
@@ -151,6 +154,20 @@ describe('"offline" flag, reachable server', () => {
 });
 
 describe('misc', () => {
+  // The scan field re-takes focus 50 ms after a blur. A page closed inside that
+  // window left the timer running against a torn-down document (the full suite's
+  // unhandled "document is not defined", 2026-10-22).
+  it('a blur just before the page closes leaves no refocus timer behind', async () => {
+    const view = await renderOps({ stage: 'WASH_OUT' });
+    const input = screen.getByPlaceholderText('Scan RFID tag...');
+    const active = vi.spyOn(document, 'activeElement', 'get');
+    fireEvent.blur(input);
+    view.unmount();
+    active.mockClear();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(active).not.toHaveBeenCalled();
+  });
+
   it('APPROVAL mode without re-auth posts the request plainly', async () => {
     const { api } = await renderOps({
       stage: 'WASH_IN', blockChangeMode: 'APPROVAL',

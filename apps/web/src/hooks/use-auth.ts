@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
@@ -49,22 +49,28 @@ export function useAuth() {
   const navigate = useNavigate();
   const getToken = () => sessionStorage.getItem('access_token');
 
-  // Cache user data for offline use
-  const getCachedUser = (): User | undefined => {
-    try {
-      const cached = localStorage.getItem('digilog_cached_user');
-      return cached ? JSON.parse(cached) : undefined;
-    } catch { return undefined; }
-  };
-
   // No token = signed out = no user. SWR returns `fallbackData` even for a null key,
   // so an ungated fallback handed the PREVIOUS operator's cached row to every
   // consumer (useCan, RequireRole, useSuperAdminLock) after a tab close (D-L1).
   const token = getToken();
+
+  // Cache user data for offline use. Parsed once per stored string, so the
+  // cached user is the SAME object on every render (2026-10-22): a fresh
+  // JSON.parse per render made `user` a new object each time while /me was
+  // pending (SWR hands `fallbackData` back as `data`), so every effect keyed on
+  // `user` re-ran on every render — the tablet re-downloaded its master data
+  // 5 times per open. Keyed on the stored string, so a login or /me rewriting
+  // the cache still yields the new user.
+  const cachedUserJson = token ? localStorage.getItem('digilog_cached_user') : null;
+  const cachedUser = useMemo((): User | undefined => {
+    if (!cachedUserJson) return undefined;
+    try { return JSON.parse(cachedUserJson); } catch { return undefined; }
+  }, [cachedUserJson]);
+
   const { data: fetchedUser, error, isLoading, mutate } = useSWR<User>(
     token ? '/api/auth/me' : null,
     {
-      fallbackData: token ? getCachedUser() : undefined,
+      fallbackData: cachedUser,
       onSuccess: (data) => {
         if (data) localStorage.setItem('digilog_cached_user', JSON.stringify(data));
       },
@@ -72,7 +78,7 @@ export function useAuth() {
   );
 
   // Use fetched user when online, cached user as fallback when offline
-  const user = token ? (fetchedUser ?? getCachedUser()) : undefined;
+  const user = token ? (fetchedUser ?? cachedUser) : undefined;
 
   const login = async (username: string, password: string, force?: boolean) => {
     const res = await apiClient.post<LoginResponse>('/api/auth/login', {

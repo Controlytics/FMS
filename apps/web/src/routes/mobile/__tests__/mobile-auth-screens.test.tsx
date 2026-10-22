@@ -191,13 +191,11 @@ describe('tablet login — refusals', () => {
     expect(await screen.findByText('Login failed')).toBeInTheDocument();
   });
 
-  it('PASSWORD_EXPIRED shows the tablet\'s expiry message', async () => {
-    // lib/api-client.ts also answers a 403 PASSWORD_EXPIRED by assigning
-    // window.location.href = '/change-password' (jsdom logs it as an
-    // unimplemented navigation, allowed below). In the WebView that is a full
-    // page load onto a page whose POST /api/auth/change-password needs the
-    // session this failed login never created — recorded as a defect.
-    allowConsoleError(/Not implemented: navigation/);
+  it('PASSWORD_EXPIRED shows the tablet\'s expiry message and stays on the login screen', async () => {
+    // A refused LOGIN has no session, so it must not be sent to /change-password
+    // (whose POST needs the session this login never created). jsdom reports any
+    // `location.href` assignment as "Not implemented: navigation" — the console
+    // guard fails the test if apiClient attempts one (it did until 2026-10-22).
     renderLogin([{ method: 'POST', path: '/api/auth/login', status: 403, body: { error: 'PASSWORD_EXPIRED', message: 'Your password has expired.' } }]);
     fill();
     signIn();

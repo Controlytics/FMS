@@ -23,7 +23,7 @@ vi.mock('../mobile-operations', () => ({
 useMobileLifecycle();
 
 const T1 = { entryId: 'e1', ahuId: 'h1', ahuName: 'AHU-01', areaId: 'a1', areaName: 'Clean Room A', blockId: 'b1', blockName: 'North', overallStatus: 'pending', plannedDate: '2026-10-21', cleanedCount: 1, totalFilters: 2,
-  filters: [{ filterId: 'f101', filterName: 'F-101', status: 'cleaned_in_window' }, { filterId: 'f102', filterName: 'F-102', status: 'in_progress' }, { filterId: 'f103', filterName: 'F-103', status: 'pending' }] };
+  filters: [{ filterId: 'f101', filterName: 'F-101', status: 'cleaned_in_window' }, { filterId: 'f102', filterName: 'F-102', status: 'in_progress', currentStage: 'WASH_OUT' }, { filterId: 'f103', filterName: 'F-103', status: 'pending' }] };
 const T2 = { entryId: 'e2', ahuId: 'h2', ahuName: 'AHU-02', areaId: null, blockId: 'b1', blockName: 'North', overallStatus: 'in_progress', plannedDate: '2026-10-21', cleanedCount: 0, totalFilters: 0, filters: [] };
 const T3 = { entryId: 'e3', ahuId: 'h3', ahuName: 'AHU-03', areaId: 'a2', areaName: 'Pack Hall', blockId: 'b2', blockName: 'South', overallStatus: 'complete', plannedDate: '2026-10-21', cleanedCount: 2, totalFilters: 2, filters: [] };
 const T4 = { entryId: 'e4', ahuId: 'h9', ahuName: 'AHU-09', areaId: null, blockId: null, overallStatus: 'not_performed', skipReason: 'Plant shutdown', plannedDate: '2026-10-21', cleanedCount: 0, totalFilters: 3, filters: [] };
@@ -56,6 +56,7 @@ describe('My Tasks — list', () => {
     expect(api.calls('GET', '/api/pm-schedules/due')[0].url).toBe('/api/pm-schedules/due');
     expect(card('AHU-01')).toHaveTextContent('Pending');
     expect(card('AHU-01')).toHaveTextContent('1/2 cleaned');
+    expect(card('AHU-01')).toHaveTextContent('21/10/2026 • 1/2 cleaned'); // the planned DATE, in the configured format
     expect(card('AHU-01').querySelector('[style*="width: 50%"]')).not.toBeNull();
     expect(within(card('AHU-01')).getByRole('button', { name: 'Perform →' })).toBeInTheDocument();
     expect(card('AHU-02')).toHaveTextContent('In Progress');
@@ -66,7 +67,7 @@ describe('My Tasks — list', () => {
     expect(card('AHU-08')).toHaveTextContent(/Not performed$/);
     expect(within(card('AHU-09')).queryByRole('button', { name: /Perform/ })).toBeNull();
     expect(screen.getByText('Overdue', { selector: 'h3' })).toBeInTheDocument();
-    expect(card('AHU-03', 1)).toHaveTextContent('0/2 cleaned');
+    expect(card('AHU-03', 1)).toHaveTextContent('Window closed 10/10/2026 • 0/2 cleaned');
     expect(within(card('AHU-03', 1)).getByRole('button', { name: 'Perform (overdue) →' })).toBeInTheDocument();
     expect(card('AHU-07')).toHaveTextContent('Not performed');
     expect(within(card('AHU-07')).queryByRole('button')).toBeNull();
@@ -80,6 +81,10 @@ describe('My Tasks — list', () => {
     expect(chips.getByText('F-101').className).toContain('emerald');
     expect(chips.getByText('F-102').className).toContain('cyan');
     expect(chips.getByText('F-103').className).toContain('amber');
+    // the status is written out, not only coloured; a filter mid-cycle names its stage
+    expect(chips.getByText('F-101')).toHaveTextContent('F-101· Cleaned');
+    expect(chips.getByText('F-102')).toHaveTextContent('F-102· Wash Out· In progress');
+    expect(chips.getByText('F-103')).toHaveTextContent('F-103· Pending');
     fireEvent.click(head.closest('button')!);
     expect(within(card('AHU-01')).queryByText('F-101')).toBeNull();
     fireEvent.click(screen.getByRole('heading', { name: 'AHU-02' }).closest('button')!);

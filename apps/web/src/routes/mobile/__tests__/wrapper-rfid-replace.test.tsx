@@ -52,8 +52,10 @@ describe('RFID Assign — choosing a filter', () => {
 
   it('the cascade and the name search narrow the list; "clear" resets the cascade', async () => {
     await openAssign();
+    expect(screen.getByText(/^showing/)).toHaveTextContent('showing 4 of 4');
     pick('Block', 'b1');
     expect(listNames()).toEqual(['F-101', 'F-102', 'F-201']);
+    expect(screen.getByText(/^showing/)).toHaveTextContent('showing 3 of 4'); // of the whole list, not of itself
     expect([...selectUnder('Area').options].map((o) => o.textContent)).toEqual(['All', 'Clean Room A']);
     expect([...selectUnder('AHU').options].map((o) => o.textContent)).toEqual(['All', 'AHU-01', 'AHU-02']);
     pick('AHU', 'h2');
@@ -154,7 +156,12 @@ describe('RFID Assign — writing a tag', () => {
     expect(screen.queryByTestId('rfid-replace-confirm')).toBeNull();
     vi.setSystemTime(new Date(t0.getTime() + 6000));
     fireEvent.keyDown(tagInput(), { key: 'Enter' });
-    vi.setSystemTime(new Date(t0.getTime() + 8000)); // the operator reads the card before confirming
+    vi.setSystemTime(new Date(t0.getTime() + 6100));
+    fireEvent.keyDown(tagInput(), { key: 'Enter' }); // the scanner double-fires: still ignored
+    expect(api.calls('POST', '/api/assets/identifiers')).toHaveLength(0);
+    // A deliberate tap on Replace Tag is never a scanner double-fire, however
+    // soon after the scan it comes.
+    vi.setSystemTime(new Date(t0.getTime() + 6500));
     fireEvent.click(within(screen.getByTestId('rfid-replace-confirm')).getByRole('button', { name: 'Replace Tag' }));
     expect(await screen.findByText('Tag E200A1 replaced by E200NEW3 on "F-101"')).toBeInTheDocument();
     expect(api.calls('POST', '/api/assets/identifiers')[0].json).toEqual({ assetId: 'f101', identifierType: 'RFID', identifierValue: 'E200NEW3', replaceExisting: true });
@@ -177,7 +184,7 @@ describe('RFID Assign — writing a tag', () => {
     expect(await screen.findByRole('heading', { name: 'Select filter' })).toBeInTheDocument();
   });
 
-  it('with re-auth on, assign and remove are signed with the password; Cancel reports it and frees the buttons', async () => {
+  it('with re-auth on, assign and remove are signed with the password; a dismissed prompt is silent and frees the buttons', async () => {
     const { api } = await openAssign({
       reauthActions: ['CREATE_ASSET_IDENTIFIER', 'DELETE_ASSET_IDENTIFIER'],
       routes: [
@@ -191,8 +198,10 @@ describe('RFID Assign — writing a tag', () => {
     expect(await screen.findByText(/Assign RFID Tag/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Assigning...' })).toBeDisabled();
     await cancelReauth();
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Assign Tag' })).toBeEnabled();
+    // A dismissed prompt is not an error (D-OPS-8): no message, the button is free again.
+    expect(await screen.findByRole('button', { name: 'Assign Tag' })).toBeEnabled();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('POST', '/api/assets/identifiers')).toHaveLength(0);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.now() + 2000);
     fireEvent.click(screen.getByRole('button', { name: 'Assign Tag' }));
@@ -205,6 +214,11 @@ describe('RFID Assign — writing a tag', () => {
     fireEvent.click(await screen.findByText('F-101', { selector: 'div.font-display' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     expect(await screen.findByText(/Remove RFID Tag/)).toBeInTheDocument();
+    await cancelReauth(); // silent too, and Remove is usable again
+    expect(await screen.findByRole('button', { name: 'Remove' })).toBeEnabled();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('DELETE', '/api/assets/identifiers/i1')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     await passReauth();
     expect(await screen.findByText('Tag removed')).toBeInTheDocument();
     expect(api.calls('DELETE', '/api/assets/identifiers/i1')[0].headers['x-reauth-password']).toBe('Secret@123');
@@ -299,6 +313,20 @@ describe('Replace Filter — single', () => {
     expect(await screen.findByRole('heading', { name: 'Replace — select filter' })).toBeInTheDocument();
   });
 
+  it('with re-auth on, a dismissed password prompt is silent and leaves Replace usable (D-OPS-8)', async () => {
+    const { api } = await openReplace({ reauthActions: ['REPLACE_FILTER'], routes: [{ method: 'POST', path: '/api/filters/f301/replace', body: { success: true, newFilterName: 'F-301-R1' } }] });
+    fireEvent.click(screen.getByText('F-301', { selector: 'div.font-display' }));
+    fireEvent.change(screen.getByPlaceholderText('Reason for replacement…'), { target: { value: 'End of life' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Filter' }));
+    await cancelReauth();
+    expect(await screen.findByRole('button', { name: 'Replace Filter' })).toBeEnabled();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('POST', '/api/filters/f301/replace')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Filter' }));
+    await passReauth();
+    expect(await screen.findByText('"F-301" replaced → F-301-R1')).toBeInTheDocument();
+  });
+
   it('a replacement with no tag moved and no new name says so plainly', async () => {
     await openReplace({ routes: [{ method: 'POST', path: '/api/filters/f301/replace', body: { success: true } }] });
     fireEvent.click(screen.getByText('F-301', { selector: 'div.font-display' }));
@@ -334,8 +362,10 @@ describe('Replace Filter — single', () => {
     expect(listNames()).toEqual(['F-301']);
     fireEvent.click(screen.getByRole('button', { name: 'clear' }));
     expect(listNames()).toHaveLength(4);
+    expect(screen.getByText(/^showing/)).toHaveTextContent('showing 4 of 4');
     fireEvent.change(screen.getByPlaceholderText('Type to narrow…'), { target: { value: 'q' } });
     expect(screen.getByText('No filters match.')).toBeInTheDocument();
+    expect(screen.getByText(/^showing/)).toHaveTextContent('showing 0 of 4');
   });
 });
 
@@ -549,6 +579,11 @@ describe('Replacement tasks — performing one', () => {
     expect(screen.getByText('No filter found for tag "ZZZ".')).toBeInTheDocument();
     fireEvent.change(scan, { target: { value: 'e200a1' } });
     fireEvent.keyDown(scan, { key: 'Enter' });
+    await cancelReauth(); // dismissed: silent, nothing sent, the scan works again
+    await flush(50);
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/rt2/execute')).toHaveLength(0);
+    fireEvent.keyDown(scan, { key: 'Enter' });
     await passReauth();
     expect(await screen.findByText('F-101 replaced (AHU AHU-03) · tag carried over')).toBeInTheDocument();
     const req = api.calls('POST', '/api/replacement-schedules/entries/rt2/execute')[0];
@@ -567,14 +602,15 @@ describe('Replacement tasks — performing one', () => {
     expect(screen.getByText('2 of 3 filters still to replace')).toBeInTheDocument();
   });
 
-  it('a batch whose password prompt is cancelled reports it', async () => {
-    await openTasks({ reauthActions: ['REPLACE_FILTER'] });
+  it('a batch whose password prompt is dismissed sends nothing and says nothing (D-OPS-8)', async () => {
+    const { api } = await openTasks({ reauthActions: ['REPLACE_FILTER'] });
     fireEvent.click(taskButton('AHU-01'));
     fireEvent.click(await screen.findByText('F-102', { selector: 'div.font-display' }));
     fireEvent.click(screen.getByRole('button', { name: 'Replace 1 selected filter' }));
     await cancelReauth();
-    expect(await screen.findByText('Cancelled — password confirmation was not completed.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Replace 1 selected filter' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Replace 1 selected filter' })).toBeEnabled();
+    expect(screen.queryByText(/Cancelled/)).toBeNull();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/rt1/execute')).toHaveLength(0);
   });
 
   it('a password demanded mid-batch re-runs the whole batch with the password', async () => {

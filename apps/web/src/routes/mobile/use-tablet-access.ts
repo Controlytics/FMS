@@ -78,9 +78,13 @@ export function useTabletAccess(user: { id?: string } | null | undefined, online
   const { data: live } = useSWR<TabletAccessResponse>(user && online ? '/api/config/tablet-access/my-features' : null);
   const [cached, setCached] = useState<{ userId: string; value: TabletAccessResponse } | null>(null);
 
-  // Remember the last list read online, for this user.
+  // Remember the last list read online, for this user — in memory at once, as
+  // well as on disk (2026-10-22). Going offline drops `live`, and until the disk
+  // read below resolved there was NO list in force: every feature was allowed
+  // (fail-open) and a role the tablet is not enabled for saw the shell flash up.
   useEffect(() => {
     if (!userId || !live) return;
+    setCached({ userId, value: live });
     cacheData(tabletAccessCacheKey(userId), live, TABLET_ACCESS_TTL_MS).catch(() => { /* best effort */ });
   }, [userId, live]);
 

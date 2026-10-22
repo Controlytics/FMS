@@ -4,9 +4,9 @@
  * timeline). Same boundary fakes as wrapper-shell.test.tsx.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { useMobileLifecycle, flush, seedCache, allowConsoleError } from './support/mobile-kit';
-import { renderWrapper, F101 } from './support/wrapper-harness';
+import { renderWrapper } from './support/wrapper-harness';
 
 vi.mock('@/lib/connectivity', async () => (await import('./support/fakes')).connectivityModule);
 vi.mock('@/lib/sync-engine', async () => (await import('./support/fakes')).syncEngineModule);
@@ -17,7 +17,7 @@ vi.mock('../mobile-operations', () => ({ MobileOperationsPage: () => <div data-t
 
 useMobileLifecycle();
 
-/** The <select> under a cascade label (the labels carry no htmlFor — see report). */
+/** The <select> under a cascade label (also its accessible name — the label carries htmlFor since 2026-10-22). */
 const selectUnder = (label: string, scope: HTMLElement = document.body) =>
   within(scope).getAllByText(label, { selector: 'label' })[0].parentElement!.querySelector('select') as HTMLSelectElement;
 const pick = (label: string, value: string, scope?: HTMLElement) => fireEvent.change(selectUnder(label, scope), { target: { value } });
@@ -238,8 +238,7 @@ describe('Scan RFID lookup (from Filter Status)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Scan RFID/ }));
     await screen.findByText('Look up filter by tag');
-    const header = screen.getByText('Look up filter by tag').closest('div.sticky')!;
-    fireEvent.click(header.querySelector('button')!); // the X (no accessible name — see report)
+    fireEvent.click(screen.getByRole('button', { name: 'Close tag lookup' })); // the X
     expect(screen.queryByText('Look up filter by tag')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Scan RFID/ }));

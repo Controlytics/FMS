@@ -41,7 +41,9 @@ describe('scanning into the queue', () => {
   it('a scanned tag joins the queue with its AHU; the same filter twice is refused; Remove and the ticks work', async () => {
     await renderOps({ stage: 'WASH_OUT' });
     await scanTag('e1');
-    await inQueue('F-001');
+    // The FIRST scan names the AHU too: the reader's listener must call the
+    // latest handler, not the one from before the master data arrived.
+    expect(await inQueue('F-001')).toHaveTextContent('F-001· AHU-01');
     await scanTag('E1');
     expect(await message('Filter already in queue')).toBeInTheDocument();
     await dismissAll();
@@ -138,10 +140,10 @@ describe('scanning into the queue', () => {
   });
 
   it('My Tasks Perform hands over a block, which is preselected once the blocks load (an unknown id is ignored)', async () => {
-    const a = await renderOps({ props: { initialStageKey: 'WASH_IN', initialBlockId: 'b2', hideHeader: true } });
+    const a = await renderOps({ props: { initialStageKey: 'WASH_IN', initialBlockId: 'b2' } });
     expect(await screen.findByText('Block: South')).toBeInTheDocument();
     a.unmount();
-    await renderOps({ props: { initialStageKey: 'WASH_IN', initialBlockId: 'nope', hideHeader: true } });
+    await renderOps({ props: { initialStageKey: 'WASH_IN', initialBlockId: 'nope' } });
     expect(await screen.findByText('Select Block')).toBeInTheDocument();
     await flush();
   });
@@ -290,6 +292,19 @@ describe('submitting the queue — online (one /bulk-operate)', () => {
     await dismissAll();
     expect(screen.getByText(/Queue \(1\)/)).toBeInTheDocument();
     expect(submitButton()).toBeEnabled();
+  });
+
+  it('when the tablet storage cannot be read, the submit says so and the button recovers (never a stuck spinner)', async () => {
+    const { api } = await renderOps({ stage: 'WASH_OUT', states: { f1: state('WASH_IN', [adv('WASH_OUT')]) } });
+    await scanTag('E1'); await inQueue('F-001');
+    vi.stubGlobal('indexedDB', undefined); // the WebView's IndexedDB is gone (storage evicted / quota)
+    fireEvent.click(submitButton());
+    expect(await screen.findByRole('button', { name: 'OK' })).toBeInTheDocument(); // the failure is shown
+    await dismissAll();
+    expect(screen.queryByText(/Submitting/)).toBeNull();
+    expect(submitButton()).toBeEnabled();
+    expect(screen.getByText(/Queue \(1\)/)).toBeInTheDocument(); // kept for a retry
+    expect(api.calls('POST', '/api/filters/bulk-operate')).toHaveLength(0);
   });
 
   it('with re-auth on, ONE password signs the batch; cancelling keeps the queue with no error', async () => {
@@ -465,6 +480,29 @@ describe('Dry In — the dryer is started for the whole selection', () => {
       { targetState: 'DRY_IN', cleaningAreaId: 'b1', dryerAction: 'SET_DURATION', dryerDurationMinutes: 60, remarks: 'Dryer started (60 min) - F-001', tapeVersion: 7 },
       { targetState: 'DRY_IN', cleaningAreaId: 'b1', dryerAction: 'SET_DURATION', dryerDurationMinutes: 60, remarks: 'Dryer started (60 min) - F-002', tapeVersion: 7 },
     ]);
+  });
+
+  // The header change is the ONLY render between the two scans: the listeners
+  // must call the latest handler, not the one captured when the queue last grew.
+  it.each(['native reader', 'keyboard wedge'])('a filter scanned AFTER the header duration changed takes the new duration (%s)', async (via) => {
+    const { api } = await renderOps({
+      stage: 'DRY_IN',
+      states: { f1: state('WASH_OUT', [setDryer()]), f3: state('WASH_OUT', [setDryer()]) },
+      routes: [
+        { path: '/api/assets/identifiers/lookup/TAG3', body: { asset: { id: 'f3', name: 'F-003' } } },
+        { method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() },
+      ],
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    const dur = screen.getByText(/Duration/).querySelector('select') as HTMLSelectElement;
+    fireEvent.change(dur, { target: { value: '60' } });
+    if (via === 'native reader') await scanTag('E3');
+    else for (const key of ['T', 'A', 'G', '3', 'Enter']) fireEvent.keyDown(document.body, { key }); // a fast burst
+    await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await message('2 filter(s) → Dry In')).toBeInTheDocument();
+    expect(bulkItems(api).map((i: any) => [i.filterId, i.payload.dryerDurationMinutes])).toEqual([['f1', 60], ['f3', 60]]);
   });
 });
 

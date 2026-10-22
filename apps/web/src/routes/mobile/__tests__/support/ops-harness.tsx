@@ -2,8 +2,8 @@
  * Render helper + fixtures for the MobileOperationsPage suites (coverage
  * campaign, 2026-10-21). NOT a test file. Suites declare their own vi.mocks.
  *
- * The page is rendered the way the shell renders it (`initialStageKey` +
- * `hideHeader`), or bare (no props) for its own header / Home views.
+ * The page is rendered the way the shell renders it: on one station
+ * (`initialStageKey`, optionally `initialBlockId`).
  *
  * Driving it:
  *  - scans go through the native RFID bridge callback (`scanTag`), exactly as
@@ -97,7 +97,7 @@ export interface OpsOpts extends MobileRouteOpts {
   user?: TestUser;
   routes?: MockRoute[];
   online?: boolean;
-  /** Props for the page. Defaults to the shell's: { initialStageKey, hideHeader: true }. */
+  /** Props for the page. Defaults to the shell's: { initialStageKey }. */
   props?: Record<string, any>;
   stage?: string;
   /** filter-state-<id> rows to seed BEFORE render. */
@@ -145,7 +145,7 @@ export async function renderOps(o: OpsOpts = {}) {
     { path: '/api/replacement-schedules/blocked-filters', body: { filterIds: o.blockedFilterIds ?? [] } },
     ...mobileRoutes({ instances: OPS_INSTANCES, templates: OPS_TEMPLATES, ...o }),
   ]);
-  const props = o.props ?? { initialStageKey: o.stage ?? 'WASH_OUT', hideHeader: true };
+  const props = o.props ?? { initialStageKey: o.stage ?? 'WASH_OUT' };
   const view = renderPage(<><MobileOperationsPage {...props} /><LocationProbe /></>, { route: '/m', user, api, globalCache: o.globalCache });
   // Let the master data land first (the queue row names the filter's AHU from it).
   if (o.online !== false) await waitFor(() => expect(api.calls('GET', '/api/assets/instances').length).toBeGreaterThan(0));

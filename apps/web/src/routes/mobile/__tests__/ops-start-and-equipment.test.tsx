@@ -83,8 +83,21 @@ describe('Cleaning Reason dialog', () => {
     expect(advance).toMatchObject({ targetState: 'WASH_OUT', remarks: 'night shift', tapeVersion: 11 });
     expect(advance.clientOpId).toMatch(/:advance$/);
     await dismissAll();
-    // (The Cleaning Reason dialog stays open after this success — recorded as a
-    // defect in the coverage report; the stage view is hidden behind it.)
+    // The started filter's reason dialog is done with: it closes.
+    expect(screen.queryByText('Cleaning Reason')).toBeNull();
+    expect(screen.getByPlaceholderText('Scan RFID tag...')).toBeInTheDocument();
+  });
+
+  it('a single start whose first stage asks for a checklist AFTER it is entered hands over to the checklist', async () => {
+    await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN']) }, routes: startRoutes('f3', [submitChecklist('WASH_OUT')]) });
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    expect(await message('F-003 → WASH OUT')).toBeInTheDocument();
+    await dismissAll();
+    expect(screen.getByText('Checklist Required')).toBeInTheDocument();
+    expect(screen.queryByText('Cleaning Reason')).toBeNull();
   });
 
   it('a start the server refuses keeps the reason dialog\'s payload and shows the reason (2026-10-01)', async () => {
@@ -123,11 +136,18 @@ describe('Cleaning Reason dialog', () => {
     expect(api.calls('POST', '/api/filters/f3/advance')[0].json).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 45 });
   });
 
-  it('with re-auth on the start is signed (start AND advance carry the password)', async () => {
+  it('with re-auth on the start is signed (start AND advance carry the password); a dismissed prompt is silent', async () => {
     const { api } = await renderOps({ stage: 'WASH_OUT', reauthActions: ['START_CLEANING_CYCLE'], states: { f3: NO_CYCLE(['WASH_OUT']) }, routes: startRoutes('f3') });
     await scanTag('E3'); await inQueue('F-003');
     await toReasonDialog('WASH_OUT');
     fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    await cancelReauth();
+    await flush(150);
+    // D-OPS-8: a dismissed prompt is not an error — no message, nothing sent, the dialog stays
+    expect(screen.queryAllByRole('button', { name: 'OK' })).toHaveLength(0);
+    expect(screen.getByText('Cleaning Reason')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/filters/f3/start-cycle')).toHaveLength(0);
     fireEvent.click(startBtn());
     await passReauth();
     expect(await message('F-003 → WASH OUT')).toBeInTheDocument();
@@ -158,6 +178,38 @@ describe('Cleaning Reason dialog', () => {
     expect(api.calls('POST', '/api/filters/f3/advance-with-checklist')[0].json).toMatchObject({
       targetState: 'WASH_OUT', answers: { q1: 'Yes' }, expectedProfileVersions: { cl1: 3 }, tapeVersion: 21,
     });
+  });
+});
+
+describe('a signed checklist (SUBMIT_CHECKLIST_WITH_SIGNATURE)', () => {
+  it('a dismissed password prompt is silent; the checklist stays open and nothing is written', async () => {
+    const g = graph(['WASH_OUT', 'STORAGE_IN'], { stage: 'WASH_OUT', profileId: 'cl1' });
+    const { api } = await renderOps({
+      stage: 'WASH_OUT', reauthActions: ['SUBMIT_CHECKLIST_WITH_SIGNATURE'],
+      states: { f3: NO_CYCLE(['WASH_OUT'], { pipelineGraph: g }) }, cache: { 'checklist-profiles': [CHECKLIST_PROFILE] },
+      routes: [
+        { method: 'POST', path: '/api/filters/f3/start-cycle', status: 201, body: {} },
+        { path: '/api/filters/f3/current-state', body: { tapeVersion: 21 } },
+        { method: 'POST', path: '/api/filters/f3/advance-with-checklist', body: { currentState: 'WASH_OUT', tapeVersion: 22, actions: [] } },
+      ],
+    });
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    expect(await screen.findByText('Checklist Required')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Checklist' }));
+    await cancelReauth();
+    await flush(150);
+    expect(screen.queryAllByRole('button', { name: 'OK' })).toHaveLength(0);
+    expect(screen.getByText('Checklist Required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit Checklist' })).toBeEnabled();
+    expect(api.calls('POST', '/api/filters/f3/start-cycle')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Checklist' }));
+    await passReauth();
+    expect(await message('Checklist submitted')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/filters/f3/advance-with-checklist')[0].headers['x-reauth-password']).toBe('Secret@123');
   });
 });
 
@@ -204,20 +256,26 @@ describe('the missed-PM question (2026-10-01)', () => {
       'filter-state-f3': NO_CYCLE(['WASH_OUT', 'STORAGE_IN']),
       'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
     };
+    // Every step here waits on IndexedDB reads (the cached PM map, the queue), which
+    // a loaded full-suite run slows well past the default wait: give them room.
+    const LOAD_SAFE = { timeout: 15_000 };
     await renderOps({ stage: 'WASH_OUT', online: false, cachedFilters: [F3], cache });
     offlineFetch();
     await scanTag('E3'); await inQueue('F-003');
     await toReasonDialog('WASH_OUT');
     fireEvent.click(reasonBtn(/Preventive Maintenance/));
     fireEvent.click(startBtn());
-    await cancelPmQuestion();
+    const save = () => screen.findByRole('button', { name: 'Save reasons & start cleaning' }, LOAD_SAFE);
+    fireEvent.click(within((await save()).parentElement!).getByRole('button', { name: 'Cancel' })); // the question's own Cancel
     await flush();
     expect(queuedOps()).toHaveLength(0);
     // ask again
     fireEvent.click(startBtn());
-    await answer('Was on leave');
-    fireEvent.click(await screen.findByRole('button', { name: 'Save reasons & start cleaning' }));
-    expect(await message('F-003 → WASH OUT (queued)')).toBeInTheDocument();
+    fireEvent.change(await screen.findByPlaceholderText('Why was this scheduled cleaning not done?', {}, LOAD_SAFE), { target: { value: 'Was on leave' } });
+    fireEvent.click(await save());
+    expect(await screen.findByText('F-003 → WASH OUT (queued)', { selector: 'p' }, LOAD_SAFE)).toBeInTheDocument();
+    await dismissAll();
+    expect(screen.queryByText('Cleaning Reason')).toBeNull(); // a queued start closes it too
     const op = queuedOps()[0];
     expect(op.type).toBe('start-and-advance');
     expect(op.payload.cyclePayload.pmSkips).toEqual([{ entryId: 'pm1', reason: 'Was on leave' }]);
@@ -339,6 +397,33 @@ describe('batch starts — one reason for the whole queue', () => {
     expect(queuedOps().map((o) => [o.type, o.filterId])).toEqual([['start-and-advance', 'f1'], ['start-and-advance', 'f3']]);
     expect(screen.queryByText('Cleaning Reason')).toBeNull();
   });
+
+  it('offline without equipment: a start the server refuses is listed and not counted as queued', async () => {
+    await renderOps({
+      stage: 'WASH_OUT', online: false, cachedFilters: [{ ...F1, currentCycleId: null }, F3],
+      cache: {
+        'identifier-map': { E1: { filterId: 'f1', filterName: 'F-001' }, E3: { filterId: 'f3', filterName: 'F-003' } },
+        'filter-state-f1': NO_CYCLE(['WASH_OUT', 'STORAGE_IN']), 'filter-state-f3': NO_CYCLE(['WASH_OUT', 'STORAGE_IN']),
+        'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
+      },
+    });
+    // A flapping link: F-001's start reaches the server and is refused.
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/api/filters/f1/start-cycle')) {
+        return new Response(JSON.stringify({ error: 'REPLACEMENT_OVERDUE', message: 'AHU-01 replacement overdue' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new TypeError('Failed to fetch');
+    }));
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    expect(await message('F-001: AHU-01 replacement overdue')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'OK' })); // messages queue: the refusal first
+    expect(await message('Queued 1 cycle(s)')).toBeInTheDocument();
+    expect(queuedOps().map((o) => o.filterId)).toEqual(['f3']);
+  });
 });
 
 describe('Equipment Readings dialog (Wash In start)', () => {
@@ -376,6 +461,27 @@ describe('Equipment Readings dialog (Wash In start)', () => {
       targetState: 'WASH_IN', cleaningAreaId: 'b1', equipmentGroupId: 'gw', instrumentReadings: { ro: 1.5, ca: 5 }, remarks: 'WASH IN - F-003',
     });
     expect(await message('F-003 → WASH IN')).toBeInTheDocument();
+  });
+
+  it('with START re-auth on, the readings START is signed, then reported and closed; a cancelled prompt keeps the dialog', async () => {
+    const { api } = await toEquipment({ reauthActions: ['START_CLEANING_CYCLE'], routes: startRoutes('f3') });
+    fireEvent.click(screen.getByRole('button', { name: 'Wash Bay' }));
+    selectRo('1');
+    fireEvent.change(caInput(), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await screen.findByPlaceholderText('Enter your password');
+    await act(async () => { await cancelReauth(); }); // the handler resumes on the rejection
+    await flush(100);
+    expect(screen.queryAllByRole('button', { name: 'OK' })).toHaveLength(0); // a dismissed prompt is not an error
+    expect(screen.getByText('Equipment Readings')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/filters/f3/start-cycle')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await passReauth();
+    expect(await message('F-003 → WASH IN')).toBeInTheDocument();
+    expect(screen.queryByText('Equipment Readings')).toBeNull();
+    expect(api.calls('POST', '/api/filters/f3/start-cycle')[0].headers['x-reauth-password']).toBe('Secret@123');
+    expect(api.calls('POST', '/api/filters/f3/advance')[0].headers['x-reauth-password']).toBe('Secret@123');
+    await dismissAll();
   });
 
   it('an out-of-range reading is flagged and must be confirmed', async () => {
@@ -482,8 +588,9 @@ describe('Equipment Readings dialog (Wash In start)', () => {
     vi.useRealTimers();
   });
 
-  it('a fetch that never lands within a minute reverts the instrument to the dropdown', async () => {
-    await toEquipment({ routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', status: 502, body: { error: 'X', message: 'gateway' } }] });
+  it('a fetch that never lands within a minute reverts the instrument to the dropdown, says so, and Get Values retries', async () => {
+    let reading: number | null = null; // the instrument answers nothing until the retry
+    const { api } = await toEquipment({ routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: () => ({ results: reading === null ? [] : [{ instrumentId: 'ca', ok: true, value: reading }] }) }] });
     fireEvent.click(screen.getByRole('button', { name: 'Wash Bay' }));
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'Date'] });
     fireEvent.click(screen.getByRole('button', { name: 'Get Values' }));
@@ -492,10 +599,16 @@ describe('Equipment Readings dialog (Wash In start)', () => {
     await waitFor(() => expect(screen.getByText('Compressed air (bar)').parentElement!.parentElement!.querySelector('select')).not.toBeNull());
     const caSelect = screen.getByText('Compressed air (bar)').parentElement!.parentElement!.querySelector('select')!;
     expect([...caSelect.options].map((o) => o.textContent)).toEqual(['Select...', '4 bar', '5 bar', '6 bar']);
-    // (With every auto instrument reverted, the status line and "Get Values" are
-    // hidden — so the "couldn't be fetched" explanation and the retry the code
-    // promises never show. Recorded as a defect.)
+    // …and the operator is told why, and can try again (the only auto instrument timed out).
+    expect(screen.getByText("1 reading(s) couldn't be fetched in 1 minute — select them manually.")).toBeInTheDocument();
     vi.useRealTimers();
+    const before = api.calls('POST', '/api/equipment-groups/fetch-readings').length;
+    reading = 5;
+    fireEvent.click(screen.getByRole('button', { name: 'Get Values' }));
+    await waitFor(() => expect(caInput()).toHaveValue(5));
+    expect(caInput()).toHaveAttribute('readonly'); // fetched → locked
+    expect(api.calls('POST', '/api/equipment-groups/fetch-readings').length).toBe(before + 1);
+    expect(await screen.findByText('All readings fetched.')).toBeInTheDocument();
   });
 
   it('closing the dialog mid-fetch stops the polling', async () => {
@@ -595,6 +708,10 @@ describe('batch START with readings (one reason, one readings dialog)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
     expect(await message('F-001: Filter busy')).toBeInTheDocument();
     expect(screen.queryByText('F-001 → WASH IN')).toBeNull();
+    // Only F-003 started, and that is the count reported.
+    fireEvent.click(screen.getByRole('button', { name: 'OK' })); // messages queue: the refusal first
+    expect(await message('Started 1 cycle successfully')).toBeInTheDocument();
+    expect(screen.queryByText(/Started 2 cycles/)).toBeNull();
   });
 
   it('online: a transport failure keeps the readings dialog for a retry; a cancelled password changes nothing', async () => {
@@ -652,5 +769,73 @@ describe('batch START with readings (one reason, one readings dialog)', () => {
     expect(queuedOps().map((o) => [o.type, o.filterId, o.payload.advancePayload.instrumentReadings])).toEqual([
       ['start-and-advance', 'f1', { ro: 1, ca: 4 }], ['start-and-advance', 'f3', { ro: 1, ca: 4 }],
     ]);
+  });
+
+  it('offline with START re-auth on: ONE password, then every filter of the batch is queued', async () => {
+    await renderOps({
+      stage: 'WASH_IN', online: false, reauthActions: ['START_CLEANING_CYCLE'], cachedFilters: [{ id: 'b1', name: 'North', templateId: 'tpl-block' }, { ...F1, currentCycleId: null }, F3],
+      cache: {
+        'identifier-map': { E1: { filterId: 'f1', filterName: 'F-001' }, E3: { filterId: 'f3', filterName: 'F-003' } },
+        'filter-state-f1': NO_CYCLE(['WASH_IN', 'WASH_OUT']), 'filter-state-f3': NO_CYCLE(['WASH_IN', 'WASH_OUT']),
+        'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
+        'equipment-groups': [{ ...GROUP_W, instruments: GROUP_W.instruments.map((i) => ({ ...i, autoFetchEnabled: false })) }],
+        templates: [{ id: 'tpl-filter', templateKind: 'FILTER' }, { id: 'tpl-block', templateKind: 'BLOCK' }],
+      },
+    });
+    await waitFor(() => expect(screen.getByText('North')).toBeInTheDocument());
+    offlineFetch();
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    fireEvent.click(await screen.findByRole('button', { name: /Preventive Maintenance/ }));
+    fireEvent.click(startBtn());
+    await screen.findByText('Equipment Readings');
+    fireEvent.click(screen.getByRole('button', { name: 'Wash Bay' }));
+    fireEvent.change(screen.getByText('RO water pressure (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '1' } });
+    fireEvent.change(screen.getByText('Compressed air (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    await passReauth();
+    expect(await message('Started 2 cycles successfully')).toBeInTheDocument();
+    expect(screen.queryAllByPlaceholderText('Enter your password')).toHaveLength(0); // asked once, not per filter
+    expect(queuedOps().map((o) => o.filterId)).toEqual(['f1', 'f3']);
+    expect(queuedOps().every((o) => !('password' in o) && !JSON.stringify(o.payload).includes('Secret@123'))).toBe(true); // never persisted
+  });
+
+  it('offline: a following start the server refuses is reported by name and not counted as started', async () => {
+    await renderOps({
+      stage: 'WASH_IN', online: false, cachedFilters: [{ id: 'b1', name: 'North', templateId: 'tpl-block' }, { ...F1, currentCycleId: null }, F3],
+      cache: {
+        'identifier-map': { E1: { filterId: 'f1', filterName: 'F-001' }, E3: { filterId: 'f3', filterName: 'F-003' } },
+        'filter-state-f1': NO_CYCLE(['WASH_IN', 'WASH_OUT']), 'filter-state-f3': NO_CYCLE(['WASH_IN', 'WASH_OUT']),
+        'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
+        'equipment-groups': [{ ...GROUP_W, instruments: GROUP_W.instruments.map((i) => ({ ...i, autoFetchEnabled: false })) }],
+        templates: [{ id: 'tpl-filter', templateKind: 'FILTER' }, { id: 'tpl-block', templateKind: 'BLOCK' }],
+      },
+    });
+    // The tablet believes it is offline, but the link flaps: F-003's start reaches
+    // the server, which refuses it. Everything else is unreachable (queued).
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).includes('/api/filters/f3/start-cycle')) {
+        return new Response(JSON.stringify({ error: 'REPLACEMENT_OVERDUE', message: 'AHU-01 replacement overdue' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new TypeError('Failed to fetch');
+    }));
+    fireEvent.click(await screen.findByRole('button', { name: 'North' }));
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    fireEvent.click(await screen.findByRole('button', { name: /Preventive Maintenance/ }));
+    fireEvent.click(startBtn());
+    await screen.findByText('Equipment Readings');
+    fireEvent.click(screen.getByRole('button', { name: 'Wash Bay' }));
+    fireEvent.change(screen.getByText('RO water pressure (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '1' } });
+    fireEvent.change(screen.getByText('Compressed air (bar)').parentElement!.parentElement!.querySelector('select')!, { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(await message('F-003: AHU-01 replacement overdue')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'OK' })); // messages queue: the refusal first
+    expect(await message('Started 1 cycle successfully')).toBeInTheDocument();
+    expect(screen.queryByText(/Started 2 cycles/)).toBeNull();
+    expect(queuedOps().map((o) => o.filterId)).toEqual(['f1']);
   });
 });

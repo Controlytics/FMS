@@ -113,7 +113,13 @@ class ApiClient {
       // poll) fire while the operator is typing the new password; a 403 here
       // would hard-reload the page and on Capacitor bounce the operator to
       // /m/login mid-typing. Just throw and let the caller handle it.
-      if (err.error === 'FORCE_PASSWORD_CHANGE' || err.error === 'PASSWORD_EXPIRED') {
+      //
+      // Never for the LOGIN request itself (2026-10-22): a refused login created
+      // no session, so /change-password could do nothing (its POST needs one),
+      // and the redirect pre-empted the login screen's own expiry message — on
+      // the tablet it reloaded into a page that bounced back to /m/login. Same
+      // carve-out as the 401 branch below.
+      if ((err.error === 'FORCE_PASSWORD_CHANGE' || err.error === 'PASSWORD_EXPIRED') && !url.includes('/api/auth/login')) {
         if (!window.location.pathname.startsWith('/change-password')) {
           window.location.href = '/change-password';
         }

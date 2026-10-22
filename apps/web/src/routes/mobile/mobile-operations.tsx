@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { ALL_ROWS } from '@/lib/page-size';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useOffline } from '../../hooks/use-offline';
-import { useReauth } from '../../hooks/use-reauth';
+import { useReauth, isReauthCancelled } from '../../hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { onSyncEvent } from '../../lib/sync-engine';
 import { withStageAction, batchTargetState } from '../../lib/stage-reauth';
-import { DryerDurationDialog } from '../filter-management/components/dryer-duration-dialog';
 import { normalizeRfidScan } from '@/lib/rfid-scan';
 import { buildIdentifierMap, filterIdsWithUnsyncedWork, type IdentifierMapEntry } from '../../lib/offline-sync-service';
 // Dry In multi-select (2026-09-04): the Currently Drying panel is SHARED with the desktop page.
@@ -22,7 +21,7 @@ import { subscribeRfidTags } from '@/lib/rfid-bridge';
 // Phase 8.6 — shared executor + action-tape resolver + offline-cache helper.
 // All graph-walking decisions (next-stage, checklist-after-stage, cache
 // rewrites) route through these so client/server stay in lockstep.
-import { actionsForStage, getCurrentActions, hasActionKind } from '@/lib/action-tape';
+import { getCurrentActions, hasActionKind } from '@/lib/action-tape';
 import {
   cacheServerStateResponse,
   recomputeAndCacheFilterState,
@@ -32,7 +31,6 @@ import {
 // in lib/filter-ops so the two pages cannot drift again.
 import {
   validateOfflineGate,
-  firstStagesFromGraph,
   resolvePendingChecklistDialog,
   resolveChecklistForTargetStage,
   findNextPendingChecklist,
@@ -41,7 +39,7 @@ import type { PendingChecklistBatchItem } from '@/lib/filter-ops';
 // D1/D2/D4 refactor Day 3b (2026-05-18) — useFilterOperationsCore is now
 // authoritative. All dialog state lives in core.dialogState; all writes
 // go through core.dispatch / core.advance / core.startAndAdvance / core.submitChecklist.
-import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
+import { useFilterOperationsCore, type AdvanceOutcome } from '@/lib/filter-ops/use-core';
 import { blockingInterlock, interlockBannerTitle, interlockBannerDetail, interlockRefusalLine, INTERLOCK_REFUSAL_CODES, type StageInterlockState } from './stage-interlock-notice';
 import { useTabletAccess } from './use-tablet-access';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
@@ -56,9 +54,12 @@ import { CLEANING_STAGES_MOBILE as STAGES } from '@/lib/filter-constants';
 import { bulkOperate, type BulkClientItem, type BulkClientResult } from '@/lib/filter-ops/bulk-operate';
 import { PmPendingTasksDialog, type PendingPmTask } from '@/components/pm-pending-tasks-dialog';
 import { refreshPmPendingCache, getCachedPendingPmTasksForFilter, forgetCachedPmTasks } from '@/lib/pm-pending-cache';
-import { transitionEndpoints, phaseSuffix } from '@/lib/cleaning-cycle-report';
 
-type View = 'home' | 'status' | 'stage' | 'my-tasks' | 'cycles';
+// The page is ONE station (2026-10-22). The tablet shell (mobile-wrapper.tsx)
+// owns Home, Status, My Tasks and the Cleaning Record and always opens this page
+// on a station; the page's own copies of those screens (and its header) were
+// unreachable from /m and were removed. 'home' = no station given: nothing renders.
+type View = 'home' | 'stage';
 
 // Identifier→filter map: ONE builder, shared with the full offline sync and the
 // wrapper (M53, 2026-10-19). It carries the filter's creation-workflow status
@@ -83,15 +84,14 @@ function approvalBlockMessage(filterName: string, approvalStatus: string | null 
 }
 
 
-export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHeader }: {
+export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
   initialStageKey?: string;
   /** OQ-05: My Tasks "Perform" opens the station with the task AHU's block already chosen. */
   initialBlockId?: string;
-  hideHeader?: boolean;
 } = {}) {
-  const { user, isLoading: authLoading, logout: authLogout } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { formatTime, formatDate } = useDatetimeFormat();
-  const { online, pendingCount, syncing, lastSyncMessage, executeOrQueue, manualSync, clearQueue, getQueueDetails, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
+  const { online, pendingCount, executeOrQueue, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
   // ─── D1/D2/D4 Day 3b — useFilterOperationsCore is now authoritative ──────
   // Owns all dialog state + executeOrQueue invocations for the five dialogs.
@@ -106,7 +106,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   });
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
   const ahuMode = useAhuCompletionMode();
-  const mobileNav = useNavigate();
 
   // Tablet access control — which features are allowed for this role.
   // OQ-04 (2026-10-19): the SAME hook and rule as mobile-wrapper.tsx
@@ -121,14 +120,10 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // hooks below caused React 19 error #300 ("Rendered fewer hooks than
   // expected") on logout when `user` flipped to undefined mid-render.
 
-  const logout = async () => {
-    await authLogout();
-    mobileNav('/m/login', { replace: true });
-  };
 
   const initialStage = initialStageKey ? STAGES.find(s => s.key === initialStageKey) : null;
-  const [view, setView] = useState<View>(initialStage ? 'stage' : 'home');
-  const [activeStage, setActiveStage] = useState<typeof STAGES[0] | null>(initialStage ?? null);
+  const [view] = useState<View>(initialStage ? 'stage' : 'home');
+  const [activeStage] = useState<typeof STAGES[0] | null>(initialStage ?? null);
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
 
@@ -198,20 +193,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     readings: Array<{ description: string; value: string | number; uom: string }>;
     submittedAt: string;
   } | null>(null);
-  // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
-  // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
-  // working on the pinned ranges, but should know the live group has moved.
-  // Cleared on goHome / openStage / scan reset.
-  const [equipmentGroupSyncWarning, setEquipmentGroupSyncWarning] = useState<{
-    groupId: string;
-    pinnedVersion: number;
-    liveVersion: number;
-    recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
-  } | null>(null);
   // Stage interlock — current stage (Wash Out / Dry Out) awaiting its configured approver.
-  // OQ-02 (2026-10-19): set by the LIVE queue submit (handleSubmitQueue), not
-  // only by the superseded single-scan handleSubmit. Cleared on openStage /
-  // goHome / each submit; never set offline (offline cleaning is exempt).
+  // OQ-02 (2026-10-19): set by the queue submit (handleSubmitQueue). Cleared on
+  // each submit; never set offline (offline cleaning is exempt).
   const [interlock, setInterlock] = useState<StageInterlockState | null>(null);
   // Task 7 + 2026-07-02: AHU remaining-filters dialog state (multi-AHU carousel).
   const [ahuDialogState, setAhuDialogState] = useState<{
@@ -235,6 +219,10 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // of where focus is. (RFID readers in UKB mode type 3-50ms between keys;
   // humans type 80-300ms — anything ≤80ms is RFID.)
   const scanInputRef = useRef<HTMLInputElement>(null);
+  // The scan field's refocus-after-blur timer. Cleared on unmount (2026-10-22):
+  // a page closed inside its 50 ms window ran it against a torn-down document.
+  const refocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current); }, []);
   const focusScanInput = () => {
     // setTimeout(0) so the focus runs after React commits the next paint
     setTimeout(() => { scanInputRef.current?.focus(); }, 0);
@@ -262,10 +250,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // Dialogs (compat aliases — see blockChangeDialog above)
   const reasonDialog = core.dialogState.kind === 'awaiting_reason' ? core.dialogState : null;
   const equipDialog = core.dialogState.kind === 'awaiting_equipment' ? core.dialogState : null;
-  const dryerDialog = core.dialogState.kind === 'awaiting_dryer' ? core.dialogState : null;
   const checklistDialog = core.dialogState.kind === 'awaiting_checklist' ? core.dialogState : null;
   const [selectedReason, setSelectedReason] = useState('');
-  const [pmReasonDue, setPmReasonDue] = useState(false); // show PM banner in reason picker
   const [justification, setJustification] = useState('');
   const [selectedEquipGroup, setSelectedEquipGroup] = useState<any>(null);
   const [readings, setReadings] = useState<Record<string, number>>({});
@@ -282,8 +268,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   const [equipFetchStatus, setEquipFetchStatus] = useState('');
   const [equipPending, setEquipPending] = useState<Set<string>>(new Set());
   const equipCancelRef = useRef(false);
-  const [dryerLoading, setDryerLoading] = useState(false);
-  const [dryerError, setDryerError] = useState('');
   const [checklistAnswers, setChecklistAnswers] = useState<Record<string, any>>({});
   // 2026-05-26: unified-batch checklist (mirrors desktop filter-operations.tsx
   // `pendingBatch` state at line ~110). When multiple filters are advancing
@@ -321,10 +305,10 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // the operator has to manually tap the input after every successful scan
   // before the next RFID trigger does anything.
   useEffect(() => {
-    if (view === 'stage' && !reasonDialog && !equipDialog && !checklistDialog && !dryerDialog && !blockChangeDialog) {
+    if (view === 'stage' && !reasonDialog && !equipDialog && !checklistDialog && !blockChangeDialog) {
       focusScanInput();
     }
-  }, [view, reasonDialog, equipDialog, checklistDialog, dryerDialog, blockChangeDialog, success]);
+  }, [view, reasonDialog, equipDialog, checklistDialog, blockChangeDialog, success]);
 
   // Native SDK-mode RFID bridge. When the reader is in answer/SDK mode the OS
   // does NOT inject keystrokes — Reader_Usb.jar reads tags directly via USB
@@ -333,6 +317,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // Falls back silently on web (browser) where the plugin isn't available;
   // the document-level keystroke trap below handles UKB-mode readers.
   const [rfidError, setRfidError] = useState<string | null>(null);
+  // The latest handleAddToQueue, assigned on every render below its definition
+  // (2026-10-22). Both scan listeners call THROUGH this ref: they subscribe only
+  // when `view` / the queue length change, so a direct call ran the handler of
+  // that render — the dryer duration picked since then, and the master data
+  // (the AHU name) that arrived since then, were ignored.
+  const addToQueueRef = useRef<(rawValue?: string) => Promise<void>>(async () => {});
   useEffect(() => {
     if (view !== 'stage') return;
     let unsub: (() => void) | null = null;
@@ -348,7 +338,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           setScanValue(epc);
           // Pass epc directly so handleAddToQueue doesn't rely on the
           // not-yet-committed scanValue state (stale-closure issue).
-          handleAddToQueue(epc);
+          addToQueueRef.current(epc);
         },
         (err) => { if (!cancelled) setRfidError(err); },
       );
@@ -424,7 +414,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
             setScanValue('');
             if (view === 'stage') {
               // Pass buffer directly — scanValue state hasn't committed yet.
-              handleAddToQueue(toSubmit);
+              addToQueueRef.current(toSubmit);
             }
           }
           buffer = '';
@@ -465,7 +455,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
             const toSubmit = buffer;
             pushDebug(`AUTO-FLUSH: "${toSubmit}" (len ${toSubmit.length})`);
             setScanValue('');
-            if (view === 'stage') handleAddToQueue(toSubmit);
+            if (view === 'stage') addToQueueRef.current(toSubmit);
           }
           buffer = '';
           captureMode = false;
@@ -549,53 +539,28 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // Reads the authenticated-only /current mirror — the SUPER_ADMIN-gated
   // dynamic route 403'd for every operator role, silently defaulting to CONFIRM.
   const { data: bcCfg } = useSWR<any>(online ? '/api/config/block-change-approval/current' : null);
-  const bcModeRaw = bcCfg?.mode;
+  // Offline the mode last read online stays in force (2026-10-22). The SWR key is
+  // null offline, so the mode fell back to CONFIRM: an open APPROVAL dialog turned
+  // into "Continue with cleaning" (a self-confirm) when the link dropped, and a
+  // NONE site got cross-block notes it had switched off.
+  const [storedBcMode, setStoredBcMode] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!bcCfg?.mode) return;
+    setStoredBcMode(bcCfg.mode);
+    cache('block-change-mode', bcCfg.mode).catch(() => { /* best effort: the in-memory copy still applies */ });
+  }, [bcCfg?.mode]);
+  useEffect(() => {
+    getCache<string>('block-change-mode')
+      .then((m) => { if (m) setStoredBcMode((cur) => cur ?? m); })
+      .catch(() => { /* nothing stored: CONFIRM, as before */ });
+  }, []);
+  const bcModeRaw = bcCfg?.mode ?? storedBcMode;
   const blockChangeMode: 'NONE' | 'CONFIRM' | 'APPROVAL' =
     bcModeRaw === 'NONE' ? 'NONE' : bcModeRaw === 'APPROVAL' ? 'APPROVAL' : 'CONFIRM';
 
-  // My Tasks — fetch when user opens the view, cache for offline
-  const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
-    useSWR(online && view === 'my-tasks' ? '/api/pm-schedules/due' : null, { refreshInterval: 30000 });
-
-
-  // Issue #7 fix (2026-05-18): Cleaning Cycles list on mobile. Desktop has a
-  // full /cleaning-cycles/history page but tablets had no equivalent — after
-  // an offline sync, operators couldn't view the resulting cycle data without
-  // a desktop. Mirror the desktop endpoint, scoped to recent cycles only.
-  // 2026-10-17 load test (operator decision): the view asked for EVERY cycle ever
-  // recorded, with events, every 30 s — it never completed at one year of data.
-  // Now the last 30 days; the key is fixed for the component's lifetime so SWR
-  // does not see a new URL on every render.
-  const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
-  const { data: cyclesData, isLoading: cyclesLoading } =
-    useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?page=1&limit=${ALL_ROWS}&includeEvents=true&from=${encodeURIComponent(cyclesSince)}` : null, { refreshInterval: 30000 });
-  const [offlineCycles, setOfflineCycles] = useState<any[]>([]);
-  useEffect(() => { if (cyclesData?.data) cache('cleaning-cycles-recent', cyclesData.data); }, [cyclesData, cache]);
-  useEffect(() => {
-    if (!online && view === 'cycles') {
-      getCache<any[]>('cleaning-cycles-recent').then(c => setOfflineCycles(c ?? []));
-    }
-  }, [online, view, getCache]);
-  const cyclesList: any[] = online ? (cyclesData?.data ?? []) : offlineCycles;
-  const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
-
-  // Cache tasks for offline use
-  const [offlineTasks, setOfflineTasks] = useState<any>(null);
-  useEffect(() => { if (dueTasksData) { cache('due-tasks', dueTasksData); } }, [dueTasksData, cache]);
-  useEffect(() => {
-    if (!online) {
-      getCache<any>('due-tasks').then(t => setOfflineTasks(t));
-    }
-  }, [online, view]);
-
-  const tasksSource = online ? dueTasksData : offlineTasks;
-
-  // Expand state for My Tasks cards + processing state for Approve/Reject
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [offlineFilters, setOfflineFilters] = useState<any[]>([]);
   const [offlineTemplates, setOfflineTemplates] = useState<any[]>([]);
   const [offlineReasons, setOfflineReasons] = useState<any[]>([]);
-  const [dataCached, setDataCached] = useState(false);
 
   // Revalidate SWR data after sync completes (fixes "buffering" after sync)
   const [prevPendingCount, setPrevPendingCount] = useState(0);
@@ -603,7 +568,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     // When pending count drops (operations synced), refresh data
     if (prevPendingCount > 0 && pendingCount < prevPendingCount && online) {
       mutate('/api/assets/instances');
-      mutateDueTasks();
     }
     setPrevPendingCount(pendingCount);
   }, [pendingCount, online]);
@@ -613,7 +577,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     const cleanup = onSyncEvent((event) => {
       if (event.type === 'complete' && event.synced && event.synced > 0) {
         mutate('/api/assets/instances');
-        mutateDueTasks();
       }
     });
     return cleanup;
@@ -721,13 +684,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     }
   };
 
-  // Track when all data is cached and ready for offline
-  useEffect(() => {
-    if (online && instancesData?.data && templatesData?.data && identifiersData && reasonsData) {
-      setDataCached(true);
-    }
-  }, [online, instancesData, templatesData, identifiersData, reasonsData]);
-
   // Load cached data when offline
   const refreshOfflineData = () => {
     getOfflineFilters().then(setOfflineFilters);
@@ -811,39 +767,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
       return () => clearTimeout(t);
     }
   }, [success]);
-  useEffect(() => {
-    if (equipmentGroupSyncWarning) {
-      toast.error(
-        'Equipment group changed',
-        `Admin updated this group (you started on v${equipmentGroupSyncWarning.pinnedVersion}, current is v${equipmentGroupSyncWarning.liveVersion}). Readings still validate against your pinned version — terminate-and-restart only if you need the new ranges.`,
-      );
-    }
-  }, [equipmentGroupSyncWarning]);
   // batchCacheError stays as an inline banner because it carries a Retry button;
   // a toast can't host the action. rfidError also stays inline — it's stage-
   // local and the toast wouldn't see the same view scope.
-
-  const openStage = (stage: typeof STAGES[0]) => {
-    setActiveStage(stage);
-    setView('stage');
-    setScanValue(''); setRemarks(''); setError(''); setSuccess(''); setSelectedBlock(null);
-    setEquipmentGroupSyncWarning(null);
-    setInterlock(null);
-  };
-
-  // 2026-05-17 stale-stage-counter fix: force-revalidate `instances` when
-  // returning to home. SWR's `refreshInterval: 15000` means the dashboard's
-  // per-stage filter counts can lag the actual cycle state for up to 15s
-  // after a submit if the operator navigates back-and-forth quickly. Forcing
-  // a revalidate on home-enter gives an upper-bound staleness of one fetch
-  // round-trip (~200ms on LAN) instead of waiting for the next poll tick.
-  // Online-only — offline mode keeps the last server snapshot until reconnect,
-  // since per-stage counters can't be derived from local optimistic state
-  // without re-projecting every cached filter (separate follow-up).
-  const goHome = () => {
-    setView('home'); setActiveStage(null); core.dispatch({ type: 'close' }); setError(''); setSuccess(''); setScanQueue([]); setDryerDurations({}); setEquipmentGroupSyncWarning(null); setStageSubmitRecap(null); setInterlock(null);
-    if (online) mutate('/api/assets/instances');
-  };
 
   // 2026-05-20: accept an explicit `rawValue` arg so RFID-driven scans can
   // pass the EPC directly, bypassing the stale-closure problem where
@@ -968,6 +894,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     }
     setScanValue('');
   };
+  addToQueueRef.current = handleAddToQueue;
 
   const removeFromQueue = (filterId: string) => {
     setScanQueue(prev => prev.filter(q => q.filterId !== filterId));
@@ -1066,7 +993,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
 
   // Submit all queued filters for the active stage (batch advance for mid-cycle stages).
   // Each item is validated against the cached pipeline graph + block assignment BEFORE
-  // being queued — this is the same strict offline gate applied in handleSubmit.
+  // being queued — the shared strict offline gate (validateOfflineGate).
   /**
    * Does a MID-CYCLE advance into `stageKey` need equipment readings? Mirrors
    * the server: a cycle with a bound group needs them for any stage that group
@@ -1134,6 +1061,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     // open_checklist from awaiting_checklist and the state-machine guard
     // throws (caught offline DRY_IN SET_DURATION repro on 2026-05-26).
     const dialogDispatchedInLoop = new Set<string>();
+    // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
+    // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
+    // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
+    // and the operator's UI was stuck until refresh. 2026-10-22: it opens
+    // BEFORE the two IndexedDB reads below — when those rejected (storage
+    // evicted), the spinner stuck the same way and the rejection went unhandled.
+    try {
     // Perf (2026-07-09): read the ENTIRE cached-filter store ONCE, up front,
     // and index it by id. Pre-fix each loop iteration called getOfflineFilters()
     // — a full IDB scan of every cached filter — just to .find() its own row,
@@ -1148,11 +1082,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     // once per batch submit; the gate below only uses it on the !cycleInProgress
     // (START) branch.
     const blockedIds = new Set<string>((await getCache<string[]>('blocked-filter-ids')) ?? []);
-    // Deep-review fix D6 (2026-05-17): outer try/finally so the loading flag
-    // always clears even when REAUTH or OFFLINE_CACHE_RECOMPUTE_FAILED bubble
-    // out of the inner loop. Pre-fix a re-thrown REAUTH left loading=true
-    // and the operator's UI was stuck until refresh.
-    try {
     // AHU pre-flight for the checklist-less completion case (2026-08-10). ONE
     // call for the whole queue, before the loop — the tablet submits 50–100
     // tags and the check is per-AHU, not per-filter. Pipelines that end with a
@@ -1287,14 +1216,13 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           setSuccess(`Note: ${item.filterName} belongs to ${cachedState.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
         }
 
-        // 2026-06-06 cross-block gate (queue/"Submit All" path). The single-
-        // scan handler (handleSubmit) pops the Request-Block-Change dialog when
-        // a filter is being cleaned in a block other than its home and there is
-        // no standing approval. The queue path lacked this gate, so it submitted
-        // cross-block ops blindly: start-cycle was rejected (409
-        // BLOCK_CHANGE_REQUIRED) and the follow-on advance then surfaced
-        // "No active cleaning cycle". Mirror the single-scan behaviour here:
-        // open the approval popup and STOP — do NOT start/advance. Online only
+        // 2026-06-06 cross-block gate (queue/"Submit All" path). A filter being
+        // cleaned in a block other than its home, with no standing approval,
+        // gets the Request-Block-Change dialog. The queue path once lacked this
+        // gate, so it submitted cross-block ops blindly: start-cycle was rejected
+        // (409 BLOCK_CHANGE_REQUIRED) and the follow-on advance then surfaced
+        // "No active cleaning cycle". So: open the approval popup and STOP — do
+        // NOT start/advance. Online only
         // (offline cross-block is already caught by validateOfflineGate above).
         // Same-block / already-approved (MATCH / APPROVED) fall straight through
         // — normal cleaning is unaffected.
@@ -1360,7 +1288,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           });
           setSelectedReason('');
           setJustification('');
-          setPmReasonDue(false);
           // Drop the queue — the reason dialog (carrying remainingBatch)
           // drives the rest of the flow. Equipment-submit will iterate.
           clearSubmittedFromQueue();
@@ -1370,16 +1297,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
 
         // Issue #4 fix (2026-05-18): DRY_IN advance requires dryerAction +
         // dryerDurationMinutes when the dryer hasn't been started yet for this
-        // cycle. handleSubmit (single-scan) opens the Set-Dryer-Duration dialog
-        // for this case (line 979). The batch path used to fire a plain
-        // advance which the server then rejected at replay time, leaving the
-        // cycle stuck. Mirror the single-scan behavior here so the batch
-        // mode also opens the dryer dialog when the queue has just one item.
+        // cycle. The batch path used to fire a plain advance which the server
+        // then rejected at replay time, leaving the cycle stuck. It now sends
+        // SET_DURATION with the queue header's duration (below).
         // 2026-05-20 PRE-ADVANCE CHECKLIST FIX: ANY queued filter (not just
         // DRY_IN entry) may have a pending checklist that the server enforces
-        // before allowing advance. The single-scan handleSubmit at line ~1061
-        // pre-resolves this via resolvePendingChecklistDialog(filterId,
-        // resolvedActions) and dispatches open_checklist directly. The batch
+        // before allowing advance. The batch
         // loop previously relied on the post-loop findNextPendingChecklist
         // which calls the resolver WITHOUT serverActions — fallback path
         // uses local cache, which may be stale on fresh ops. Result:
@@ -1486,9 +1409,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
               });
               continue;
             }
-            // Has duration: fire SET_DURATION advance directly. Same payload
-            // shape as handleDryerDurationSubmit, but called per-filter from
-            // the batch loop instead of via the modal dialog.
+            // Has duration: fire the SET_DURATION advance for this filter. (The
+            // tablet has no per-filter Set-Dryer-Duration dialog: the duration
+            // comes from the queue header, one for the whole selection.)
             try {
               // 2026-05-26: skip the in-core dispatch entirely for
               // multi-filter DRY_IN SET_DURATION. The post-loop unified-
@@ -1526,7 +1449,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                 const { updateFilterStateLocally } = await import('@/lib/offline-store');
                 await updateFilterStateLocally(item.filterId, 'DRY_IN', false);
               } catch { /* IDB write failure is non-fatal; SWR mutate is the fallback */ }
-              // Mirror the dryer-timing cache write from handleDryerDurationSubmit.
+              // Cache the dryer timing + the equipment group (offline Dry Out and the
+              // drying panel read them; recomputeAndCacheFilterState does not).
               try {
                 const cached = await getCache<any>(`filter-state-${item.filterId}`) ?? {};
                 let eqGroup = cached.equipmentGroup ?? null;
@@ -1929,16 +1853,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [core.dialogState.kind, scanQueue.length, loading]);
 
-  // Helper: detect network errors (fetch failures + CapacitorHttp native errors)
-  const isNetworkError = (e: any): boolean => {
-    if (!e) return false;
-    const msg = String(e.message || e).toLowerCase();
-    return msg.includes('failed to fetch') || msg.includes('network') || msg.includes('load failed')
-      || msg.includes('failed to connect') || msg.includes('unable to resolve host')
-      || msg.includes('timeout') || msg.includes('econnrefused') || msg.includes('enetunreach')
-      || e.name === 'TypeError';
-  };
-
   // SPIS: single-source offline gate. Implementation lives in
   // `apps/web/src/lib/filter-ops/validate-offline-gate.ts`, shared with the
   // desktop page so the two cannot drift. See `feedback_batch_single_parity.md`
@@ -1946,356 +1860,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
   // Phase 8.7 Wave-5 split lifted both copies into one.
 
 
-
-  const handleSubmit = async () => {
-    if (!scanValue.trim() || !activeStage || loading) return;
-    setLoading(true); setError(''); setSuccess('');
-    try {
-      const resolved = await resolveFilter();
-      if (!resolved) { setLoading(false); return; }
-      const { filterId, filterName } = resolved;
-      // Task 5: cached blocked-filter set (AHU replacement overdue), consulted
-      // by the offline gate below on the !cycleInProgress (START) branch.
-      const blockedIds = new Set<string>((await getCache<string[]>('blocked-filter-ids')) ?? []);
-
-      let state: any;
-
-      // === UNIFIED STATE RESOLUTION ===
-      // Always try API first (works online), fall back to cache (works offline).
-      // Single code path — no divergence between online/offline.
-      const buildOfflineState = async () => {
-        const cachedFilters = await getOfflineFilters();
-        const cached = cachedFilters.find((f: any) => f.id === filterId);
-        const cachedState = await getCache<any>(`filter-state-${filterId}`) ?? {};
-
-        const currentLifecycle = cached?.currentLifecycleState || cachedState.currentState || null;
-        // Phase 8.7 cutover (agent E): the offline state object no longer
-        // carries the deprecated `nextAllowedStages` / `pendingChecklist`
-        // fields. Downstream gate decisions read the tape directly via
-        // `getCurrentActions(filterId, state.actions)`. The cache row is
-        // still allowed to hold legacy mirrors for Wave 2 cleanup, but this
-        // synthesized state object exposes only the tape-native shape.
-
-        // Active cycle: server returns currentCycle with id+status, offline has cached version
-        const cycle = cachedState.currentCycle ?? null;
-        const hasCycle = cycle ? !!(cycle.status === 'IN_PROGRESS' || cycle.id) : !!cached?.currentCycleId;
-
-        // Stage interlock is an ONLINE-only QA gate (commit d8afc02 — offline
-        // cleaning is interlock-exempt). When the operator was ONLINE at WASH_OUT
-        // / DRY_OUT, the server cached a tape with the leave (advance/bypass)
-        // action stripped — only TERMINATE_CYCLE survives. Carrying that stale
-        // stripped tape into offline mode strands the operator at the gate:
-        // getCurrentActions() trusts a non-empty server tape verbatim, so it
-        // never offers the advance and the offline op the replay would have
-        // exempted can never be queued. Drop the cached server tape at a gated
-        // stage so getCurrentActions() recomputes the (interlock-free) tape
-        // locally and the offline advance is offered again. Non-gated stages are
-        // unaffected; the desktop page already omits `actions` offline for the
-        // same recompute behaviour.
-        const interlockGatedNow = !!cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated;
-
-        return {
-          filterId,
-          filterName: cached?.name || filterName,
-          currentState: currentLifecycle,
-          currentCycle: hasCycle ? (cycle ?? { id: cached?.currentCycleId, status: 'IN_PROGRESS' }) : null,
-          pipelineStages: cachedState.pipelineStages ?? [],
-          pipelineGraph: cachedState.pipelineGraph ?? null,
-          equipmentGroup: cachedState.equipmentGroup ?? null,
-          isPmDue: cachedState.isPmDue ?? false,
-          pmReasonKey: cachedState.pmReasonKey ?? null,
-          blockChangeStatus: cachedState.blockChangeStatus ?? null,
-          homeBlock: cachedState.homeBlock ?? null,
-          actions: interlockGatedNow ? null : (cachedState.actions ?? null),
-        };
-      };
-
-      if (online) {
-        try {
-          const csUrl = `/api/filters/${filterId}/current-state${selectedBlock?.id ? `?cleaningAreaId=${encodeURIComponent(selectedBlock.id)}` : ''}`;
-          state = await apiClient.get<any>(csUrl);
-          // Phase 8.7 cutover (agent E): route through cacheServerStateResponse
-          // so the deprecated mirror field NAMES stay quarantined inside
-          // offline-cache.ts. The cache row STILL persists pendingChecklist[]
-          // + nextAllowedStages[] (local-context.ts:466 reads pendingChecklist
-          // for CHECKLIST_COMPLETED synthesis — Wave 2 server work removes the
-          // server-side emission and the cache writes drop out naturally).
-          // stageLookup MUST be included — it's the per-stage authoritative
-          // table the offline checklist + next-stage logic depends on (B.7).
-          await cacheServerStateResponse(filterId, state);
-        } catch (e: any) {
-          if (isNetworkError(e)) {
-            state = await buildOfflineState();
-          } else {
-            throw e;
-          }
-        }
-      } else {
-        state = await buildOfflineState();
-      }
-
-      // B7.4 (2026-05-02): surface the equipmentGroupSyncWarning advisory if
-      // the server reported one. Online responses include it; offline-built
-      // state does not, so this clears any stale value when offline.
-      setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
-      setInterlock(state.interlock ?? null);
-
-      // Block duplicate submission
-      const currentLifecycle = state.currentState;
-
-      // Phase 8.6 part 2: resolve action tape (server-emitted when present,
-      // else locally computed via the shared executor). Used by the gate AND
-      // the post-gate "already at" / "next allowed" online checks below.
-      const resolvedActions = await getCurrentActions(filterId, state.actions);
-      const nextAllowed: string[] = resolvedActions
-        .filter(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')
-        .map(a => (a as { params: { targetState: string } }).params.targetState);
-
-      // Shared SPIS gate (same helper used by handleSubmitQueue).
-      // Only enforced offline — online callers get richer server-side validation.
-      if (!online) {
-        const gate = validateOfflineGate({
-          activeStageKey: activeStage.key,
-          activeStageLabel: activeStage.label,
-          online,
-          currentLifecycle,
-          actions: resolvedActions,
-          hasGraph: !!state.pipelineGraph?.stages,
-          hasLinearPipeline: (state.pipelineStages?.length ?? 0) > 0,
-          pipelineGraph: state.pipelineGraph,
-          cycleInProgress: !!state.currentCycle,
-          // Phase 8.7 cutover: tape-derived. resolvedActions is the same tape
-          // the gate validates against — single source of truth.
-          hasPendingChecklist: hasActionKind(resolvedActions, 'SUBMIT_CHECKLIST'),
-          dryerReadingsSubmitted: state.currentCycle?.dryerReadingsSubmitted,
-          dryerStartedAt: state.currentCycle?.dryerStartedAt ?? null,
-          dryerDurationMinutes: state.currentCycle?.dryerDurationMinutes ?? null,
-          homeBlockId: state.homeBlock?.id,
-          blockChangeStatus: state.blockChangeStatus,
-          selectedBlockId: selectedBlock?.id,
-          replacementBlocked: blockedIds.has(filterId),
-        });
-        if (!gate.ok) {
-          if (gate.blockChangeRequired) {
-            // Let the existing block-change dialog flow below handle this
-            state.blockChangeStatus = 'REQUIRED';
-          } else {
-            setError(gate.reason);
-            setLoading(false); return;
-          }
-        }
-        // OFFLINE cross-block: never blocks (per config). Show an informational
-        // notice that the filter belongs to another block and proceed (queues).
-        // NONE mode shows nothing at all (no check, no notice).
-        if (blockChangeMode !== 'NONE' && state.homeBlock?.id && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id) {
-          setSuccess(`Note: this filter belongs to ${state.homeBlock.name}, not ${selectedBlock.name}. Recorded offline.`);
-        }
-      }
-
-      // B.10 — stale profile detection: if the in-progress cycle is bound to a
-      // profile that no longer matches the live block-assigned profile, surface
-      // a clear instruction instead of letting the user hit "next stage = wrong"
-      // confusion. Operator must terminate-and-restart to pick up the new profile.
-      if (state.profileSyncWarning) {
-        const w = state.profileSyncWarning;
-        setError(
-          `This filter's active cycle is on profile "${w.cycleProfileName ?? w.cycleProfileId}", but the configured profile for this block is now "${w.expectedProfileName ?? w.expectedProfileId}". Terminate the current cycle and rescan to start fresh on the live profile.`
-        );
-        setLoading(false); return;
-      }
-
-      // DRY_IN: if temperature already recorded, direct user to Dry Out stage
-      // (runs BEFORE generic nextAllowed check so the user gets a clear instruction
-      // instead of the confusing "Already at DRY IN. Next: Dry Out")
-      if (activeStage.key === 'DRY_IN' && state.currentCycle?.dryerReadingsSubmitted) {
-        setError('Dry In complete — temperature already recorded. Scan on Dry Out stage to advance.');
-        setLoading(false); return;
-      }
-
-      // Phase 8.6 part 2: tape-derived "already at this stage" check. The
-      // tape's ADVANCE_TO_STAGE / SET_DRYER_DURATION targets are the next legal
-      // moves; if the operator scanned the SAME stage they're already on,
-      // there should be at least one onward move on the tape.
-      if (currentLifecycle === activeStage.key && nextAllowed.length > 0) {
-        setError(`Already at ${activeStage.label}. Next: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
-        setLoading(false); return;
-      }
-
-      // Up-front block verification. If the filter belongs to a different
-      // block and there is no standing approval, show the request-block-change
-      // popup now and stop.
-      // Offline: if homeBlock is cached and doesn't match selected block, block the operation.
-      // NONE mode = no cross-block check at all → never force the prompt. We also
-      // respect a cached 'MATCH' (the server stamps MATCH under NONE even for a
-      // different block), so this works offline even if the config isn't cached.
-      if (!online && blockChangeMode !== 'NONE' && state.blockChangeStatus !== 'MATCH'
-        && state.homeBlock && selectedBlock?.id && state.homeBlock.id !== selectedBlock.id && state.blockChangeStatus !== 'APPROVED') {
-        state.blockChangeStatus = 'REQUIRED';
-      }
-      if (state.blockChangeStatus === 'REQUIRED' && state.homeBlock && selectedBlock?.id) {
-        core.dispatch({
-          type: 'open_block_change',
-          filterId,
-          filterName: filterName || state.filterName || scanValue,
-          homeBlockId: state.homeBlock.id,
-          homeBlockName: state.homeBlock.name,
-          requestedBlockId: selectedBlock.id,
-          requestedBlockName: selectedBlock.name,
-        });
-        setBlockChangeReason('');
-        setLoading(false);
-        return;
-      }
-
-      // Phase 8.7 Wave-5: shared pre-advance checklist-dialog resolver. Pass
-      // the tape resolved above so we don't recompute it.
-      //
-      // 2026-05-25 fix: GUARD against opening a checklist dialog that belongs
-      // to a DIFFERENT stage than the one the operator selected. The original
-      // gate fired whenever any SUBMIT_CHECKLIST was pending — even if the
-      // cycle was stuck in WASH_OUT and the operator tapped WASH_IN looking
-      // to start fresh, the cycle's WASH_OUT-pending checklist would pop up,
-      // and the operator's clear intent (start fresh on WASH_IN) was hijacked.
-      // Cycle CC-MUPS/RDU/0-005 (started 2026-05-20, sat in WASH_OUT for 5
-      // days, then got "completed" today via a misrouted checklist submit)
-      // is the smoking-gun example.
-      //
-      // New rule: only auto-open the checklist dialog if (a) the cycle's
-      // current state equals the stage the operator selected (i.e. the
-      // checklist is for the current step), OR (b) there's no active cycle
-      // and this is a pre-cycle-start checklist (rare). Otherwise we point
-      // the operator at the correct stage card so they can either complete
-      // the pending checklist there or recognise that the cycle is stuck.
-      {
-        const dialogChecklists = await resolvePendingChecklistDialog(filterId, resolvedActions);
-        if (dialogChecklists) {
-          const stageMatches = currentLifecycle === activeStage.key;
-          const noActiveCycle = !state.currentCycle;
-          if (stageMatches || noActiveCycle) {
-            // AHU pre-flight BEFORE the (terminal) checklist opens. Pass the
-            // fresh `state` already resolved above (its currentState === the
-            // stage this checklist is for) so the terminal check is exact — no
-            // redundant re-fetch that could mis-fire the popup at other stages.
-            if ((await gateAhuBeforeChecklist([filterId], { currentState: state.currentState, stageLookup: state.stageLookup })) === 'blocked') {
-              setLoading(false);
-              return;
-            }
-            // Single-scan: clear any stale unified-batch state from a prior
-            // session so handleChecklistSubmit takes the single-mode path.
-            setPendingBatch(null); setPendingBatchDeferred(null);
-            core.dispatch({ type: 'open_checklist', filterId, filterName: filterName || state.filterName, checklists: dialogChecklists });
-            setChecklistAnswers({});
-            setLoading(false);
-            return;
-          }
-          // Stage mismatch — show a clear instruction instead of hijacking the operator's intent.
-          const atLabel = (currentLifecycle ?? 'an earlier stage').replace(/_/g, ' ');
-          setError(
-            `This filter has a pending checklist for ${atLabel}. Tap the ${atLabel} stage card to complete it before scanning on ${activeStage.label}.`,
-          );
-          setLoading(false);
-          return;
-        }
-      }
-      // Phase 8.6 part 2: tape-derived "wrong stage" check. activeStage must
-      // appear as an ADVANCE / SET_DRYER target on the resolved tape; if not,
-      // surface the legal next stages from the same tape.
-      if (nextAllowed.length > 0 && !actionsForStage(activeStage.key, resolvedActions).some(a => a.type === 'ADVANCE_TO_STAGE' || a.type === 'SET_DRYER_DURATION')) {
-        const atLabel = (currentLifecycle ?? 'START').replace(/_/g, ' ');
-        setError(`Filter is at "${atLabel}". Next allowed: ${nextAllowed.map((k: string) => k.replace(/_/g, ' ')).join(', ')}`);
-        setLoading(false); return;
-      }
-      // Check if there's an active cycle — no cycle means we need to start one (reason dialog)
-      const hasActiveCycle = !!state.currentCycle;
-      if (!hasActiveCycle) {
-        // A new cycle starts at the pipeline's FIRST stage. The offline gate
-        // above already enforces this; online it was left to the server, which
-        // only refuses the ADVANCE — after the reason was asked and the cycle
-        // started. Say it here instead, the same way a wrong-stage scan of a
-        // running cycle names the right stage (2026-10-01).
-        const firstStages = firstStagesFromGraph(state.pipelineGraph);
-        if (firstStages.length > 0 && !firstStages.includes(activeStage.key)) {
-          setError(
-            `${filterName || state.filterName || 'This filter'} has no cleaning cycle yet. ` +
-            `Start it at ${firstStages.map((s: string) => s.replace(/_/g, ' ')).join(', ')}, not ${activeStage.label}.`,
-          );
-          setLoading(false); return;
-        }
-        // Don't silently auto-start PM. Open the reason picker; for a PM-due
-        // filter, pre-select PM + flag it so the picker shows the PM banner.
-        // Operator confirms PM (completes the My Tasks PM task) or picks another
-        // reason (which leaves the PM task pending).
-        const isPm = !!(state.isPmDue && state.pmReasonKey);
-        core.dispatch({ type: 'open_reason', filterId, filterName: filterName || state.filterName, stage: activeStage.key });
-        setSelectedReason(isPm ? state.pmReasonKey! : '');
-        setJustification('');
-        setPmReasonDue(isPm);
-        setLoading(false); return;
-      }
-      if (activeStage.key === 'DRY_IN') {
-        const cyc = state.currentCycle ?? {};
-        if (cyc.dryerReadingsSubmitted) {
-          setError('Dry In complete — temperature already recorded. Scan on Dry Out stage to advance.');
-          setLoading(false); return;
-        }
-        const startedAt = cyc.dryerStartedAt ? new Date(cyc.dryerStartedAt).getTime() : null;
-        const durationMin: number | null = cyc.dryerDurationMinutes ?? null;
-        if (!startedAt || !durationMin) {
-          core.dispatch({ type: 'open_dryer', filterId, filterName: filterName || state.filterName });
-          setLoading(false); return;
-        }
-        const halfMs = (durationMin * 60_000) / 2;
-        const elapsedMs = Date.now() - startedAt;
-        if (elapsedMs < halfMs) {
-          const remainingMin = Math.ceil((halfMs - elapsedMs) / 60_000);
-          setError(`Dryer still running. Wait ${remainingMin} more minute(s).`);
-          setLoading(false); return;
-        }
-        if (state.equipmentGroup) {
-          core.dispatch({ type: 'open_equipment', filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: [], cycleGroup: state.equipmentGroup });
-          setSelectedEquipGroup(state.equipmentGroup); setReadings({}); setLoading(false); return;
-        }
-      } else {
-        // Mid-cycle advance into a stage that needs equipment readings (Wash In
-        // reached after Dry In / Dry Out, 2026-10-08) - ask for them first; the
-        // equipment submit then advances this filter with them.
-        const need = await stageReadingsNeed(activeStage.key, state);
-        if (need) {
-          core.dispatch({ type: 'open_equipment', filterId, filterName: filterName || state.filterName, stage: activeStage.key, groups: need.groups, cycleGroup: need.cycleGroup });
-          setSelectedEquipGroup(need.cycleGroup ?? null); setReadings({}); setLoading(false); return;
-        }
-      }
-
-      const { executed, deferred } = await core.advance({
-        filterId,
-        filterName: filterName || state.filterName,
-        targetState: activeStage.key,
-        cleaningAreaId: selectedBlock?.id,
-        remarks: remarks || `${activeStage.label} - ${filterName}`,
-      });
-      // Dialog-first (2026-07-16): this stage has a mandatory checklist, so
-      // NOTHING was written — the dialog is open and the advance commits
-      // atomically with the answers. Reporting "→ stage" / a recent-op here
-      // would claim a transition that hasn't happened (and that Close will
-      // discard). The checklist submit handler reports the combined result.
-      if (deferred) {
-        setScanValue(''); setRemarks('');
-        setLoading(false);
-        return;
-      }
-      setSuccess(`${filterName || state.filterName} → ${activeStage.label}${executed ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: activeStage.key, filter: filterName || state.filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
-      setScanValue(''); setRemarks('');
-      if (executed) mutate('/api/assets/instances');
-    } catch (e: any) {
-      if ((e.code === 'BLOCK_CHANGE_CONFIRM' || e.code === 'BLOCK_CHANGE_REQUIRED') && e.connectionInfo) {
-        core.dispatch({ type: 'open_block_change', filterId: e.connectionInfo.filterId, filterName: scanValue, homeBlockId: e.connectionInfo.homeBlockId, homeBlockName: e.connectionInfo.homeBlockName, requestedBlockId: e.connectionInfo.requestedBlockId, requestedBlockName: e.connectionInfo.requestedBlockName });
-        setBlockChangeReason(''); setLoading(false); return;
-      }
-      setError(e.message ?? 'Failed');
-    }
-    setLoading(false);
-  };
 
   // Pending cycle payload — saved when reason is selected, used by equipment dialog for offline compound queue
   const [pendingCyclePayload, setPendingCyclePayload] = useState<Record<string, any> | null>(null);
@@ -2440,7 +2004,10 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           if (out.okCount > 0) { setSuccess(`Started ${out.okCount} cycle(s)`); mutate('/api/assets/instances'); }
         } else {
           // Offline: per-filter start-and-advance, skipping the in-core checklist
-          // dispatch so the unified dialog below covers the whole batch.
+          // dispatch so the unified dialog below covers the whole batch. Only the
+          // starts that went through are counted; each refusal is listed.
+          let queuedCount = 0;
+          const failures: string[] = [];
           for (const f of allFilters) {
             try {
               const res = await core.startAndAdvance({
@@ -2453,12 +2020,14 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                 skipChecklistDispatch: true,
               });
               if (res.executed && Array.isArray((res.result as any)?.actions)) cycleStartActions.set(f.filterId, (res.result as any).actions);
+              queuedCount++;
               setRecentOps(prev => [{ stage: reasonDialog.stage, filter: f.filterName, time: formatTime(new Date()), queued: true }, ...prev].slice(0, 200));
             } catch (e: any) {
-              setError(`${f.filterName}: ${e?.message ?? 'cycle-start failed'}`);
+              failures.push(`${f.filterName}: ${e?.message ?? 'cycle-start failed'}`);
             }
           }
-          setSuccess(`Queued ${allFilters.length} cycle(s)`);
+          if (failures.length > 0) setError(failures.join('; '));
+          if (queuedCount > 0) setSuccess(`Queued ${queuedCount} cycle(s)`);
         }
         setScanValue(''); setRemarks('');
         // Unified checklist dispatch — ONE dialog for all same-signature filters
@@ -2532,7 +2101,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
       setRecentOps(prev => [{ stage: reasonDialog.stage, filter: reasonDialog.filterName, time: formatTime(new Date()), queued: !cycleExecuted }, ...prev].slice(0, 200));
       setScanValue(''); setRemarks('');
       if (cycleExecuted) mutate('/api/assets/instances');
-      // Dialog close + checklist dispatch handled by core.startAndAdvance
+      // core.startAndAdvance only OPENS a checklist (which replaces this dialog);
+      // it never closes anything. With no checklist, the reason dialog is done
+      // with — close it here, as the desktop page does (2026-10-22: it stayed
+      // open over the stage view after every successful single start).
+      if (!started.result.dialogOpened) core.dispatch({ type: 'close' });
     }, {
       onError: (e: any) => {
         if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
@@ -2543,111 +2116,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
         }
         setError(e?.message ?? 'Failed');
       },
+      // A dismissed password prompt is not an error (D-OPS-8): nothing started,
+      // the reason dialog stays for another try.
+      onCancel: () => setLoading(false),
     });
     setLoading(false);
-  };
-
-  const handleDryerDurationSubmit = async (minutes: number) => {
-    if (!dryerDialog || dryerLoading) return;
-    setDryerLoading(true); setDryerError('');
-    try {
-      const filterId = dryerDialog.filterId;
-      const filterName = dryerDialog.filterName;
-      const { executed } = await core.advance({
-        filterId,
-        filterName,
-        targetState: 'DRY_IN',
-        cleaningAreaId: selectedBlock?.id,
-        dryerAction: 'SET_DURATION',
-        dryerDurationMinutes: minutes,
-        remarks: remarks || `Dryer started (${minutes} min) - ${filterName}`,
-      });
-      setSuccess(`${filterName} → Dryer running (${minutes} min)${executed ? '' : ' (queued)'}`);
-      setRecentOps(prev => [{ stage: 'Dryer Started', filter: filterName, time: formatTime(new Date()), queued: !executed }, ...prev].slice(0, 200));
-      // Cache dryer timing + equipmentGroup (offline + navigation persistence).
-      // This is supplemental cache data (timer + group) beyond what
-      // recomputeAndCacheFilterState covers; keep it here.
-      try {
-        const cached = await getCache<any>(`filter-state-${filterId}`) ?? {};
-        // Resolve equipment group for offline temperature dropdown
-        let eqGroup = cached.equipmentGroup ?? null;
-        if (!eqGroup && selectedBlock?.id) {
-          const allGroups = await getCache<any[]>('equipment-groups') ?? [];
-          const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
-          if (blockGroups.length === 1) eqGroup = blockGroups[0];
-        }
-        cache(`filter-state-${filterId}`, {
-          ...cached,
-          currentState: 'DRY_IN',
-          equipmentGroup: eqGroup,
-          currentCycle: {
-            ...(cached.currentCycle ?? {}),
-            status: 'IN_PROGRESS',
-            dryerDurationMinutes: minutes,
-            dryerStartedAt: new Date().toISOString(),
-            cleaningAreaId: selectedBlock?.id ?? cached.currentCycle?.cleaningAreaId ?? null,
-          },
-        }, 24 * 60 * 60 * 1000);
-      } catch { /* ignore cache errors */ }
-      setScanValue(''); setRemarks('');
-
-      // 2026-05-20 batch dryer-start continuation. Apply the SAME duration
-      // to each remaining filter in the batch. Sequential so cache writes +
-      // audit order stay deterministic.
-      const batchRest = dryerDialog.remainingBatch ?? [];
-      if (batchRest.length > 0) {
-        for (const rest of batchRest) {
-          try {
-            const { executed: restExecuted } = await core.advance({
-              filterId: rest.filterId,
-              filterName: rest.filterName,
-              targetState: 'DRY_IN',
-              cleaningAreaId: selectedBlock?.id,
-              dryerAction: 'SET_DURATION',
-              dryerDurationMinutes: minutes,
-              remarks: remarks || `Dryer started (${minutes} min) - ${rest.filterName}`,
-            });
-            setRecentOps(prev => [{ stage: 'Dryer Started', filter: rest.filterName, time: formatTime(new Date()), queued: !restExecuted }, ...prev].slice(0, 200));
-            // Mirror the dryer-timing cache write for each batched filter.
-            try {
-              const cached = await getCache<any>(`filter-state-${rest.filterId}`) ?? {};
-              let eqGroup = cached.equipmentGroup ?? null;
-              if (!eqGroup && selectedBlock?.id) {
-                const allGroups = await getCache<any[]>('equipment-groups') ?? [];
-                const blockGroups = allGroups.filter((g: any) => g.blockId === selectedBlock.id);
-                if (blockGroups.length === 1) eqGroup = blockGroups[0];
-              }
-              cache(`filter-state-${rest.filterId}`, {
-                ...cached,
-                currentState: 'DRY_IN',
-                equipmentGroup: eqGroup,
-                currentCycle: {
-                  ...(cached.currentCycle ?? {}),
-                  status: 'IN_PROGRESS',
-                  dryerDurationMinutes: minutes,
-                  dryerStartedAt: new Date().toISOString(),
-                  cleaningAreaId: selectedBlock?.id ?? cached.currentCycle?.cleaningAreaId ?? null,
-                },
-              }, 24 * 60 * 60 * 1000);
-            } catch { /* ignore cache errors */ }
-          } catch (batchErr: any) {
-            // eslint-disable-next-line no-console
-            console.warn(`[batch-dryer-start] ${rest.filterName} failed:`, batchErr);
-            setDryerError(`${rest.filterName}: ${batchErr?.message ?? 'dryer start failed'}`);
-          }
-        }
-        setSuccess(`Started dryer on ${batchRest.length + 1} filters (${minutes} min each)`);
-      }
-
-      // Close the dryer dialog. open_checklist from awaiting_dryer is illegal
-      // (assertOpenable), so core.advance never auto-opens a checklist from here.
-      // Dispatch close explicitly so the dialog dismisses.
-      core.dispatch({ type: 'close' });
-      if (executed) mutate('/api/assets/instances');
-    } catch (e: any) {
-      setDryerError(e.message ?? 'Failed to start dryer');
-    }
-    setDryerLoading(false);
   };
 
   // Mark a value the operator typed/picked. Editing an auto-filled value flips
@@ -2800,6 +2273,12 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
       // cycling pattern which dropped 2 of 3 checklists in the multi-filter
       // L1 batch test on tablet HA28H13Z 2026-05-26 19:00 IST.
       const cycleStartActionsByFilter = new Map<string, any[]>();
+      // Cycles really started (or queued) by this submit — what the batch
+      // summary reports. Set from the bulk result online, else counted per filter.
+      let startedCount = 0;
+      // The password the first START was signed with, reused for the rest of
+      // an offline batch (undefined when START re-auth is off).
+      let batchPassword: string | undefined;
       if (pendingCyclePayload) {
         const cyclePayloadSnap = pendingCyclePayload;
         if (online && batchRest.length > 0) {
@@ -2844,6 +2323,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           // filter's OWN result (firstFilterFailed) so a partial/total failure
           // doesn't falsely claim equipFiltName succeeded or was queued offline.
           executed = out.okCount > 0;
+          startedCount = out.okCount;
           firstFilterFailed = out.results.find(r => r.filterId === equipFiltId)?.status === 'failed';
           // Feed the unified checklist dispatch (below) the authoritative
           // per-filter server actions, exactly as the per-filter loop did.
@@ -2879,74 +2359,82 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           // no cycle — the operator saw "No active cleaning cycle" on every
           // retry and could not get out of it. Now: the real reason is shown, and
           // the start payload is only spent once the start has actually happened.
-          let startFailed = false;
-          let startCancelled = false;
-          await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], targetState), async (password?) => {
-            const started = await startWithPmGate(equipFiltId, (extraCycleFields) => core.startAndAdvance({
-              filterId: equipFiltId,
-              filterName: equipFiltName,
-              cyclePayload: { ...cyclePayloadSnap, ...extraCycleFields },
-              advancePayload: {
+          //
+          // 2026-10-22 — awaited through `executeWithResult`, not `execute`.
+          // `execute` RETURNS as soon as the password prompt opens, and the start
+          // then ran inside the prompt's confirm after this handler had already
+          // returned: with START re-auth on, the cycle started but the dialog
+          // stayed open with its start payload spent (so the next Submit was a
+          // bare advance), nothing was reported, and the rest of a batch was
+          // never started. The same password signs the rest of the batch below —
+          // one password per batch, as the online /bulk-operate path does.
+          let started: { cancelled: true } | { cancelled: false; result: AdvanceOutcome };
+          try {
+            started = await reauth.executeWithResult(withStageAction(['START_CLEANING_CYCLE'], targetState), (password?: string) => {
+              batchPassword = password;
+              return startWithPmGate(equipFiltId, (extraCycleFields) => core.startAndAdvance({
+                filterId: equipFiltId,
+                filterName: equipFiltName,
+                cyclePayload: { ...cyclePayloadSnap, ...extraCycleFields },
+                advancePayload: {
+                  targetState,
+                  cleaningAreaId: selectedBlock?.id,
+                  equipmentGroupId: selectedEquipGroup.id,
+                  instrumentReadings: readings,
+                  ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+                  remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
+                },
                 targetState,
                 cleaningAreaId: selectedBlock?.id,
-                equipmentGroupId: selectedEquipGroup.id,
-                instrumentReadings: readings,
-                ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
-                remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${equipFiltName}`,
-              },
-              targetState,
-              cleaningAreaId: selectedBlock?.id,
-              password,
-              skipChecklistDispatch: useUnifiedBatch,
-            }));
-            if (started.cancelled) { startCancelled = true; return; }
-            const res = started.result;
-            // The cycle exists (or its start is queued) — only now is the start
-            // payload spent. A deferred start (first-stage checklist) carries it
-            // inside the checklist dialog's parked op, so clearing is right there too.
-            setPendingCyclePayload(null);
-            executed = res.executed;
-            dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
-            // Cycle-start deferred behind its first-stage checklist: nothing was
-            // written (not even the cycle). Suppresses the success toast +
-            // recent-ops below — the checklist submit fires the whole compound op
-            // and reports. Only reachable when !useUnifiedBatch (the hook refuses
-            // to defer a batch continuation).
-            deferredHere = res.deferred === true;
-            if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
-              cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
+                password,
+                skipChecklistDispatch: useUnifiedBatch,
+              }));
+            });
+          } catch (e: any) {
+            // A dismissed password prompt started nothing: keep the dialog and
+            // its payload with no error, as the online batch does ('cancelled').
+            if (isReauthCancelled(e)) { setLoading(false); return; }
+            if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
+              core.dispatch({ type: 'close' }); // close equip dialog first (allowed → none)
+              core.dispatch({
+                type: 'open_block_change',
+                filterId: e.connectionInfo.filterId,
+                filterName: equipFiltName,
+                homeBlockId: e.connectionInfo.homeBlockId,
+                homeBlockName: e.connectionInfo.homeBlockName,
+                requestedBlockId: e.connectionInfo.requestedBlockId,
+                requestedBlockName: e.connectionInfo.requestedBlockName,
+              });
+              setBlockChangeReason('');
+              setSelectedEquipGroup(null); setReadings({});
+              setPendingCyclePayload(null);
+            } else {
+              // The dialog and its start payload are kept: fix the cause and
+              // Submit again, and it is still a cycle START.
+              setError(`${equipFiltName}: ${e?.message ?? 'The cleaning cycle could not be started.'}`);
             }
-          }, {
-            onError: (e: any) => {
-              startFailed = true;
-              if ((e?.code === 'BLOCK_CHANGE_CONFIRM' || e?.code === 'BLOCK_CHANGE_REQUIRED') && e?.connectionInfo) {
-                core.dispatch({ type: 'close' }); // close equip dialog first (allowed → none)
-                core.dispatch({
-                  type: 'open_block_change',
-                  filterId: e.connectionInfo.filterId,
-                  filterName: equipFiltName,
-                  homeBlockId: e.connectionInfo.homeBlockId,
-                  homeBlockName: e.connectionInfo.homeBlockName,
-                  requestedBlockId: e.connectionInfo.requestedBlockId,
-                  requestedBlockName: e.connectionInfo.requestedBlockName,
-                });
-                setBlockChangeReason('');
-                setSelectedEquipGroup(null); setReadings({});
-                setPendingCyclePayload(null);
-              } else {
-                // The dialog and its start payload are kept: fix the cause and
-                // Submit again, and it is still a cycle START.
-                setError(`${equipFiltName}: ${e?.message ?? 'The cleaning cycle could not be started.'}`);
-              }
-              setLoading(false);
-            },
-          });
-          // Refused, question dismissed, or the password prompt is still open
-          // (`executed` unset) — nothing was started, so none of the "stage
-          // reached" bookkeeping below applies.
-          if (startFailed || startCancelled || typeof executed !== 'boolean') {
             setLoading(false);
             return;
+          }
+          // Missed-PM question dismissed — nothing was started, so none of the
+          // "stage reached" bookkeeping below applies.
+          if (started.cancelled) { setLoading(false); return; }
+          const res = started.result;
+          // The cycle exists (or its start is queued) — only now is the start
+          // payload spent. A deferred start (first-stage checklist) carries it
+          // inside the checklist dialog's parked op, so clearing is right there too.
+          setPendingCyclePayload(null);
+          executed = res.executed;
+          startedCount = 1;
+          dialogOpenedByCore = dialogOpenedByCore || res.dialogOpened;
+          // Cycle-start deferred behind its first-stage checklist: nothing was
+          // written (not even the cycle). Suppresses the success toast +
+          // recent-ops below — the checklist submit fires the whole compound op
+          // and reports. Only reachable when !useUnifiedBatch (the hook refuses
+          // to defer a batch continuation).
+          deferredHere = res.deferred === true;
+          if (useUnifiedBatch && executed && Array.isArray((res.result as any)?.actions)) {
+            cycleStartActionsByFilter.set(equipFiltId, (res.result as any).actions);
           }
         }
       } else {
@@ -3023,45 +2511,51 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           const cyclePayloadSnap = pendingCyclePayload;
           const equipGroupSnap = selectedEquipGroup;
           const readingsSnap = readings;
+          const failures: string[] = [];
           for (const rest of batchRest) {
+            // core.startAndAdvance THROWS on a refusal, so this catch sees it.
+            // (2026-10-22: it used to sit inside reauth.execute, which hands a
+            // failure to onError and never re-throws — with no handler, a refused
+            // start vanished and was still counted as started.) The first
+            // START's password signs these too.
             try {
-              await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], targetState), async (password?) => {
-                const restRes = await core.startAndAdvance({
-                  filterId: rest.filterId,
-                  filterName: rest.filterName,
-                  cyclePayload: cyclePayloadSnap,
-                  advancePayload: {
-                    targetState,
-                    cleaningAreaId: selectedBlock?.id,
-                    equipmentGroupId: equipGroupSnap.id,
-                    instrumentReadings: readingsSnap,
-                    ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
-                    remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${rest.filterName}`,
-                  },
+              const restRes = await core.startAndAdvance({
+                filterId: rest.filterId,
+                filterName: rest.filterName,
+                cyclePayload: cyclePayloadSnap,
+                advancePayload: {
                   targetState,
                   cleaningAreaId: selectedBlock?.id,
-                  password,
-                  // 2026-05-26: all batch iterations skip in-core dispatch.
-                  // Unified-batch dispatch fires AFTER this loop completes,
-                  // grouping all filters into one dialog. Replaces the old
-                  // per-filter remainingBatch cycling pattern that dropped
-                  // checklists when the operator didn't see/answer every
-                  // sequential dialog.
-                  skipChecklistDispatch: true,
-                });
-                if (restRes.executed && Array.isArray((restRes.result as any)?.actions)) {
-                  cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
-                }
+                  equipmentGroupId: equipGroupSnap.id,
+                  instrumentReadings: readingsSnap,
+                  ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+                  remarks: remarks || `${equipStage.replace(/_/g, ' ')} - ${rest.filterName}`,
+                },
+                targetState,
+                cleaningAreaId: selectedBlock?.id,
+                password: batchPassword,
+                // 2026-05-26: all batch iterations skip in-core dispatch.
+                // Unified-batch dispatch fires AFTER this loop completes,
+                // grouping all filters into one dialog. Replaces the old
+                // per-filter remainingBatch cycling pattern that dropped
+                // checklists when the operator didn't see/answer every
+                // sequential dialog.
+                skipChecklistDispatch: true,
               });
-              setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: false }, ...prev].slice(0, 200));
+              if (restRes.executed && Array.isArray((restRes.result as any)?.actions)) {
+                cycleStartActionsByFilter.set(rest.filterId, (restRes.result as any).actions);
+              }
+              startedCount++;
+              setRecentOps(prev => [{ stage: equipStage, filter: rest.filterName, time: formatTime(new Date()), queued: !restRes.executed }, ...prev].slice(0, 200));
             } catch (batchErr: any) {
               // eslint-disable-next-line no-console
               console.warn(`[batch-cycle-start] ${rest.filterName} failed:`, batchErr);
-              setError(`${rest.filterName}: ${batchErr?.message ?? 'cycle-start failed'}`);
+              failures.push(`${rest.filterName}: ${batchErr?.message ?? 'cycle-start failed'}`);
             }
           }
+          if (failures.length > 0) setError(failures.join('; '));
         }
-        setSuccess(`Started ${batchRest.length + 1} cycles successfully`);
+        if (startedCount > 0) setSuccess(`Started ${startedCount} cycle${startedCount === 1 ? '' : 's'} successfully`);
 
         // 2026-05-26: unified-batch checklist dispatch for multi-filter
         // cycle-start. Walk every filter's server tape, group by checklist
@@ -3555,40 +3049,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
       }
     }, {
       onError: (e: any) => setError(e?.message ?? 'Failed'),
+      // A dismissed password prompt is not an error (D-OPS-8): nothing was
+      // submitted, the checklist stays open with its answers.
+      onCancel: () => setLoading(false),
     });
     setLoading(false);
-  };
-
-  // ─── My Tasks handlers ───────────────────────────────
-  const toggleTaskExpand = (entryId: string) => {
-    setExpandedTasks(prev => {
-      const next = new Set(prev);
-      if (next.has(entryId)) next.delete(entryId);
-      else next.add(entryId);
-      return next;
-    });
-  };
-
-  /**
-   * Mobile "Perform" flow — unlike desktop (which deep-links into a filter
-   * list), mobile operators scan physical RFID tags. So "Perform" just tells
-   * them "go clean filters from AHU X now", auto-opens the Wash In stage,
-   * and pre-fills the selected block to whatever block the AHU belongs to.
-   * The existing scan flow takes over from there — backend block-change
-   * validation still applies, so a mis-scan from a wrong AHU surfaces
-   * normally.
-   */
-  const performTask = (task: any) => {
-    // Jump straight into the Wash In stage scan view
-    const washIn = STAGES.find(s => s.key === 'WASH_IN');
-    if (!washIn) return;
-    setActiveStage(washIn);
-    setView('stage');
-    setScanValue(''); setRemarks(''); setError(''); setSelectedBlock(null);
-    // B7.4 follow-up (Issue #1): mirror openStage — entering a fresh stage
-    // context must drop any advisory tied to a prior cycle.
-    setEquipmentGroupSyncWarning(null);
-    setSuccess(`Ready to clean filters from ${task.ahuName}. Scan each filter now.`);
   };
 
   // 2026-06-09: block-change approval removed → operator self-confirm. Mark the
@@ -3643,58 +3108,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
 
   return (
     <div className="h-[100dvh] flex flex-col bg-gradient-to-b from-slate-50 to-slate-100 select-none overflow-hidden">
-      {/* ─── HEADER ─── */}
-      {!hideHeader && <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-3">
-          {view !== 'home' && (
-            <button onClick={goHome} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center active:bg-slate-200">
-              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
-          )}
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-extrabold shadow-lg shadow-cyan-500/20">DL</div>
-          <div>
-            <div className="text-sm font-bold text-slate-800 leading-tight">DigiLog</div>
-            <div className="text-[10px] text-slate-400 leading-tight">{user?.fullName ?? user?.username}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${online ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
-            {online ? 'Online' : 'Offline'}
-          </div>
-          {online && (
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium ${dataCached ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'bg-yellow-50 text-yellow-600 border border-yellow-200'}`}>
-              <div className={`w-1.5 h-1.5 rounded-full ${dataCached ? 'bg-blue-500' : 'bg-yellow-400 animate-pulse'}`} />
-              {dataCached ? 'Data Synced' : 'Syncing...'}
-            </div>
-          )}
-          {pendingCount > 0 && (
-            <div className="flex items-center gap-1">
-              <button onClick={async () => {
-                const r = await manualSync();
-                if (r.synced > 0) setSuccess(`Synced ${r.synced} operation(s)`);
-                if (r.failed > 0) {
-                  const ops = await getQueueDetails();
-                  const details = ops.filter((o: any) => o.status !== 'synced').map((o: any) => `${o.type}: ${o.filterName} — ${o.error || 'pending'}`).join('\n');
-                  setError(details || lastSyncMessage || 'Sync failed');
-                }
-              }} disabled={syncing} className="px-2 py-1 bg-amber-50 border border-amber-200 rounded-full text-[10px] text-amber-700 font-medium">
-                {syncing ? '⟳ Syncing...' : `${pendingCount} pending — sync`}
-              </button>
-              <button onClick={async () => { if (confirm('Clear all pending operations? They will not be synced.')) { await clearQueue(); setSuccess('Queue cleared'); } }} className="px-1.5 py-1 bg-red-50 border border-red-200 rounded-full text-[10px] text-red-600 font-medium">
-                ✕
-              </button>
-            </div>
-          )}
-        </div>
-      </div>}
-
-      {/* Offline Banner */}
-      {!hideHeader && !online && <div className="mx-4 mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-700 flex items-center gap-2"><span>📡</span> Working offline — operations queued for sync</div>}
-
       {/* Success / error / warning all surface as toast popups (2026-05-25).
           Inline banners removed — see the useEffect block above where success,
-          error, equipmentGroupSyncWarning, and batchCacheError all fan out to
+          error and batchCacheError fan out to
           toast.error / toast.success. */}
       {batchCacheError && online && (
         <div className="mx-4 mt-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center justify-between gap-3">
@@ -3759,396 +3175,9 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
       {/* Error banner removed 2026-05-25 — error surfaces via toast.error()
           popup in the useEffect above so it's visible from any view. Keeping
           this comment in case the inline banner is restored later. */}
-      {/* equipmentGroupSyncWarning inline banner removed 2026-05-25 —
-          replaced by toast.error popup in the useEffect above. Same content,
-          better visibility from any view. */}
 
       {/* ─── CONTENT ─── */}
       <div className="flex-1 overflow-y-auto">
-
-        {/* ═══ HOME VIEW ═══ */}
-        {view === 'home' && !reasonDialog && !equipDialog && !checklistDialog && (
-          <div className="p-4 space-y-4">
-            {/* Status Card */}
-            {hasFeature('filter_status') && <button onClick={() => setView('status')} className="w-full bg-white rounded-2xl border border-slate-200 p-5 shadow-sm active:shadow-none active:bg-slate-50 transition-all">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                    <span className="text-2xl">📊</span>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-slate-800">Filter Status</div>
-                    <div className="text-xs text-slate-400">{allFilters.length} total filters</div>
-                  </div>
-                </div>
-                <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {STAGES.slice(0, 3).map(s => (
-                  <div key={s.key} className={`${s.bg} ${s.border} border rounded-lg px-2 py-1.5 text-center`}>
-                    <div className={`text-lg font-bold ${s.text}`}>{stageCounts[s.key] ?? 0}</div>
-                    <div className="text-[9px] text-slate-500">{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </button>}
-
-            {/* Quick access: My Tasks + Cycles */}
-            {(
-            <div className="grid grid-cols-2 gap-3">
-              {hasFeature('my_tasks') && (
-              <button onClick={() => setView('my-tasks')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center mb-3 shadow-lg shadow-cyan-500/20">
-                  <span className="text-2xl">🎯</span>
-                </div>
-                <div className="text-sm font-bold text-slate-800">My Tasks</div>
-                <div className="text-xs text-slate-400 mt-0.5">Filters due for cleaning</div>
-              </button>
-              )}
-              {/* Issue #7 fix — Cleaning Cycles tile on mobile */}
-              <button onClick={() => setView('cycles')} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center mb-3 shadow-lg shadow-indigo-500/20">
-                  <span className="text-2xl">📋</span>
-                </div>
-                <div className="text-sm font-bold text-slate-800">Filter Cleaning Record</div>
-                <div className="text-xs text-slate-400 mt-0.5">Recent cycle history</div>
-              </button>
-            </div>
-            )}
-
-            {/* Stage Cards Grid */}
-            {hasFeature('filter_cleaning') && (
-            <div className="grid grid-cols-2 gap-3">
-              {STAGES.map(stage => (
-                <button key={stage.key} onClick={() => openStage(stage)}
-                  className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm active:shadow-none active:scale-[0.98] transition-all text-left">
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${stage.gradient} flex items-center justify-center mb-3 shadow-lg shadow-slate-300/30`}>
-                    <span className="text-3xl">{stage.icon}</span>
-                  </div>
-                  <div className="text-sm font-bold text-slate-800">{stage.label}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{stageCounts[stage.key] ?? 0} filter(s)</div>
-                </button>
-              ))}
-            </div>
-            )}
-
-            {/* Logout */}
-            {hasFeature('logout') && (
-            <button onClick={logout} className="w-full py-3 bg-white border border-red-200 rounded-2xl text-sm font-medium text-red-600 active:bg-red-50 flex items-center justify-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-              Logout
-            </button>
-            )}
-
-            {/* Recent */}
-            {recentOps.length > 0 && (
-              <div className="space-y-1">
-                <h3 className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">Recent Operations</h3>
-                {recentOps.slice(0, 5).map((op, i) => (
-                  <div key={i} className="flex items-center justify-between bg-white border border-slate-200 rounded-xl px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{STAGES.find(s => s.key === op.stage)?.icon ?? '⚙️'}</span>
-                      <span className="text-xs text-slate-700 font-medium">{op.filter}</span>
-                    </div>
-                    <span className="text-[10px] text-slate-400">{op.time} {op.queued ? '⏳' : ''}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══ STATUS VIEW ═══ */}
-        {view === 'status' && (
-          <div className="p-4 space-y-4">
-            <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
-            <div className="grid grid-cols-2 gap-3">
-              {STAGES.map(s => (
-                <div key={s.key} className={`bg-white border ${s.border} rounded-xl p-4`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">{s.icon}</span>
-                    <span className="text-xs font-semibold text-slate-600">{s.label}</span>
-                  </div>
-                  <div className={`text-2xl font-bold ${s.text}`}>{stageCounts[s.key] ?? 0}</div>
-                </div>
-              ))}
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-600">All Filters ({allFilters.length})</h3>
-              {allFilters.map((f: any) => {
-                const stageInfo = STAGES.find(s => s.key === f.currentLifecycleState);
-                return (
-                  <div key={f.id} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{f.name}</div>
-                      {f.filterSet && <span className="text-[10px] text-slate-400">Set {f.filterSet.replace('SET_', '')}</span>}
-                    </div>
-                    <span className={`text-[10px] px-2.5 py-1 rounded-full border font-medium ${stageInfo ? `${stageInfo.bg} ${stageInfo.text} ${stageInfo.border}` : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                      {f.currentLifecycleState?.replace(/_/g, ' ') ?? 'To Be Cleaned'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ═══ MY TASKS VIEW ═══ */}
-        {view === 'my-tasks' && (
-          <div className="p-4 space-y-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">My Tasks</h2>
-              <p className="text-xs text-slate-500 mt-0.5">AHUs currently due for cleaning based on PM schedules</p>
-            </div>
-
-            {!online && (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
-                My Tasks requires an internet connection.
-              </div>
-            )}
-
-            {online && dueTasksLoading && (
-              <div className="space-y-3">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
-                ))}
-              </div>
-            )}
-
-            {!dueTasksLoading && (!tasksSource?.tasks?.length && !tasksSource?.overdue?.length) && (
-              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="h-1.5 bg-gradient-to-r from-teal-400 to-cyan-500" />
-                <div className="p-10 text-center">
-                  <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-teal-50 to-cyan-50 flex items-center justify-center">
-                    <span className="text-3xl">🎯</span>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-700">Nothing due right now</div>
-                  <div className="text-xs text-slate-400 mt-1">Tasks appear when a schedule window opens</div>
-                </div>
-              </div>
-            )}
-
-            {(tasksSource?.tasks ?? []).map((task: any) => {
-              const expanded = expandedTasks.has(task.entryId);
-              const statusColor =
-                task.overallStatus === 'complete' ? { bar: 'from-emerald-400 to-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', dot: 'bg-emerald-500' }
-                : task.overallStatus === 'in_progress' ? { bar: 'from-cyan-400 to-cyan-500', badge: 'bg-cyan-50 text-cyan-700 border-cyan-100', dot: 'bg-cyan-500' }
-                : { bar: 'from-amber-400 to-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-100', dot: 'bg-amber-500' };
-              const progressPct = task.totalFilters > 0 ? Math.round((task.cleanedCount / task.totalFilters) * 100) : 0;
-              return (
-                <div key={task.entryId} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                  <div className={`h-1.5 bg-gradient-to-r ${statusColor.bar}`} />
-                  <div className="p-4">
-                    <button onClick={() => toggleTaskExpand(task.entryId)} className="w-full text-left">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
-                            <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border ${statusColor.badge}`}>
-                              <span className={`w-1 h-1 rounded-full ${statusColor.dot}`} />
-                              {task.overallStatus === 'complete' ? 'Complete' : task.overallStatus === 'in_progress' ? 'In Progress' : 'Pending'}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-1">
-                            {formatTime(new Date(task.plannedDate))} • {task.cleanedCount}/{task.totalFilters} cleaned
-                          </div>
-                          {task.totalFilters > 0 && (
-                            <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-gradient-to-r from-teal-400 to-cyan-500 transition-all" style={{ width: `${progressPct}%` }} />
-                            </div>
-                          )}
-                        </div>
-                        <svg className={`w-5 h-5 text-slate-400 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                    </button>
-
-                    {expanded && (
-                      <div className="mt-3 pt-3 border-t border-slate-100">
-                        {task.filters.length === 0 ? (
-                          <p className="text-[11px] text-slate-400 italic">No active child filters.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {task.filters.map((f: any) => {
-                              const cls =
-                                f.status === 'cleaned_in_window' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : f.status === 'in_progress' ? 'bg-cyan-50 text-cyan-700 border-cyan-100'
-                                : 'bg-amber-50 text-amber-700 border-amber-100';
-                              // C4 (2026-07-10): show the filter's cleaning status as a
-                              // readable label, not just the pill colour.
-                              const statusLabel =
-                                f.status === 'cleaned_in_window' ? 'Cleaned'
-                                : f.status === 'in_progress' ? 'In progress'
-                                : 'Pending';
-                              // 2026-07-10: also show WHICH cleaning stage the filter is
-                              // currently in (Wash In / Wash Out / Dry In / …). Resolve via
-                              // the shared STAGES catalog so only a REAL cleaning stage shows
-                              // — lifecycle markers like CLEANING_CYCLE_COMPLETED / idle
-                              // (which aren't in STAGES) resolve to null and are omitted.
-                              const stageLabel = f.currentStage
-                                ? (STAGES.find((s: any) => s.key === f.currentStage)?.label ?? null)
-                                : null;
-                              return (
-                                <span key={f.filterId} className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
-                                  {f.filterName}
-                                  {stageLabel && <span className="font-normal opacity-70">· {stageLabel}</span>}
-                                  <span className="font-normal opacity-70">· {statusLabel}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {task.overallStatus === 'complete' ? (
-                      <div className="mt-3 w-full py-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-sm font-semibold text-center flex items-center justify-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                        Completed
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => performTask(task)}
-                        className="mt-3 w-full py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-sm font-semibold shadow-lg shadow-cyan-500/25 active:shadow-none"
-                      >
-                        Perform →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {(tasksSource?.overdue ?? []).length > 0 && (
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-rose-600 text-sm">⚠</span>
-                  <h3 className="text-sm font-bold text-slate-800">Overdue</h3>
-                </div>
-                {((tasksSource?.overdue ?? []) as any[]).map((task: any) => (
-                  <div key={task.entryId} className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="h-1.5 bg-gradient-to-r from-rose-400 to-rose-500" />
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            Window closed {formatTime(new Date(task.windowEnd))} • {task.cleanedCount}/{task.totalFilters} cleaned
-                          </div>
-                        </div>
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-rose-50 text-rose-700 border-rose-100">
-                          <span className="w-1 h-1 rounded-full bg-rose-500" />
-                          Overdue
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => performTask(task)}
-                        className="mt-3 w-full py-2.5 bg-gradient-to-r from-rose-600 to-rose-700 text-white rounded-xl text-sm font-semibold shadow-lg shadow-rose-500/25 active:shadow-none"
-                      >
-                        Perform (overdue) →
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-
-
-        {/* ═══ CLEANING CYCLES VIEW (Issue #7) ═══ */}
-        {view === 'cycles' && (
-          <div className="p-4 space-y-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-800">Filter Cleaning Record</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Recent cycles · {cyclesList.length}</p>
-            </div>
-            {!online && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
-                Offline — showing last cached snapshot. Reconnect to refresh.
-              </div>
-            )}
-            {online && cyclesLoading && (
-              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="bg-white border border-slate-200 rounded-2xl h-24 animate-pulse" />
-              ))}</div>
-            )}
-            {cyclesList.length === 0 && !cyclesLoading && (
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-sm text-slate-500">
-                No cleaning cycles yet.
-              </div>
-            )}
-            {cyclesList.map((cyc: any) => {
-              const isExpanded = expandedCycle === cyc.id;
-              const statusBadge =
-                cyc.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                cyc.status === 'TERMINATED' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-                'bg-blue-50 text-blue-700 border-blue-200';
-              const durSec = cyc.completedAt
-                ? Math.max(0, Math.floor((new Date(cyc.completedAt).getTime() - new Date(cyc.startedAt).getTime()) / 1000))
-                : Math.max(0, Math.floor((Date.now() - new Date(cyc.startedAt).getTime()) / 1000));
-              const durLabel = durSec >= 3600
-                ? `${Math.floor(durSec / 3600)}h ${Math.floor((durSec % 3600) / 60)}m`
-                : `${Math.floor(durSec / 60)}m ${durSec % 60}s`;
-              const events = (cyc.events ?? []) as any[];
-              return (
-                <button key={cyc.id} onClick={() => setExpandedCycle(isExpanded ? null : cyc.id)}
-                  className="w-full bg-white rounded-2xl border border-slate-200 p-3 shadow-sm active:bg-slate-50 text-left">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-bold text-slate-800 truncate">{cyc.filter?.name ?? cyc.filterName ?? cyc.cycleCode}</div>
-                      <div className="text-[11px] text-slate-400 truncate">{cyc.cycleCode}</div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadge}`}>
-                      {cyc.status === 'IN_PROGRESS' ? 'In Progress' : cyc.status === 'COMPLETED' ? 'Completed' : 'Terminated'}
-                    </span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
-                    <div>
-                      <div className="text-slate-400">Started</div>
-                      <div className="text-slate-700 font-medium">{formatTime(new Date(cyc.startedAt))}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">Duration</div>
-                      <div className="text-slate-700 font-medium">{durLabel}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">Reason</div>
-                      <div className="text-slate-700 font-medium truncate">{cyc.cleaningReasonLabel ?? '-'}</div>
-                    </div>
-                  </div>
-                  {isExpanded && events.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
-                      {events.map((e: any, i: number) => (
-                        <div key={e.id ?? i} className="flex items-center justify-between text-[11px] gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-slate-400 shrink-0">{formatTime(new Date(e.performedAt))}</span>
-                            <span className="font-medium text-slate-700 truncate">
-                              {e.eventType === 'STATE_TRANSITION'
-                                ? (() => {
-                                    const { from: tf, to: tt, phase: tp } = transitionEndpoints(e);
-                                    const toLbl = tt ? `${tt.replace(/_/g, ' ')}${phaseSuffix(tp)}` : null;
-                                    return tf ? `${tf.replace(/_/g, ' ')} → ${toLbl}` : (toLbl ? `To Be Cleaned → ${toLbl}` : 'transition');
-                                  })()
-                                : e.eventType.replace(/_/g, ' ').toLowerCase()}
-                            </span>
-                          </div>
-                          {(e.attributes as any)?.action && (
-                            <span className="text-[10px] text-slate-400 truncate">{(e.attributes as any).action.replace(/_/g, ' ').toLowerCase()}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         {/* ═══ STAGE OPERATION VIEW ═══ */}
         {view === 'stage' && activeStage && !reasonDialog && !equipDialog && !checklistDialog && (
@@ -4191,13 +3220,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                   <div className="flex items-center justify-between bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-2">
                     <span className="text-xs text-cyan-700 font-medium">Block: {selectedBlock.name}</span>
                     <button onClick={() => {
-                      // B7.4 follow-up (Issue #1): clear the equipment-group
-                      // sync advisory when operator switches block intra-stage.
-                      // The advisory is bound to the previously scanned filter
-                      // and would leak onto the next scan view until the next
-                      // current-state response replaces it. goHome already
-                      // clears this; the in-place block change must too.
-                      setEquipmentGroupSyncWarning(null);
                       setSelectedBlock(null);
                     }} className="text-[10px] text-cyan-600 underline">Change</button>
                   </div>
@@ -4214,12 +3236,15 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                       submit are the only paths into the queue. */}
                   <input ref={scanInputRef} type="text" value={scanValue} readOnly
                     onBlur={() => {
-                      setTimeout(() => {
+                      if (refocusTimerRef.current) clearTimeout(refocusTimerRef.current);
+                      refocusTimerRef.current = setTimeout(() => {
+                        refocusTimerRef.current = null;
                         const ae = document.activeElement;
                         if (!ae || ae === document.body) focusScanInput();
                       }, 50);
                     }}
                     placeholder="Scan RFID tag..."
+                    aria-label="Scan RFID tag"
                     data-rfid="true"
                     className="flex-1 bg-white border-2 border-slate-200 rounded-2xl px-4 py-4 text-base text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500 shadow-sm cursor-default" autoFocus />
                 </div>
@@ -4247,7 +3272,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                     </div>
                     {scanQueue.map(q => (
                       <div key={q.filterId} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-slate-50 rounded-lg">
-                        <input type="checkbox" className="w-5 h-5 accent-cyan-600 shrink-0" checked={selectedQueueIds.has(q.filterId)} onChange={() => toggleQueueSelect(q.filterId)} />
+                        <input type="checkbox" aria-label={`Select ${q.filterName}`} className="w-5 h-5 accent-cyan-600 shrink-0" checked={selectedQueueIds.has(q.filterId)} onChange={() => toggleQueueSelect(q.filterId)} />
                         <span className="text-sm font-medium text-slate-700 min-w-0 flex-1">
                           {q.filterName}
                           {q.ahuName && (
@@ -4261,7 +3286,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                   </div>
                 )}
 
-                <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Remarks (optional)" rows={2}
+                <textarea value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Remarks (optional)" aria-label="Remarks" rows={2}
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500" />
 
                 {/* 2026-05-20: tablet now ALWAYS queues on scan — no single-
@@ -4350,12 +3375,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-slide-up">
             <div className="bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-4 rounded-t-3xl"><h2 className="text-lg font-bold text-white">Cleaning Reason</h2><p className="text-cyan-100 text-sm">{reasonDialog.filterName}</p></div>
             <div className="p-5 space-y-3 overflow-y-auto flex-1">
-              {pmReasonDue && (
-                <div className="px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-800">
-                  This filter is in the <span className="font-semibold">PM schedule</span>. Reason defaults to <span className="font-semibold">PM</span> — confirm to continue, or pick another reason.
-                  <span className="block text-xs text-emerald-600 mt-0.5">A non-PM reason leaves this task pending in My Tasks.</span>
-                </div>
-              )}
               {cleaningReasons.filter((r: any) => r.isActive !== false).map((r: any) => (
                 <button key={r.key} onClick={() => setSelectedReason(r.key)} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedReason === r.key ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{r.name}</div>
@@ -4363,7 +3382,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                 </button>
               ))}
               {cleaningReasons.find((r: any) => r.key === selectedReason)?.requiresJustification && (
-                <textarea className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm" rows={2} placeholder="Justification (min 10 chars)" value={justification} onChange={e => setJustification(e.target.value)} />
+                <textarea className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm" rows={2} placeholder="Justification (min 10 chars)" aria-label="Justification" value={justification} onChange={e => setJustification(e.target.value)} />
               )}
             </div>
             {(() => {
@@ -4409,7 +3428,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                   i.autoFetchEnabled === true
                   && online
                   && !(equipManualFallback.has(i.id) && genOpts(i.operatingMin, i.operatingMax, i.leastCount).length > 0);
-                const hasAuto = stageInsts.some(isAutoInstrument);
+                // "Get Values" + its status line follow the CONFIGURATION, not the
+                // per-instrument fallback (as equipment-dialog.tsx does): when every
+                // auto instrument had timed out they vanished, taking the retry and
+                // the "couldn't be fetched" explanation with them (2026-10-22).
+                const hasAuto = online && stageInsts.some((i: any) => i.autoFetchEnabled === true);
                 return (
                   <>
                     {hasAuto && (
@@ -4427,17 +3450,17 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                       return (
                         <div key={inst.id}>
                           <div className="flex items-center gap-2">
-                            <label className="text-sm font-medium text-slate-700">{inst.description} ({inst.uom})</label>
+                            <label htmlFor={`equip-reading-${inst.id}`} className="text-sm font-medium text-slate-700">{inst.description} ({inst.uom})</label>
                             {src === 'AUTO' && <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700">Auto · locked</span>}
                           </div>
                           {isAutoInstrument(inst) ? (
-                            <input type="number" step="any" inputMode="decimal" value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)}
+                            <input id={`equip-reading-${inst.id}`} type="number" step="any" inputMode="decimal" value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)}
                               readOnly={isEquipLocked(inst.id)}
                               aria-readonly={isEquipLocked(inst.id)}
                               placeholder={equipFetching && equipPending.has(inst.id) ? 'Fetching…' : 'Enter or fetch'}
                               className={`w-full mt-1 border rounded-xl px-4 py-3 text-sm ${isEquipLocked(inst.id) ? 'bg-slate-100 text-slate-600' : 'bg-white'} ${oor ? 'border-amber-400' : 'border-slate-200'}`} />
                           ) : (
-                            <select value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)} className="w-full mt-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white">
+                            <select id={`equip-reading-${inst.id}`} value={val ?? ''} onChange={e => setEquipReading(inst.id, e.target.value)} className="w-full mt-1 border border-slate-200 rounded-xl px-4 py-3 text-sm bg-white">
                               <option value="">Select...</option>{genOpts(inst.operatingMin, inst.operatingMax, inst.leastCount).map(v => <option key={v} value={v}>{formatByLeastCount(v, inst.leastCount)} {inst.uom}</option>)}
                             </select>
                           )}
@@ -4453,15 +3476,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
           </div>
         </div>
       )}
-
-      <DryerDurationDialog
-        open={!!dryerDialog}
-        filterName={dryerDialog?.filterName ?? ''}
-        loading={dryerLoading}
-        error={dryerError}
-        onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }}
-        onSubmit={handleDryerDurationSubmit}
-      />
 
       {/* Checklist — combined-screen UX (2026-05-25): the readings are
           already submitted server-side at this point; the dialog shows a
@@ -4551,7 +3565,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                                   {['Pass', 'Fail'].map(opt => <button key={opt} type="button" onClick={() => setVal(opt)} aria-pressed={val === opt} className={`flex-1 py-2.5 rounded-xl text-sm border-2 transition-colors inline-flex items-center justify-center gap-1 ${val === opt ? `font-bold text-white ${opt === 'Pass' ? 'bg-green-600 border-green-600' : 'bg-red-600 border-red-600'}` : 'font-medium bg-white text-slate-600 border-slate-200'}`}>{val === opt && <span aria-hidden="true">✓</span>}{opt}</button>)}
                                 </div>
                               ) : q.questionType === 'DROPDOWN' ? (
-                                <select value={val} onChange={e => setVal(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none">
+                                <select value={val} onChange={e => setVal(e.target.value)} aria-label={q.question} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none">
                                   <option value="">Select...</option>
                                   {(Array.isArray(q.options) ? q.options : []).map((opt: any, i: number) => <option key={i} value={typeof opt === 'string' ? opt : opt.value}>{typeof opt === 'string' ? opt : opt.label}</option>)}
                                 </select>
@@ -4566,7 +3580,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                                 </div>
                               ) : q.questionType === 'NUMERIC' ? (
                                 <div>
-                                  <input type="number" value={val} onChange={e => setVal(e.target.value)}
+                                  <input type="number" value={val} onChange={e => setVal(e.target.value)} aria-label={q.question}
                                     min={q.validation?.min} max={q.validation?.max} step={q.validation?.leastCount || 'any'}
                                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none" placeholder={q.validation?.unit ? `Enter value (${q.validation.unit})` : 'Enter value'} />
                                   {(q.validation?.min !== undefined || q.validation?.max !== undefined) && (
@@ -4575,7 +3589,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                                 </div>
                               ) : q.questionType === 'PHOTO' ? (
                                 <div>
-                                  <input type="file" accept="image/*" capture="environment" onChange={e => {
+                                  <input type="file" accept="image/*" capture="environment" aria-label={q.question} onChange={e => {
                                     const file = e.target.files?.[0];
                                     if (!file) return;
                                     const reader = new FileReader();
@@ -4592,7 +3606,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                                 // (checklist-dialog.tsx `default:`). The tablet had
                                 // a "not available" note with no input, so a
                                 // REQUIRED signature question blocked the batch.
-                                <textarea value={val} onChange={e => setVal(e.target.value)} rows={2}
+                                <textarea value={val} onChange={e => setVal(e.target.value)} rows={2} aria-label={q.question}
                                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:border-cyan-500 outline-none" placeholder="Enter answer" />
                               )}
                             </div>
@@ -4651,7 +3665,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, hideHead
                     <p className="text-sm text-slate-600 mb-2">Cleaning this filter in <span className="font-semibold text-amber-700">{blockChangeDialog.requestedBlockName}</span> needs approval. Submit a request below.</p>
                     <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none" rows={2}
                       value={blockChangeReason} onChange={e => setBlockChangeReason(e.target.value)}
-                      placeholder="Why does this filter need to be cleaned in a different block?" />
+                      placeholder="Why does this filter need to be cleaned in a different block?"
+                      aria-label="Reason for cleaning in a different block" />
                   </div>
                 ) : (
                   <p className="text-sm text-slate-600">

@@ -153,6 +153,14 @@ export function MobileWrapperPage() {
   // (use-tablet-access.ts). Offline it uses the last list this user read
   // online on this tablet instead of failing open.
   const { tabletAccess, allowedFeatures, tabletConfigured, hasFeature } = useTabletAccess(user, online);
+  // A role the allowlist leaves with NO features gets the "not enabled" screen
+  // (below). That screen is an early return AFTER every hook, so the shell's
+  // reads kept polling (instances 30 s, notifications 60 s, …) and the
+  // master-data syncs kept running underneath it, for a role that cannot use
+  // them (2026-10-22). Known only once the access answer is in: until then
+  // nothing is held back, so offline and slow links keep their data.
+  const tabletDenied = !!tabletAccess && tabletConfigured && allowedFeatures.length === 0 && user?.role !== 'SUPER_ADMIN';
+  const shellReads = online && !tabletDenied;
   // OQ-03a: the tab needs the tablet feature AND STAGE_APPROVAL_VIEW/_DECIDE.
   const canStageApprovals = canUseStageApprovals(tabletAccess, user);
   const can = useCan();
@@ -238,8 +246,13 @@ export function MobileWrapperPage() {
   // intervention. Plus we re-sync whenever the app comes back from
   // background (visibilitychange) so leaving the tablet for an hour and
   // returning doesn't scan against stale data.
+  // Keyed on the user's ID, not the object (2026-10-22): the object is replaced
+  // when /me answers after the cached copy rendered, and each of these effects
+  // re-ran — a second full master-data download per open for the SAME user.
+  // None of them run for a role the tablet is not enabled for.
+  const syncUserId = tabletDenied ? undefined : user?.id;
   useEffect(() => {
-    if (!user) return;
+    if (!syncUserId) return;
     // Do NOT hard-gate on the `online` flag — it's an unreliable false-negative
     // on Android WebViews, and gating here meant a stuck-false flag silently
     // skipped the open-sync, leaving the cache stale (a newly added filter,
@@ -253,11 +266,11 @@ export function MobileWrapperPage() {
       setSyncProgress(progress);
       if (progress.done) setDataCached(true);
     });
-  }, [online, user]);
+  }, [online, syncUserId]);
   // Re-sync on foreground (visibilitychange) so the cache reflects any
   // server-side changes that happened while the tablet was backgrounded.
   useEffect(() => {
-    if (!user) return;
+    if (!syncUserId) return;
     const onVisible = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         setDataCached(false);
@@ -269,7 +282,7 @@ export function MobileWrapperPage() {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [user]);
+  }, [syncUserId]);
 
   // Phase 8.4b — versioned-cache sync (Option D). Runs in parallel with the
   // legacy syncAllDataForOffline above. Different cache (the v5 sync stores
@@ -278,16 +291,16 @@ export function MobileWrapperPage() {
   // fresh while the tablet is foregrounded. Will replace the legacy path
   // in 8.6 once the shared executor lands.
   useEffect(() => {
-    if (!user) return;
+    if (!syncUserId) return;
     triggerSync('mobile-app-start');
     const teardown = startSyncPolling();
     return () => teardown();
-  }, [user]);
+  }, [syncUserId]);
 
   // Re-sync after operations are synced back to server (keeps cache fresh)
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
-      if (event.type === 'complete' && event.synced && event.synced > 0 && online) {
+      if (event.type === 'complete' && event.synced && event.synced > 0 && online && !tabletDenied) {
         // Full re-sync after successful operation sync
         syncAllDataForOffline((progress) => {
           setSyncProgress(progress);
@@ -296,15 +309,15 @@ export function MobileWrapperPage() {
       }
     });
     return cleanup;
-  }, [online]);
+  }, [online, tabletDenied]);
 
   // SWR for live data while online (refresh intervals for real-time updates)
   // May 16 H19 tuning (2026-05-20): bumped intervals to halve API load.
   // Stage-by-stage workflows operate on minute-scale, so 30-60s polling is
   // well below operator-perceptible staleness.
-  const { data: instancesData } = useSWR(online ? '/api/assets/instances' : null, { refreshInterval: 30000 });
-  const { data: templatesData } = useSWR(online ? '/api/assets/templates' : null);
-  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(online ? '/api/assets/identifiers' : null, { refreshInterval: 60000 });
+  const { data: instancesData } = useSWR(shellReads ? '/api/assets/instances' : null, { refreshInterval: 30000 });
+  const { data: templatesData } = useSWR(shellReads ? '/api/assets/templates' : null);
+  const { data: identifiersData, mutate: mutateIdentifiers } = useSWR(shellReads ? '/api/assets/identifiers' : null, { refreshInterval: 60000 });
 
   // My Tasks filters (mirror the desktop My Tasks page). Time period drives the
   // server query (/due?from=&to=); search / block / area / status filter client-side.
@@ -319,7 +332,7 @@ export function MobileWrapperPage() {
   // My Tasks. The /due key carries the from/to period so the server
   // returns tasks for the selected window (empty = "due now + overdue").
   const dueKey = (() => {
-    if (!online) return null;
+    if (!shellReads) return null;
     const qs = new URLSearchParams();
     if (taskFrom) qs.set('from', taskFrom);
     if (taskTo) qs.set('to', taskTo);
@@ -331,7 +344,7 @@ export function MobileWrapperPage() {
 
   // Notifications (overdue deviations etc.) — bell badge + center view.
   const { data: notifData, mutate: mutateNotifs } =
-    useSWR<any>(online ? `/api/notifications?limit=${ALL_ROWS}` : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
+    useSWR<any>(shellReads ? `/api/notifications?limit=${ALL_ROWS}` : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
   const notifications: any[] = notifData?.data ?? [];
   const unreadCount: number = notifData?.unreadCount ?? 0;
   const markNotifRead = async (n: any) => {
@@ -433,7 +446,6 @@ export function MobileWrapperPage() {
   // of how rapid the back-to-back scans are.
   const [scanRfidOpen, setScanRfidOpen] = useState(false);
   const [scanRfidValue, setScanRfidValue] = useState('');
-  const [scanRfidError, setScanRfidError] = useState('');
   const scanRfidInputRef = useRef<HTMLInputElement>(null);
   const scanRfidLastSubmitRef = useRef<{ value: string; time: number }>({ value: '', time: 0 });
   // 2026-05-21: cascading hierarchy filters for the RFID Assign filter list —
@@ -487,7 +499,7 @@ export function MobileWrapperPage() {
   // /tasks returns EVERY approved entry with live AHU-filter progress (a task
   // covers ALL filters under its AHU). Split into Pending (still needs replacing)
   // and Completed for the two tabs on the page.
-  const { data: replDueData, mutate: mutateReplDue } = useSWR(online ? '/api/replacement-schedules/tasks' : null, { refreshInterval: 30000 });
+  const { data: replDueData, mutate: mutateReplDue } = useSWR(shellReads ? '/api/replacement-schedules/tasks' : null, { refreshInterval: 30000 });
   const replAllTasks = ((replDueData as any)?.data ?? []) as any[];
   const replDueTasks = replAllTasks.filter((t: any) => t.computedStatus !== 'COMPLETED');
   const replCompletedTasks = replAllTasks.filter((t: any) => t.computedStatus === 'COMPLETED');
@@ -663,7 +675,7 @@ export function MobileWrapperPage() {
   // The assignment map Perform resolves the first stage from. The `/current`
   // read needs no permission. Cached under the key mobile-operations uses, so
   // the offline Perform finds it even if no station was opened online.
-  const { data: cleaningAssignmentData } = useSWR<any>(online ? '/api/config/cleaning-profile-assignment/current' : null);
+  const { data: cleaningAssignmentData } = useSWR<any>(shellReads ? '/api/config/cleaning-profile-assignment/current' : null);
   useEffect(() => { if (cleaningAssignmentData) cache('cleaning-profile-assignment', cleaningAssignmentData, 24 * 60 * 60 * 1000); }, [cleaningAssignmentData, cache]);
 
   const openStage = (stageKey: string) => {
@@ -686,9 +698,9 @@ export function MobileWrapperPage() {
     setRfidReplaceConfirm(null);
     setScanRfidOpen(false);
     setScanRfidValue('');
-    setScanRfidError('');
     // 2026-05-17 stale-stage-counter fix: revalidate `instances` on
-    // home-enter. Matches the same fix in mobile-operations.tsx::goHome —
+    // home-enter. (The operations page had the same fix on its own Home,
+    // removed 2026-10-22 with that unreachable screen) —
     // SWR's 15s refresh interval can leave the dashboard reading the
     // pre-cycle stage breakdown for up to 15s after a submit, which felt
     // like a broken cycle during today's offline test. Online-only; offline
@@ -724,8 +736,10 @@ export function MobileWrapperPage() {
     }
     // 2026-05-26: guard against double-fire from the scanner emitting the
     // same physical scan twice within ~1s. Silent skip — the operator
-    // already saw a success toast from the first submit.
-    if (rfidScan.isDuplicate(tagValue)) return;
+    // already saw a success toast from the first submit. NOT for the replace
+    // confirmation (2026-10-22): that is a deliberate tap on the card the scan
+    // itself opened, and a tap within 1 s of the scan was silently dropped.
+    if (!opts.replace && rfidScan.isDuplicate(tagValue)) return;
     // 2026-10-05: a filter holds one tag. Scanning a new one onto a filter
     // that already has a tag used to end in the server's "already has an
     // identifier" refusal with no way forward but hunting for Remove. Now it
@@ -777,6 +791,8 @@ export function MobileWrapperPage() {
           setRfidError(err?.message ?? 'Failed to assign tag');
           setRfidSubmitting(false);
         },
+        // A dismissed password prompt is not an error (D-OPS-8).
+        onCancel: () => setRfidSubmitting(false),
       },
     );
   };
@@ -805,6 +821,8 @@ export function MobileWrapperPage() {
           setRfidError(err?.message ?? 'Failed to remove tag');
           setRfidSubmitting(false);
         },
+        // A dismissed password prompt is not an error (D-OPS-8).
+        onCancel: () => setRfidSubmitting(false),
       },
     );
   };
@@ -876,6 +894,8 @@ export function MobileWrapperPage() {
         if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
       },
       onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filter'); setReplTaskSubmitting(false); },
+      // A dismissed password prompt is not an error (D-OPS-8).
+      onCancel: () => setReplTaskSubmitting(false),
     });
   };
 
@@ -931,6 +951,8 @@ export function MobileWrapperPage() {
         replBatchResultRef.current = null;
       },
       onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filters'); setReplTaskSubmitting(false); },
+      // A dismissed password prompt is not an error (D-OPS-8).
+      onCancel: () => setReplTaskSubmitting(false),
     });
   };
 
@@ -1004,6 +1026,8 @@ export function MobileWrapperPage() {
         setReplaceError(err?.message ?? 'Failed to replace filter');
         setReplaceSubmitting(false);
       },
+      // A dismissed password prompt is not an error (D-OPS-8).
+      onCancel: () => setReplaceSubmitting(false),
     });
   };
 
@@ -1119,7 +1143,7 @@ export function MobileWrapperPage() {
   // (configured, zero features — ADMIN / MANAGER / QA today) used to fall
   // through, mount the whole shell, and fire every cache preload into 403s.
   // Say so instead of loading a tablet the role cannot use.
-  if (tabletAccess && tabletConfigured && allowedFeatures.length === 0 && user?.role !== 'SUPER_ADMIN') {
+  if (tabletDenied) {
     return (
       <div className="h-[100dvh] flex items-center justify-center bg-slate-50 p-6">
         <div className="max-w-sm w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 text-center space-y-3">
@@ -1147,18 +1171,16 @@ export function MobileWrapperPage() {
       <div className="bg-white/80 backdrop-blur-lg border-b border-slate-200/60 px-4 py-3 flex items-center justify-between shrink-0 z-10">
         <div className="flex items-center gap-3">
           {view !== 'home' && (
-            <button onClick={goHome} className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center active:bg-slate-200">
+            <button onClick={goHome} aria-label="Back to Home" className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center active:bg-slate-200">
               <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
-          {/* Configured branding (2026-10-08) — was hard-coded "DL" / "DigiLog". */}
-          {branding.logoUrl ? (
-            <div className="h-9 px-1.5 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
-              <img src={branding.logoUrl} alt={branding.companyName} className="max-h-7 w-auto object-contain" />
-            </div>
-          ) : (
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-extrabold shadow-lg shadow-cyan-500/20">{branding.logoText}</div>
-          )}
+          {/* Configured branding (2026-10-08) — was hard-coded "DL" / "DigiLog".
+              useBranding always supplies a logo (an empty one falls back to the
+              default), so there is no text-logo branch. */}
+          <div className="h-9 px-1.5 rounded-xl bg-white border border-slate-200 flex items-center justify-center">
+            <img src={branding.logoUrl} alt={branding.companyName} className="max-h-7 w-auto object-contain" />
+          </div>
           <div className="font-display text-sm font-semibold text-slate-800 leading-tight">{branding.appName}</div>
         </div>
         <div className="flex items-center gap-2">
@@ -1351,7 +1373,8 @@ export function MobileWrapperPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="font-display text-[13px] font-semibold text-slate-400 leading-tight">RFID Assign</div>
-                    <div className="text-[10px] text-slate-400 truncate">offline</div>
+                    {/* Why it is greyed: a role without the feature was told "offline" while online. */}
+                    <div className="text-[10px] text-slate-400 truncate">{hasFeature('rfid_assign') ? 'offline' : 'not enabled'}</div>
                   </div>
                 </div>}
               </div>
@@ -1542,7 +1565,7 @@ export function MobileWrapperPage() {
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold text-slate-800">Filter Status</h2>
               <button
-                onClick={() => { setScanRfidValue(''); setScanRfidError(''); setScanRfidOpen(true); }}
+                onClick={() => { setScanRfidValue(''); setScanRfidOpen(true); }}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-600 shadow-md shadow-violet-500/20 active:shadow-none"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
@@ -1593,8 +1616,8 @@ export function MobileWrapperPage() {
               {/* 4-up hierarchy dropdown row: Block / Area / AHU / Filter */}
               <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
                 <div>
-                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
-                  <select
+                  <label htmlFor="m-status-block" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                  <select id="m-status-block"
                     value={statusBlockId}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1625,8 +1648,8 @@ export function MobileWrapperPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
-                  <select
+                  <label htmlFor="m-status-area" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                  <select id="m-status-area"
                     value={statusAreaId}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1679,8 +1702,8 @@ export function MobileWrapperPage() {
                 {/* Stage sits on its own row: it is filter STATE, not hierarchy,
                     and five columns would leave no room for "Storage Out". */}
                 <div className="col-span-4">
-                  <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Stage</label>
-                  <select
+                  <label htmlFor="m-status-stage" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Stage</label>
+                  <select id="m-status-stage"
                     value={statusStageFilter ?? 'all'}
                     onChange={(e) => setStatusStageFilter(e.target.value === 'all' ? null : e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white truncate"
@@ -1772,6 +1795,7 @@ export function MobileWrapperPage() {
                       value={taskSearch}
                       onChange={e => setTaskSearch(e.target.value)}
                       placeholder="Search AHU, block or area…"
+                      aria-label="Search tasks by AHU, block or area"
                       className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 outline-none"
                     />
                   </div>
@@ -1806,16 +1830,16 @@ export function MobileWrapperPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Block</label>
-                        <select value={taskBlock} onChange={e => { setTaskBlock(e.target.value); setTaskArea(''); }}
+                        <label htmlFor="m-task-block" className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Block</label>
+                        <select id="m-task-block" value={taskBlock} onChange={e => { setTaskBlock(e.target.value); setTaskArea(''); }}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400">
                           <option value="">All blocks</option>
                           {taskBlockOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Area</label>
-                        <select value={taskArea} onChange={e => setTaskArea(e.target.value)}
+                        <label htmlFor="m-task-area" className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Area</label>
+                        <select id="m-task-area" value={taskArea} onChange={e => setTaskArea(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:border-cyan-400">
                           <option value="">All areas</option>
                           {taskAreaOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -1883,7 +1907,7 @@ export function MobileWrapperPage() {
                             </span>
                           </div>
                           <div className="text-[11px] text-slate-500 mt-1">
-                            {formatTime(new Date(task.plannedDate))} {'\u2022'} {task.cleanedCount}/{task.totalFilters} cleaned
+                            {formatDate(task.plannedDate)} {'\u2022'} {task.cleanedCount}/{task.totalFilters} cleaned
                           </div>
                           {task.totalFilters > 0 && (
                             <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -1908,9 +1932,24 @@ export function MobileWrapperPage() {
                                 f.status === 'cleaned_in_window' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
                                 : f.status === 'in_progress' ? 'bg-cyan-50 text-cyan-700 border-cyan-100'
                                 : 'bg-amber-50 text-amber-700 border-amber-100';
+                              // C4 (2026-07-10): the status as a readable label, not only
+                              // the pill colour — plus WHICH cleaning stage the filter is in.
+                              // Only a real station resolves (STAGES); lifecycle markers such
+                              // as CLEANING_CYCLE_COMPLETED are omitted. (Made 2026-07-10 on
+                              // the operations page's own My Tasks, which /m never showed;
+                              // brought here 2026-10-22 when that copy was removed.)
+                              const statusLabel =
+                                f.status === 'cleaned_in_window' ? 'Cleaned'
+                                : f.status === 'in_progress' ? 'In progress'
+                                : 'Pending';
+                              const stageLabel = f.currentStage
+                                ? (STAGES.find((st) => st.key === f.currentStage)?.label ?? null)
+                                : null;
                               return (
-                                <span key={f.filterId} className={`inline-flex text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
+                                <span key={f.filterId} className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border font-semibold ${cls}`}>
                                   {f.filterName}
+                                  {stageLabel && <span className="font-normal opacity-70">· {stageLabel}</span>}
+                                  <span className="font-normal opacity-70">· {statusLabel}</span>
                                 </span>
                               );
                             })}
@@ -1958,7 +1997,7 @@ export function MobileWrapperPage() {
                         <div className="min-w-0 flex-1">
                           <h3 className="text-base font-bold text-slate-800 truncate">{task.ahuName}</h3>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            Window closed {formatTime(new Date(task.windowEnd))} {'\u2022'} {task.cleanedCount}/{task.totalFilters} cleaned
+                            Window closed {formatDate(task.windowEnd)} {'\u2022'} {task.cleanedCount}/{task.totalFilters} cleaned
                           </div>
                         </div>
                         <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold border bg-rose-50 text-rose-700 border-rose-100">
@@ -2057,7 +2096,7 @@ export function MobileWrapperPage() {
         {/* === OPERATIONS VIEW (renders MobileOperationsPage with proper offline support) === */}
         {view === 'operations' && (
           <div className="flex-1 overflow-y-auto">
-            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} initialBlockId={selectedBlockId ?? undefined} hideHeader />
+            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} initialBlockId={selectedBlockId ?? undefined} />
           </div>
         )}
 
@@ -2085,8 +2124,8 @@ export function MobileWrapperPage() {
             <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2.5">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">AHU</label>
-                  <select
+                  <label htmlFor="m-cycle-ahu" className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">AHU</label>
+                  <select id="m-cycle-ahu"
                     value={cycleAhuId}
                     onChange={(e) => {
                       const nextAhu = e.target.value;
@@ -2106,8 +2145,8 @@ export function MobileWrapperPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter</label>
-                  <select
+                  <label htmlFor="m-cycle-filter" className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Filter</label>
+                  <select id="m-cycle-filter"
                     value={cycleFilterId}
                     onChange={(e) => setCycleFilterId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 font-medium focus:outline-none focus:border-cyan-500 focus:bg-white"
@@ -2520,8 +2559,8 @@ export function MobileWrapperPage() {
                 {/* 4-up hierarchy dropdown row — same pattern as Status view */}
                 <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
-                    <select
+                    <label htmlFor="m-rfid-block" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                    <select id="m-rfid-block"
                       value={rfidBlockId}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -2549,8 +2588,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
-                    <select
+                    <label htmlFor="m-rfid-area" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                    <select id="m-rfid-area"
                       value={rfidAreaId}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -2573,8 +2612,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
-                    <select
+                    <label htmlFor="m-rfid-ahu" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                    <select id="m-rfid-ahu"
                       value={rfidAhuId}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -2591,8 +2630,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
-                    <select
+                    <label htmlFor="m-rfid-filter" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                    <select id="m-rfid-filter"
                       value={rfidFilterId}
                       onChange={(e) => setRfidFilterId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-violet-500 focus:bg-white truncate"
@@ -2604,8 +2643,8 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
-                  <input
+                  <label htmlFor="m-rfid-search" className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
+                  <input id="m-rfid-search"
                     type="text"
                     value={rfidSearch}
                     onChange={e => setRfidSearch(e.target.value)}
@@ -2616,7 +2655,7 @@ export function MobileWrapperPage() {
 
                 <div className="space-y-2">
                   <div className="text-[11px] text-slate-500 font-mono-tab px-1">
-                    showing <span className="text-slate-800 font-semibold">{rfidVisibleFilters.length}</span> of {rfidVisibleFilters.length}
+                    showing <span className="text-slate-800 font-semibold">{rfidVisibleFilters.length}</span> of {operableFilters.length}
                   </div>
                   {rfidVisibleFilters.length === 0 && (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">No filters match.</div>
@@ -2720,13 +2759,13 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Assign New Tag</label>
+                  <label htmlFor="m-rfid-tag" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Assign New Tag</label>
                   {/* 2026-05-26: input bound to useRfidScanField — auto
                       clears between scan bursts (fixes multi-scan append),
                       trims CR/LF on every change. Enter-key submits the
                       currently-displayed value so the operator can either
                       scan-and-Enter or scan-and-tap. */}
-                  <input
+                  <input id="m-rfid-tag"
                     data-rfid="true"
                     type="text"
                     value={rfidScan.value}
@@ -2868,11 +2907,11 @@ export function MobileWrapperPage() {
 
                 {/* ── Scan-to-select (additive; manual cascade/search remain below) ── */}
                 <div className="bg-white rounded-2xl border border-amber-200 p-3">
-                  <label className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-amber-600 font-semibold mb-1.5">
+                  <label htmlFor="m-replace-scan" className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-amber-600 font-semibold mb-1.5">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m0 14v1m8-8h-1M5 12H4m12.95 4.95l-.7-.7M7.05 7.05l-.7-.7m12.6 0l-.7.7M7.05 16.95l-.7.7M9 9h6v6H9z" /></svg>
                     Scan filter tag
                   </label>
-                  <input
+                  <input id="m-replace-scan"
                     data-rfid="true"
                     type="text"
                     value={replaceScan.value}
@@ -2891,8 +2930,8 @@ export function MobileWrapperPage() {
 
                 <div className="bg-white rounded-2xl border border-slate-200 p-2 grid grid-cols-4 gap-1.5">
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
-                    <select value={replaceBlockId}
+                    <label htmlFor="m-replace-block" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Block</label>
+                    <select id="m-replace-block" value={replaceBlockId}
                       onChange={(e) => { setReplaceBlockId(e.target.value); setReplaceAreaId('all'); setReplaceAhuId('all'); setReplaceFilterId('all'); }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
                       <option value="all">All</option>
@@ -2900,8 +2939,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
-                    <select value={replaceAreaId}
+                    <label htmlFor="m-replace-area" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Area</label>
+                    <select id="m-replace-area" value={replaceAreaId}
                       onChange={(e) => { setReplaceAreaId(e.target.value); setReplaceAhuId('all'); setReplaceFilterId('all'); }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
                       <option value="all">All</option>
@@ -2909,8 +2948,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
-                    <select value={replaceAhuId}
+                    <label htmlFor="m-replace-ahu" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">AHU</label>
+                    <select id="m-replace-ahu" value={replaceAhuId}
                       onChange={(e) => { setReplaceAhuId(e.target.value); setReplaceFilterId('all'); }}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
                       <option value="all">All</option>
@@ -2918,8 +2957,8 @@ export function MobileWrapperPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
-                    <select value={replaceFilterId}
+                    <label htmlFor="m-replace-filter" className="block text-[9px] uppercase tracking-[0.12em] text-slate-400 font-medium mb-0.5 px-0.5">Filter</label>
+                    <select id="m-replace-filter" value={replaceFilterId}
                       onChange={(e) => setReplaceFilterId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1.5 text-[11px] text-slate-800 font-medium focus:outline-none focus:border-amber-500 focus:bg-white truncate">
                       <option value="all">All</option>
@@ -2929,8 +2968,8 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
-                  <input type="text" value={replaceSearch} onChange={e => setReplaceSearch(e.target.value)}
+                  <label htmlFor="m-replace-search" className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Search by name</label>
+                  <input id="m-replace-search" type="text" value={replaceSearch} onChange={e => setReplaceSearch(e.target.value)}
                     placeholder="Type to narrow…"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
                 </div>
@@ -2938,7 +2977,7 @@ export function MobileWrapperPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between px-1">
                     <div className="text-[11px] text-slate-500 font-mono-tab">
-                      showing <span className="text-slate-800 font-semibold">{repVisibleFilters.length}</span> of {repVisibleFilters.length}
+                      showing <span className="text-slate-800 font-semibold">{repVisibleFilters.length}</span> of {operableFilters.length}
                     </div>
                     {repVisibleFilters.length > 0 && (() => {
                       const allTicked = repVisibleFilters.every((f: any) => replaceMulti.has(f.id));
@@ -3050,8 +3089,8 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Remarks <span className="text-rose-500">*</span></label>
-                  <textarea value={replaceRemarks} onChange={e => setReplaceRemarks(e.target.value)} rows={3}
+                  <label htmlFor="m-replace-remarks" className="block text-[10px] uppercase tracking-[0.15em] text-slate-400 font-medium mb-1">Remarks <span className="text-rose-500">*</span></label>
+                  <textarea id="m-replace-remarks" value={replaceRemarks} onChange={e => setReplaceRemarks(e.target.value)} rows={3}
                     placeholder="Reason for replacement…"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white resize-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
                 </div>
@@ -3162,7 +3201,7 @@ export function MobileWrapperPage() {
                   <h2 className="text-lg font-bold text-white">Scan RFID</h2>
                   <p className="text-violet-100 text-xs">Look up filter by tag</p>
                 </div>
-                <button onClick={() => setScanRfidOpen(false)} className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-white active:bg-white/25">
+                <button onClick={() => setScanRfidOpen(false)} aria-label="Close tag lookup" className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-white active:bg-white/25">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
@@ -3210,7 +3249,6 @@ export function MobileWrapperPage() {
                       }
                       scanRfidLastSubmitRef.current = { value: cleaned, time: now };
                       setScanRfidValue(cleaned);
-                      setScanRfidError('');
                     }
                   }}
                   autoFocus
@@ -3252,9 +3290,6 @@ export function MobileWrapperPage() {
                       </span>
                     )}
                   </div>
-                  {scanRfidError && (
-                    <div className="mt-2 text-xs text-rose-600 font-medium">{scanRfidError}</div>
-                  )}
                 </div>
 
                 {result.kind === 'idle' && (
@@ -3329,7 +3364,6 @@ export function MobileWrapperPage() {
                   <button
                     onClick={() => {
                       setScanRfidValue('');
-                      setScanRfidError('');
                       scanRfidLastSubmitRef.current = { value: '', time: 0 };
                       if (scanRfidInputRef.current) scanRfidInputRef.current.value = '';
                       scanRfidInputRef.current?.focus();
@@ -3440,8 +3474,8 @@ export function MobileWrapperPage() {
                   )}
                 </div>
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
-                  <input data-rfid="true" type="text" value={replTaskScan.value}
+                  <label htmlFor="m-repltask-scan" className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
+                  <input id="m-repltask-scan" data-rfid="true" type="text" value={replTaskScan.value}
                     onKeyDown={(e) => { replTaskScan.onKeyDown(e); if (e.key === 'Enter' && !replTaskSubmitting) { e.preventDefault(); resolveAndExecuteReplTask(); } }}
                     onChange={replTaskScan.onChange} placeholder="Scan or type the old filter's tag, then Enter" autoFocus
                     className="w-full px-3 py-3 border border-rose-200 rounded-xl text-base font-mono bg-rose-50/40 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
@@ -3470,6 +3504,7 @@ export function MobileWrapperPage() {
                   </div>
                   <input type="text" value={replTaskSearch} onChange={e => setReplTaskSearch(e.target.value)}
                     placeholder="Search by filter name…"
+                    aria-label="Search filters by name"
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
                   {candidates.length === 0 ? (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-sm text-slate-500">
@@ -3509,8 +3544,8 @@ export function MobileWrapperPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold mb-1">Remarks <span className="normal-case tracking-normal font-normal text-slate-400">(optional — applies to every filter replaced)</span></label>
-                  <textarea value={replTaskRemarks} onChange={e => setReplTaskRemarks(e.target.value)} rows={2}
+                  <label htmlFor="m-repltask-remarks" className="block text-[10px] uppercase tracking-[0.15em] text-slate-500 font-semibold mb-1">Remarks <span className="normal-case tracking-normal font-normal text-slate-400">(optional — applies to every filter replaced)</span></label>
+                  <textarea id="m-repltask-remarks" value={replTaskRemarks} onChange={e => setReplTaskRemarks(e.target.value)} rows={2}
                     placeholder={`Replaced via schedule task (AHU ${activeReplTask.ahuName})`}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white resize-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
                 </div>

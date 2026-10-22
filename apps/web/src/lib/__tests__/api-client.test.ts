@@ -235,6 +235,16 @@ describe('FORCE_PASSWORD_CHANGE / PASSWORD_EXPIRED', () => {
     expect(loc.href).toBe('/change-password');
   });
 
+  it('a LOGIN refused for an expired password is thrown to the login screen, never redirected (no session exists)', async () => {
+    for (const path of ['/login', '/m/login']) {
+      const loc = stubLocation(path);
+      mockApi([{ method: 'POST', path: '/api/auth/login', status: 403, body: { error: 'PASSWORD_EXPIRED', message: 'Your password has expired.' } }]);
+      const err: any = await apiClient.post('/api/auth/login', { username: 'u', password: 'p' }).catch((e) => e);
+      expect(err).toMatchObject({ error: 'PASSWORD_EXPIRED', message: 'Your password has expired.' });
+      expect(loc.href).toBe(path);
+    }
+  });
+
   it('does not hard-reload when already on /change-password (operator mid-typing)', async () => {
     const loc = stubLocation('/change-password');
     loc.href = 'unchanged';

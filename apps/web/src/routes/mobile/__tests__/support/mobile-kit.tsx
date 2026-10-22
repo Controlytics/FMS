@@ -90,7 +90,10 @@ export function useMobileLifecycle() {
   // These suites mount whole pages (SWR + IndexedDB + many reads). Under the
   // coverage run, with every suite in parallel, the default 1 s findBy / 5 s
   // test budgets are too tight — the waits below are upper bounds, not delays.
-  configure({ asyncUtilTimeout: 4000 });
+  // 10 s (was 4 s, 2026-10-22): with other suites running on the same machine
+  // the IndexedDB-heavy offline flows (missed-PM question, queued starts) were
+  // seen taking 4–15 s; alone they finish in about 1 s.
+  configure({ asyncUtilTimeout: 10_000 });
   vi.setConfig({ testTimeout: 30_000 });
   beforeEach(() => {
     consoleErrors = [];

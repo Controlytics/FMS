@@ -23,7 +23,7 @@ vi.mock('@/lib/sync-since', async () => (await import('./support/fakes')).syncSi
 vi.mock('@/lib/offline-sync-service', async (orig) => ({ ...(await orig() as any), syncAllDataForOffline: (await import('./support/fakes')).fakeSyncAllDataForOffline }));
 vi.mock('@capacitor/app', async () => (await import('./support/fakes')).capacitorAppModule);
 vi.mock('../mobile-operations', () => ({
-  MobileOperationsPage: (p: any) => <div data-testid="ops">ops stage={p.initialStageKey} block={p.initialBlockId ?? '-'} hideHeader={String(p.hideHeader)}</div>,
+  MobileOperationsPage: (p: any) => <div data-testid="ops">ops stage={p.initialStageKey} block={p.initialBlockId ?? '-'}</div>,
 }));
 const stageApprovals = vi.hoisted(() => ({ ref: null as any }));
 vi.mock('../../stage-approvals', () => ({
@@ -63,12 +63,11 @@ describe('home + header', () => {
   it('scan station tiles open the operations page for that stage, with no block preselected', async () => {
     renderWrapper();
     fireEvent.click(await screen.findByRole('button', { name: /Dry In/ }));
-    expect(await screen.findByTestId('ops')).toHaveTextContent('ops stage=DRY_IN block=- hideHeader=true');
+    expect(await screen.findByTestId('ops')).toHaveTextContent('ops stage=DRY_IN block=-');
     // the bottom navigation is hidden on the operations view
     expect(screen.queryByText('My Tasks')).toBeNull();
-    // the header back button (no accessible name — see report) returns home
-    const header = screen.getByRole('img', { name: 'Acme' }).closest('div.flex.items-center.gap-3')!;
-    fireEvent.click(header.querySelector('button')!);
+    // the header back button returns home
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Home' }));
     expect(await screen.findByText('Scan stations')).toBeInTheDocument();
     await flush();
   });
@@ -81,10 +80,16 @@ describe('sync chips', () => {
     expect(chip).toBeDisabled();
     expect(syncAll.calls).toBeGreaterThan(0);
     await flush(150);
-    // (The open-time sync runs several times per app open — recorded as a defect
-    // in the coverage report; the count is render-dependent, so not asserted.)
     expect(triggerSync).toHaveBeenCalledWith('mobile-app-start');
     await flush();
+  });
+
+  it('one app open downloads the master data ONCE (not once per render while the user loads)', async () => {
+    renderWrapper();
+    await screen.findByRole('button', { name: /Data Synced/ });
+    await flush(300);
+    expect(syncAll.calls).toBe(1);
+    expect(triggerSync.mock.calls.filter((c) => c[0] === 'mobile-app-start')).toHaveLength(1);
   });
 
   it('while the sync runs the chip names the step', async () => {
@@ -280,8 +285,22 @@ describe('access gating', () => {
     const { api } = renderWrapper({ user: { ...OPERATOR, role: 'QA' }, tabletAccess: { configured: true, allowed: [] } });
     expect(await screen.findByRole('heading', { name: 'Tablet not enabled for your role' })).toBeInTheDocument();
     expect(screen.getByText(/Your role \(QA\) has no tablet features assigned/)).toBeInTheDocument();
-    // (The shell's first render still fires its reads before the access answer
-    // arrives — recorded as a finding; not asserted here.)
+    // Once the answer is in, the shell underneath reads nothing more: no polls,
+    // no master-data sync. (Reads sent BEFORE the answer arrived cannot be
+    // helped without stalling every allowed operator on a slow link.)
+    await flush(100);
+    const reads = () => api.requests.filter((r) => r.method === 'GET' && !r.url.startsWith('/api/config/') && !r.url.startsWith('/api/auth/')).length;
+    const before = reads();
+    const syncsBefore = syncAll.calls;
+    // Reconnecting re-reads everything (and re-runs the open-time sync) for an allowed role.
+    // Offline in between, the list read online stays in force: the screen does not
+    // give way to the shell while the stored copy is read back.
+    await act(async () => { setOnline(false); });
+    expect(screen.getByRole('heading', { name: 'Tablet not enabled for your role' })).toBeInTheDocument();
+    await act(async () => { setOnline(true); });
+    await flush(100);
+    expect(reads()).toBe(before);
+    expect(syncAll.calls).toBe(syncsBefore);
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
     await waitFor(() => expect(currentPath()).toBe('/m/login'));
     expect(api.calls('POST', '/api/auth/logout')).toHaveLength(1);
@@ -301,8 +320,13 @@ describe('access gating', () => {
     expect(screen.queryByText('Scan stations')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Logout' })).toBeNull();
     expect(screen.queryByRole('button', { name: /RFID Assign/ })).toBeNull();
-    // (The greyed tile is captioned "offline" although the tablet is online —
-    // recorded as a defect, not asserted.)
+    // The greyed tile says why: the feature is off for this role (the tablet is online).
+    expect(screen.getByText('RFID Assign').parentElement).toHaveTextContent('not enabled');
+    expect(screen.getByText('RFID Assign').parentElement).not.toHaveTextContent('offline');
+    // Going offline keeps the same list in force — never a moment where every feature is allowed.
+    await act(async () => { setOnline(false); });
+    expect(navButton('My Tasks')).toBeNull();
+    expect(screen.queryByText('Scan stations')).toBeNull();
     await flush();
   });
 
