@@ -30,6 +30,7 @@ import dynamicConfigRoutes from './modules/config/dynamic-routes.js';
 import auditRoutes from './modules/audit/routes.js';
 import uploadRoutes from './modules/uploads/routes.js';
 import { UPLOADS_ROOT } from './lib/uploads-dir.js';
+import { MAX_UPLOAD_FILE_SIZE } from './lib/upload-limits.js';
 import notificationRoutes from './modules/notifications/routes.js';
 import roleRoutes from './modules/roles/routes.js';
 import backupRoutes from './modules/backup/routes.js';
@@ -272,7 +273,8 @@ await app.register(rateLimit, {
 });
 await app.register(multipart, {
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB max
+    // The one upload limit: MAX_FILE_SIZE (default 5 MB). lib/upload-limits.ts.
+    fileSize: MAX_UPLOAD_FILE_SIZE,
     files: 1,
   },
 });

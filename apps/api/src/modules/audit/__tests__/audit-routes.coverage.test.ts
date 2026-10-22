@@ -15,7 +15,7 @@
  * audit-reauth-refusal.coverage.test.ts (gate mocked), because enabling re-auth
  * for the shared SUPER_ADMIN role would gate every concurrent suite.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { type FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../lib/prisma.js';
@@ -563,17 +563,37 @@ describe('hard delete (AUDIT_DELETE)', () => {
 });
 
 describe('a malformed record id', () => {
-  it('is a client error on every :id route (400), never an internal error', async () => {
-    const answers = [
-      await authGet(app, '/api/audit/not-a-uuid', saTok),
-      await authPost(app, '/api/audit/not-a-uuid/redact', saTok, { reason: 'malformed id probe' }),
-      await authPut(app, '/api/audit/not-a-uuid', saTok, { reason: 'malformed id probe', action: 'X' }),
-      await authDelete(app, '/api/audit/not-a-uuid', saTok, undefined, { reason: 'malformed id probe' }),
-    ];
-    // Defect D-PLAT-1: the id is not schema-validated as a uuid, so today this
-    // is Prisma's P2023 surfaced as DATA_CONSTRAINT (+ an ERROR log line); the
-    // error-code assertion was removed after confirming it. A 400 holds either way.
-    for (const res of answers) expect(res.statusCode).toBe(400);
+  it('is a client error on every :id route (400), never an internal error, and logs no ERROR', async () => {
+    // lib/logger.ts prints every record to process.stdout synchronously; an
+    // unvalidated id used to print an `ERROR  [prisma]` P2023 line per request.
+    const printed: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((c: unknown) => { printed.push(String(c)); return true; }) as never);
+    let answers;
+    try {
+      answers = [
+        await authGet(app, '/api/audit/not-a-uuid', saTok),
+        await authPost(app, '/api/audit/not-a-uuid/redact', saTok, { reason: 'malformed id probe' }),
+        await authPut(app, '/api/audit/not-a-uuid', saTok, { reason: 'malformed id probe', action: 'X' }),
+        await authDelete(app, '/api/audit/not-a-uuid', saTok, undefined, { reason: 'malformed id probe' }),
+      ];
+      await new Promise((r) => setTimeout(r, 25)); // let any late Prisma log event land
+    } finally {
+      spy.mockRestore();
+    }
+    expect(printed.join('')).not.toMatch(/\bERROR\b/);
+    // D-PLAT-1: the route schema rejects the id (format: uuid) before any
+    // handler or query runs. It used to reach Prisma and come back as P2023 ->
+    // 400 DATA_CONSTRAINT, with an ERROR-level "Unmapped Prisma error" line per
+    // request. A schema refusal names the `format` keyword on the `id` param,
+    // which is what proves no database call was made.
+    for (const res of answers) {
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.error).toBe('VALIDATION_ERROR');
+      expect(body.details).toEqual(expect.arrayContaining([
+        expect.objectContaining({ keyword: 'format', instancePath: '/id', params: { format: 'uuid' } }),
+      ]));
+    }
     expect(internalErrors).toEqual([]);
   });
 });

@@ -25,7 +25,24 @@ export async function assertRoleWithinCallerPrivilege(
   incoming: { hierarchyLevel?: number; permissions?: string[] },
   target?: { name: string; hierarchyLevel: number; permissions: string[] },
 ) {
-  if (ctx.userRole === 'SUPER_ADMIN') return;
+  if (ctx.userRole === 'SUPER_ADMIN') {
+    // D-AUTH-2 (2026-10-22): SUPER_ADMIN is exempt from every check below EXCEPT
+    // the ceiling. A level above its own role's level produced a role no user can
+    // ever be given — user create/assign refuse a role above the caller's level
+    // (user.service.ts) and /creatable never lists it. Read from the row, not a
+    // constant, so a site that renumbers the hierarchy is still bounded correctly.
+    // (The SUPER_ADMIN row is a seeded system role that cannot be deleted; were it
+    // missing there would be no level to bound against, and none is applied.)
+    if (incoming.hierarchyLevel !== undefined) {
+      const sa = await roleRepository.findByName('SUPER_ADMIN');
+      if (sa && incoming.hierarchyLevel > sa.hierarchyLevel) {
+        throw new ValidationError(
+          `Hierarchy level ${incoming.hierarchyLevel} is above your own role's level (${sa.hierarchyLevel}); no user could ever be given that role`,
+        );
+      }
+    }
+    return;
+  }
   const caller = await roleRepository.findByName(ctx.userRole);
   if (!caller) throw new AppError(403, 'FORBIDDEN', 'Your role is not recognized');
 

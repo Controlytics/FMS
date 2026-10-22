@@ -5,11 +5,12 @@
  *
  * `action-reauth` is NEVER saved with a different value here: the refusal tests
  * write nothing, and the per-role reads use addReauth/removeReauth merges on
- * this file's own role. `user-id` IS changed (autoGenerate / prefix /
- * startNumber only — none of which the User ID validator reads for the stored
- * LETTERS_NUMBERS format) and restored in a finally per test.
+ * this file's own role. `user-id` is NEVER written either (2026-10-22): the
+ * next-ID tests hand getNextUserId its settings through the repository's one
+ * config read (see withUserIdConfig), because a real save changes `length`, which
+ * the User ID validator applies to every user created concurrently.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { userIdConfigSchema } from '@digilog/shared';
 import { buildApp, authGet, authPost, authPut, internalErrors } from '../../../e2e/test-helper.js';
@@ -18,7 +19,8 @@ import {
   cleanupAll, runSuffix, createRole, createUser, login, deleteUsers, deleteRoles,
   addReauth, removeReauth, type ReauthGrant,
 } from '../../../e2e/support/owned-fixtures.js';
-import { stored, restoreKey, snapshotRows, restoreRows } from './support/config-rows.js';
+import { stored, snapshotRows, restoreRows } from './support/config-rows.js';
+import { configRepository } from '../config.repository.js';
 
 const SFX = runSuffix();
 const PW = 'CvcSvc@2026';
@@ -37,20 +39,25 @@ let roToken = '';
 const userIds: string[] = [];
 let reauthAdded: ReauthGrant = [];
 
-/** Save user-id settings through the API (merged over the stored value), run `fn`, restore. */
+/**
+ * Run `fn` with getNextUserId seeing `patch` merged over the stored user-id
+ * settings (as a save would merge them), WITHOUT writing the shared row: only
+ * the repository's read of the `user-id` key is answered; every other key and
+ * the user-table queries stay real.
+ */
 async function withUserIdConfig(patch: Record<string, unknown>, fn: () => Promise<void>) {
-  const snapshot = await stored('user-id');
-  try {
-    const res = await authPut(app, '/api/config/user-id', saToken, patch, PW);
-    expect(res.statusCode).toBe(200);
-    await fn();
-  } finally {
-    await restoreKey('user-id', snapshot);
-  }
+  const current = ((await stored('user-id')) as Record<string, unknown> | null) ?? {};
+  const real = configRepository.getSystemConfig.bind(configRepository);
+  const spy = vi.spyOn(configRepository, 'getSystemConfig').mockImplementation(async (key: string) => {
+    if (key !== 'user-id') return real(key);
+    const row = await real(key);
+    return { ...(row ?? { configKey: 'user-id', configType: 'user', requiresReauth: true }), configValue: { ...current, ...patch } } as any;
+  });
+  try { await fn(); } finally { spy.mockRestore(); }
 }
 
 /** Every shared config row this file writes; put back exactly (value + metadata) in afterAll. */
-const TOUCHED_KEYS = ['user-id'];
+const TOUCHED_KEYS: string[] = [];
 let originalRows: Awaited<ReturnType<typeof snapshotRows>> = new Map();
 
 beforeAll(async () => {
@@ -221,13 +228,55 @@ describe('User ID routes', () => {
     });
   });
 
-  it('next: without a prefix the highest trailing number across all users is used', async () => {
-    // 2_000_000_000 still fits in a Postgres INTEGER and exceeds any realistic id.
+  // Without a prefix a generated id is all digits, exactly `length` long. Only
+  // usernames of that shape count; any other username ending in digits
+  // (`${PREFIX}n2000000000`, `admin2`, a timestamped tool user) used to set the
+  // next number and produce an id longer than the configured length.
+  it('next: without a prefix the highest all-digit id of the configured length is used', async () => {
     userIds.push(await createUser(`${PREFIX}n2000000000`, RO_ROLE, PW));
-    await withUserIdConfig({ autoGenerate: true, prefix: '', prefixSeparator: '', startNumber: 1, length: 6 }, async () => {
+    const width = 9;
+    const mine = `99${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}`;
+    userIds.push(await createUser(mine, RO_ROLE, PW));
+    await withUserIdConfig({ autoGenerate: true, prefix: '', prefixSeparator: '', startNumber: 1, length: width }, async () => {
       const res = await authGet(app, '/api/config/user-id/next', admToken);
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ autoGenerate: true, nextId: '2000000001' });
+      const rows = await prisma.$queryRawUnsafe<{ m: string | null }[]>(
+        `SELECT MAX(username) AS m FROM users WHERE username ~ '^[0-9]{${width}}$'`);
+      const expected = String(BigInt(rows[0].m!) + 1n).padStart(width, '0');
+      expect(res.json()).toEqual({ autoGenerate: true, nextId: expected });
+      expect(res.json().nextId).toHaveLength(width);
     });
+  });
+
+  // The separator only exists after a prefix. With no prefix, the default '-'
+  // separator used to be subtracted from the width, generating an id one digit
+  // short that the User ID validator then refused ("must be exactly N").
+  it('next: without a prefix the default separator does not shorten the id', async () => {
+    await withUserIdConfig({ autoGenerate: true, prefix: '', prefixSeparator: '-', startNumber: 1, length: 9 }, async () => {
+      const res = await authGet(app, '/api/config/user-id/next', admToken);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().nextId).toMatch(/^[0-9]{9}$/);
+    });
+  });
+
+  // D-CFG-3: a trailing digit run longer than an INTEGER (11 digits) or a BIGINT
+  // (20 digits) overflowed the MAX() cast and answered 400 DATA_CONSTRAINT to
+  // every caller. Such usernames are not generated ids and are ignored.
+  it('next: usernames with an 11- or 20-digit tail neither break the scan nor set the next number', async () => {
+    userIds.push(await createUser(`${PREFIX}99999999999`, RO_ROLE, PW));
+    userIds.push(await createUser(`${PREFIX}12345678901234567890`, RO_ROLE, PW));
+    userIds.push(await createUser('12345678901234567890', RO_ROLE, PW));
+    await withUserIdConfig({ autoGenerate: true, prefix: PREFIX, prefixSeparator: '', startNumber: 1, length: 6 }, async () => {
+      const res = await authGet(app, '/api/config/user-id/next', admToken);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ autoGenerate: true, nextId: `${PREFIX}042` });
+    });
+    await withUserIdConfig({ autoGenerate: true, prefix: '', prefixSeparator: '', startNumber: 1, length: 20 }, async () => {
+      const res = await authGet(app, '/api/config/user-id/next', admToken);
+      expect(res.statusCode).toBe(200);
+      // The 20-digit all-digit username IS the shape of a 20-long generated id.
+      expect(res.json().nextId).toBe('12345678901234567891');
+    });
+    expect(internalErrors).toEqual([]);
   });
 });

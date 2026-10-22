@@ -154,6 +154,21 @@ describe('users routes', () => {
       expect(asSa.enabled + asSa.disabled + asSa.locked + asSa.expired).toBeLessThanOrEqual(asSa.total + 5);
     });
 
+    // D-AUTH-3: stats counts only what the caller's own list may show.
+    it('stats: a non-admin role counts exactly the accounts its list shows (no SUPER_ADMIN / ADMIN)', async () => {
+      const listTotal = (await authGet(app, '/api/users?limit=1', mgrTok)).json().total;
+      const stats = (await authGet(app, '/api/users/stats', mgrTok)).json();
+      const visible = await prisma.user.count({ where: { role: { notIn: ['SUPER_ADMIN', 'ADMIN'] } } });
+      // Other suites create users concurrently: slack in both directions, but far
+      // below the size of the hidden SUPER_ADMIN + ADMIN population.
+      expect(stats.total).toBeLessThanOrEqual(listTotal + 3);
+      expect(stats.total).toBeGreaterThanOrEqual(listTotal - 3);
+      expect(Math.abs(stats.total - visible)).toBeLessThanOrEqual(3);
+      const hiddenLocked = await prisma.user.count({ where: { role: { in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ENABLED' } });
+      expect(hiddenLocked).toBeGreaterThan(0); // the test is only meaningful while hidden accounts exist
+      expect(stats.enabled).toBeLessThanOrEqual(await prisma.user.count({ where: { role: { notIn: ['SUPER_ADMIN', 'ADMIN'] }, status: 'ENABLED' } }) + 3);
+    });
+
     it('detail hides SUPER_ADMIN from non-SA and ADMIN from non-ADMIN; unknown is 404', async () => {
       expect((await authGet(app, `/api/users/${ids.SA}`, mgrTok)).statusCode).toBe(404);
       expect((await authGet(app, `/api/users/${ids.ADM}`, mgrTok)).statusCode).toBe(404);

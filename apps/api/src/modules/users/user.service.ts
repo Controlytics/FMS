@@ -42,6 +42,19 @@ export async function assertCanManageTarget(callerRole: string, targetRoleName: 
   }
 }
 
+/**
+ * The ONE rule for which accounts a caller may see (D-AUTH-3, 2026-10-22):
+ * SUPER_ADMIN sees everyone, ADMIN sees all but SUPER_ADMIN, every other role
+ * (and an anonymous caller) sees neither SUPER_ADMIN nor ADMIN accounts. The
+ * list, the detail route and the stats tiles all read it — stats used to filter
+ * only for ADMIN, so any other USER_READ role counted the accounts its list hid.
+ */
+export function hiddenAccountRoles(callerRole?: string): string[] {
+  if (callerRole === 'SUPER_ADMIN') return [];
+  if (callerRole === 'ADMIN') return ['SUPER_ADMIN'];
+  return ['SUPER_ADMIN', 'ADMIN'];
+}
+
 export const userService = {
   async list(query: { page: number; limit?: number; role?: string; status?: string; search?: string; callerRole?: string }) {
     const where: Record<string, unknown> = {};
@@ -55,9 +68,7 @@ export const userService = {
       ];
     }
     // Hide higher-privilege accounts from the caller's list view
-    const excludedRoles: string[] = [];
-    if (query.callerRole !== 'SUPER_ADMIN') excludedRoles.push('SUPER_ADMIN');
-    if (query.callerRole !== 'SUPER_ADMIN' && query.callerRole !== 'ADMIN') excludedRoles.push('ADMIN');
+    const excludedRoles = hiddenAccountRoles(query.callerRole);
     if (excludedRoles.length > 0) {
       // An explicit ?role= must NARROW the visible set, never replace the
       // exclusion — `where.role = query.role` let a caller ask for exactly the
@@ -74,7 +85,8 @@ export const userService = {
   },
 
   async getStats(callerRole: string) {
-    const roleFilter: Record<string, unknown> = callerRole === 'ADMIN' ? { role: { not: 'SUPER_ADMIN' as any } } : {};
+    const hidden = hiddenAccountRoles(callerRole);
+    const roleFilter: Record<string, unknown> = hidden.length > 0 ? { role: { notIn: hidden } } : {};
     return userRepository.countByStatus(roleFilter);
   },
 
@@ -84,9 +96,9 @@ export const userService = {
     // non-ADMIN) but the detail route returned any account by uuid — the same
     // exclusion applies, as a 404.
     if (!user) throw new NotFoundError('User not found');
-    if (callerRole !== undefined && callerRole !== 'SUPER_ADMIN') {
-      if (user.role === 'SUPER_ADMIN') throw new NotFoundError('User not found');
-      if (user.role === 'ADMIN' && callerRole !== 'ADMIN') throw new NotFoundError('User not found');
+    // callerRole undefined = an internal caller, not a request: no exclusion.
+    if (callerRole !== undefined && hiddenAccountRoles(callerRole).includes(user.role)) {
+      throw new NotFoundError('User not found');
     }
     return user;
   },

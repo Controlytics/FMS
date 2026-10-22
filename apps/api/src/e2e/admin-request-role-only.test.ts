@@ -66,7 +66,14 @@ describe('Contact Admin — Modify User is role-only', () => {
   });
 
   afterAll(async () => {
-    if (createdRequestIds.length) await prisma.adminRequest.deleteMany({ where: { id: { in: createdRequestIds } } });
+    if (createdRequestIds.length) {
+      // The accepted request wrote a "request submitted" notification linked by
+      // metadata.requestId; remove it with the request, not leave it orphaned.
+      await prisma.notification.deleteMany({
+        where: { type: 'USER_CREATION_REQUEST_SUBMITTED', OR: createdRequestIds.map((id) => ({ metadata: { path: ['requestId'], equals: id } })) },
+      });
+      await prisma.adminRequest.deleteMany({ where: { id: { in: createdRequestIds } } });
+    }
     await prisma.user.deleteMany({ where: { username: { in: [TARGET, SA_TARGET] } } });
     await app.close();
   });

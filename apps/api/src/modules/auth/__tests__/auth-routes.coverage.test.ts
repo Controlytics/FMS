@@ -237,13 +237,42 @@ describe('auth routes', () => {
 
       const tok2 = await freshLogin(u);
       const s2 = await prisma.session.findFirst({ where: { userId: users[u], isActive: true } });
-      // An empty body defaults to a manual logout. (A request with NO body at all
-      // is refused 400 "body must be object" — recorded as defect D-AUTH-1.)
+      // An empty body defaults to a manual logout.
       const plain = await authPost(app, '/api/auth/logout', tok2, {});
       expect(plain.json()).toEqual({ success: true });
       expect((await auditFor('LOGOUT', s2!.id))?.signatureMeaning).toBe(`User "${u}" logged out`);
       expect(await prisma.session.findUnique({ where: { id: s2!.id } })).toMatchObject({ isActive: false, terminationReason: 'manual' });
       expect((await authGet(app, '/api/auth/me', tok2)).statusCode).toBe(401);
+    });
+
+    // D-AUTH-1: the tablet discards a refused token with a bare POST — no body and
+    // no content-type (apps/web/src/routes/mobile/mobile-login.tsx:131). That call
+    // must end the session like any other manual logout.
+    it('logout with NO body and no content-type ends the session (tablet call)', async () => {
+      const u = await mk('logoutbare');
+      const tok = await freshLogin(u);
+      const s = await prisma.session.findFirst({ where: { userId: users[u], isActive: true } });
+      const plain = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { authorization: `Bearer ${tok}` } });
+      expect(plain.json()).toEqual({ success: true });
+      expect(plain.statusCode).toBe(200);
+      expect(await prisma.session.findUnique({ where: { id: s!.id } })).toMatchObject({ isActive: false, terminationReason: 'manual' });
+      expect((await auditFor('LOGOUT', s!.id))?.signatureMeaning).toBe(`User "${u}" logged out`);
+      expect((await authGet(app, '/api/auth/me', tok)).statusCode).toBe(401);
+      expect(internalErrors).toEqual([]);
+    });
+
+    // A JSON content-type with an EMPTY body is malformed JSON: the global content
+    // parser refuses it (400 PARSE_ERROR) before any route runs, exactly as on every
+    // other route. Nothing is ended — the client can resend a valid logout.
+    it('logout with content-type json and an empty body is a 400 PARSE_ERROR and ends nothing', async () => {
+      const u = await mk('logoutempty');
+      const tok = await freshLogin(u);
+      const s = await prisma.session.findFirst({ where: { userId: users[u], isActive: true } });
+      const res = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' }, payload: '' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('PARSE_ERROR');
+      expect(await prisma.session.findUnique({ where: { id: s!.id } })).toMatchObject({ isActive: true });
+      expect(internalErrors).toEqual([]);
     });
 
     it('refresh issues a working token carrying the current role', async () => {

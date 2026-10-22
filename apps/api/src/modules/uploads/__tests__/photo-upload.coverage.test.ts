@@ -155,3 +155,100 @@ describe('POST /api/uploads/photo', () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+/**
+ * Defects D-OPS-7 / D-OPS-8 (found 2026-10-21, fixed 2026-10-22). Written first
+ * and seen failing. Both depend on environment variables read at module load,
+ * so each case imports FRESH copies of the modules with the variable set, then
+ * restores it. A separate user keeps the logins here from ending the session
+ * the tests above use.
+ */
+describe('defects D-OPS-7 / D-OPS-8 (env read at import)', () => {
+  const USER2 = `cvoup2${S}`.toLowerCase();
+  let user2Id = '';
+
+  beforeAll(async () => { user2Id = await createUser(USER2, 'OPERATOR', PW); }, 60_000);
+  afterAll(async () => { await cleanupAll([['user2', () => deleteUsers([user2Id])]]); }, 60_000);
+
+  /** Fresh harness + fresh upload routes with `vars` set while the modules load. */
+  async function freshApp(vars: Record<string, string>) {
+    const prev: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(vars)) { prev[k] = process.env[k]; process.env[k] = v; }
+    vi.resetModules();
+    try {
+      const helper = await import('../../../e2e/test-helper.js');
+      const routes = (await import('../routes.js')).default;
+      const freshPrisma = (await import('../../../lib/prisma.js')).prisma;
+      const a = await helper.buildApp([{ plugin: routes, prefix: '/api/uploads' }]);
+      const t = await login(a, USER2, PW);
+      return { a, t, freshPrisma, errors: helper.internalErrors };
+    } finally {
+      for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  }
+  async function post(a: FastifyInstance, t: string, file: { bytes: Buffer; type: string }) {
+    const { payload, contentType } = multipart(file);
+    return a.inject({ method: 'POST', url: '/api/uploads/photo', payload, headers: { 'content-type': contentType, authorization: `Bearer ${t}` } });
+  }
+  const pngOf = (bytes: number) => Buffer.concat([PNG, Buffer.alloc(bytes - PNG.length, 1)]);
+  const MB = 1024 * 1024;
+
+  it('D-OPS-7: MAX_FILE_SIZE below 5 MB is the enforced cap (2 MB: 3 MB refused, 1.5 MB accepted)', async () => {
+    const f = await freshApp({ MAX_FILE_SIZE: String(2 * MB) });
+    try {
+      const before = (await readdir(photosDir())).length;
+      const res = await post(f.a, f.t, { bytes: pngOf(3 * MB), type: 'image/png' });
+      expect(res.statusCode).toBe(413);
+      expect(res.json()).toEqual({ error: 'FILE_TOO_LARGE', message: 'File exceeds maximum size of 2 MB' });
+      expect((await readdir(photosDir())).length).toBe(before);
+      const ok = await post(f.a, f.t, { bytes: pngOf(1.5 * MB), type: 'image/png' });
+      expect(ok.statusCode).toBe(200);
+      expect((await readFile(path.join(photosDir(), ok.json().filename))).length).toBe(1.5 * MB);
+    } finally {
+      await f.a.close(); await f.freshPrisma.$disconnect();
+    }
+  }, 60_000);
+
+  it('D-OPS-7: MAX_FILE_SIZE above 5 MB is the enforced cap (8 MB: 6 MB accepted, 9 MB refused)', async () => {
+    const f = await freshApp({ MAX_FILE_SIZE: String(8 * MB) });
+    try {
+      const ok = await post(f.a, f.t, { bytes: pngOf(6 * MB), type: 'image/png' });
+      expect(ok.statusCode).toBe(200);
+      expect((await readFile(path.join(photosDir(), ok.json().filename))).length).toBe(6 * MB);
+      const res = await post(f.a, f.t, { bytes: pngOf(9 * MB), type: 'image/png' });
+      expect(res.statusCode).toBe(413);
+      expect(res.json()).toEqual({ error: 'FILE_TOO_LARGE', message: 'File exceeds maximum size of 8 MB' });
+    } finally {
+      await f.a.close(); await f.freshPrisma.$disconnect();
+    }
+  }, 60_000);
+
+  it('D-OPS-8: a type added to UPLOAD_ALLOWED_TYPES with no content rule is refused (fail closed), and nothing is written', async () => {
+    const f = await freshApp({ UPLOAD_ALLOWED_TYPES: 'image/jpeg,image/png,image/gif,image/webp,image/bmp' });
+    try {
+      const before = (await readdir(photosDir())).length;
+      const res = await post(f.a, f.t, { bytes: Buffer.from('<?php echo 1; ?> not a bitmap'), type: 'image/bmp' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('INVALID_FILE_TYPE');
+      expect((await readdir(photosDir())).length).toBe(before);
+      expect(f.errors).toEqual([]);
+    } finally {
+      await f.a.close(); await f.freshPrisma.$disconnect();
+    }
+  }, 60_000);
+
+  it('D-OPS-8: content is checked against the claimed type in full (a RIFF/WAVE file is not a WebP)', async () => {
+    const before = (await readdir(photosDir())).length;
+    const wave = Buffer.from('RIFF\x24\x00\x00\x00WAVEfmt cvo', 'latin1');
+    const res = await upload({ bytes: wave, type: 'image/webp' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'INVALID_FILE', message: 'File content does not match declared type' });
+    expect((await readdir(photosDir())).length).toBe(before);
+  });
+
+  it('D-OPS-8: PNG content declared as JPEG is refused (stored type always equals the real content)', async () => {
+    const res = await upload({ bytes: PNG, type: 'image/jpeg' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('INVALID_FILE');
+  });
+});

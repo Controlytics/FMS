@@ -231,7 +231,12 @@ export default async function debugTraceRoutes(app: FastifyInstance) {
   // static sub-routes above.
   app.get('/:id', {
     preHandler: [app.requirePermission('READ_DEBUG_TRACE')],
-    schema: { tags: ['Debug Traces'], summary: 'Get one audited operation (trace detail)' },
+    schema: {
+      tags: ['Debug Traces'], summary: 'Get one audited operation (trace detail)',
+      // The trace id IS an audit_trail id (@db.Uuid). Validated here so a mistyped
+      // id is a 400 VALIDATION_ERROR, not a Prisma P2023 surfaced as DATA_CONSTRAINT.
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+    },
   }, async (req) => {
     const { id } = req.params as { id: string };
     // Audit 2026-09-24 (B-F3): same visibility scope as the list — a known UUID

@@ -3,6 +3,7 @@ import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 import { AppError } from '../../lib/errors.js';
+import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
 import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement, blockedFilterIdsForCleaning } from './service.js';
 import * as wf from './workflow.js';
@@ -34,7 +35,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
       // other upload route — it used to reach the global handler as 413
       // INVALID_REQUEST "request file too large", shown verbatim in the dialog.
       if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
-        throw new AppError(413, 'FILE_TOO_LARGE', 'Upload exceeds the maximum file size (5 MB).');
+        throw new AppError(413, 'FILE_TOO_LARGE', `Upload exceeds the maximum file size (${MAX_UPLOAD_FILE_SIZE / 1024 / 1024} MB).`);
       }
       throw err;
     }

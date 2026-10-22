@@ -19,9 +19,10 @@ import {
   findExistingByClientOpId, findExistingStartByClientOpId,
   findExistingByClientOpIdInLatestCycle, withClientOpId,
 } from '../idempotency.js';
+import * as typedAssetDispatch from '../typed-asset-dispatch.js';
 import {
-  kindFromTemplateId, kindFromInstanceId, isHierarchyKind, translateToTypedShape,
-  dispatchCreate, dispatchUpdate, dispatchSoftDeleteMany, _clearKindCache,
+  kindFromInstanceId, isHierarchyKind, translateToTypedShape,
+  dispatchUpdate, dispatchSoftDeleteMany,
 } from '../typed-asset-dispatch.js';
 import {
   cleanupAll, runSuffix, createRole, createUser, deleteUsers, deleteRoles,
@@ -231,32 +232,37 @@ describe('typed-asset-dispatch', () => {
     otherTpl = (await prisma.assetTemplate.create({ data: { name: `${P} Other Tpl`, templateKind: 'OTHER' } })).id;
     customTpl = (await prisma.assetTemplate.create({ data: { name: `${P} Custom Tpl`, templateKind: customKindCode } })).id;
     extraTemplateIds.push(areaTpl, otherTpl, customTpl);
-    _clearKindCache();
   }, 60_000);
 
-  it('resolves template kinds, mapping unknown codes to OTHER, and caches them', async () => {
-    expect(await kindFromTemplateId(hier!.blockTemplateId)).toBe('BLOCK');
-    expect(await kindFromTemplateId(areaTpl)).toBe('AREA');
-    expect(await kindFromTemplateId(hier!.ahuTemplateId)).toBe('AHU');
-    expect(await kindFromTemplateId(otherTpl)).toBe('OTHER');
-    expect(await kindFromTemplateId(customTpl)).toBe('OTHER');
-    // Cached: still answered after the template row's kind changes underneath.
-    await prisma.assetTemplate.update({ where: { id: areaTpl }, data: { templateKind: 'OTHER' } });
-    expect(await kindFromTemplateId(areaTpl)).toBe('AREA');
-    _clearKindCache();
-    expect(await kindFromTemplateId(areaTpl)).toBe('OTHER');
-    await prisma.assetTemplate.update({ where: { id: areaTpl }, data: { templateKind: 'AREA' } });
-    _clearKindCache();
+  /**
+   * Fixture rows are created the way production creates them
+   * (instance.service.ts: `tx.assetInstance.create`): the asset_instances row is
+   * written and the forward mirror (fn_mirror_asset_instance) writes the typed
+   * row with the same id. dispatchCreate, which used to make these, was removed
+   * 2026-10-22 (D-LIB-1).
+   */
+  async function makeInstance(templateId: string, name: string, parentId?: string) {
+    const row = await prisma.assetInstance.create({ data: { templateId, name, ...(parentId ? { parentId } : {}) } });
+    extraInstanceIds.push(row.id);
+    return row;
+  }
+
+  it('no longer exports dispatchCreate or the template-kind lookup it alone used (D-LIB-1)', () => {
+    const mod = typedAssetDispatch as Record<string, unknown>;
+    expect(mod.dispatchCreate).toBeUndefined();
+    expect(mod.kindFromTemplateId).toBeUndefined();
+    expect(mod._clearKindCache).toBeUndefined();
   });
 
-  it('throws for a template that does not exist', async () => {
-    const id = randomUUID();
-    await expect(kindFromTemplateId(id)).rejects.toThrow(`Template not found: ${id}`);
-  });
-
-  it('resolves an instance kind through its template, null when absent', async () => {
+  it('resolves an instance kind through its template (unknown codes -> OTHER), null when absent', async () => {
     expect(await kindFromInstanceId(hier!.blockId)).toBe('BLOCK');
     expect(await kindFromInstanceId(hier!.ahuId)).toBe('AHU');
+    const area = await makeInstance(areaTpl, `${P}-KA1`, hier!.blockId);
+    expect(await kindFromInstanceId(area.id)).toBe('AREA');
+    const other = await makeInstance(otherTpl, `${P}-KO1`);
+    expect(await kindFromInstanceId(other.id)).toBe('OTHER');
+    const custom = await makeInstance(customTpl, `${P}-KC1`);
+    expect(await kindFromInstanceId(custom.id)).toBe('OTHER');
     expect(await kindFromInstanceId(randomUUID())).toBeNull();
   });
 
@@ -277,36 +283,9 @@ describe('typed-asset-dispatch', () => {
     expect(translateToTypedShape('AREA', { name: 'n' })).toEqual({ name: 'n' });
   });
 
-  it('dispatchCreate writes the typed row and the asset_instances row with ONE id', async () => {
-    const block = await dispatchCreate({ templateId: hier!.blockTemplateId, name: `${P}-DB1`, createdBy: 'cvl' });
-    extraInstanceIds.push(block.id);
-    expect(block).toMatchObject({ name: `${P}-DB1`, templateId: hier!.blockTemplateId, isActive: true });
-    expect(await prisma.block.findUnique({ where: { id: block.id } })).toMatchObject({ name: `${P}-DB1`, createdBy: 'cvl' });
-
-    const area = await dispatchCreate({ templateId: areaTpl, name: `${P}-DA1`, parentId: block.id });
-    extraInstanceIds.push(area.id);
-    expect(area.parentId).toBe(block.id);
-    expect(await prisma.area.findUnique({ where: { id: area.id } })).toMatchObject({ name: `${P}-DA1`, blockId: block.id });
-
-    const ahu = await dispatchCreate({ templateId: hier!.ahuTemplateId, name: `${P}-DH1`, parentId: area.id });
-    extraInstanceIds.push(ahu.id);
-    expect(await prisma.ahu.findUnique({ where: { id: ahu.id } })).toMatchObject({ name: `${P}-DH1`, areaId: area.id });
-  });
-
-  it('dispatchCreate writes an OTHER-kind row to asset_instances only', async () => {
-    const other = await dispatchCreate({ templateId: otherTpl, name: `${P}-DO1` });
-    extraInstanceIds.push(other.id);
-    expect(other.name).toBe(`${P}-DO1`);
-    const typed = await Promise.all([
-      prisma.block.findUnique({ where: { id: other.id } }), prisma.area.findUnique({ where: { id: other.id } }),
-      prisma.ahu.findUnique({ where: { id: other.id } }), prisma.filter.findUnique({ where: { id: other.id } }),
-    ]);
-    expect(typed).toEqual([null, null, null, null]);
-  });
-
   it('dispatchUpdate writes both sides for a typed kind, skipping the typed write when nothing maps', async () => {
-    const block = await dispatchCreate({ templateId: hier!.blockTemplateId, name: `${P}-DB2` });
-    extraInstanceIds.push(block.id);
+    const block = await makeInstance(hier!.blockTemplateId, `${P}-DB2`);
+    expect(await prisma.block.findUnique({ where: { id: block.id } })).toMatchObject({ name: `${P}-DB2` });
     const updated = await dispatchUpdate(block.id, { name: `${P}-DB2-renamed`, description: 'moved' });
     expect(updated).toMatchObject({ name: `${P}-DB2-renamed`, description: 'moved' });
     expect(await prisma.block.findUnique({ where: { id: block.id } })).toMatchObject({ name: `${P}-DB2-renamed`, description: 'moved' });
@@ -324,18 +303,22 @@ describe('typed-asset-dispatch', () => {
   });
 
   it('dispatchUpdate on an OTHER-kind row writes asset_instances only, and refuses an unknown id', async () => {
-    const other = await dispatchCreate({ templateId: otherTpl, name: `${P}-DO2` });
-    extraInstanceIds.push(other.id);
+    const other = await makeInstance(otherTpl, `${P}-DO2`);
     expect((await dispatchUpdate(other.id, { description: 'plain' })).description).toBe('plain');
+    // OTHER has no typed home: nothing was written to any typed table.
+    const typed = await Promise.all([
+      prisma.block.findUnique({ where: { id: other.id } }), prisma.area.findUnique({ where: { id: other.id } }),
+      prisma.ahu.findUnique({ where: { id: other.id } }), prisma.filter.findUnique({ where: { id: other.id } }),
+    ]);
+    expect(typed).toEqual([null, null, null, null]);
     const missing = randomUUID();
     await expect(dispatchUpdate(missing, { name: 'x' })).rejects.toThrow(`Asset instance not found: ${missing}`);
   });
 
   it('dispatchSoftDeleteMany deactivates typed and OTHER rows together', async () => {
     expect(await dispatchSoftDeleteMany([], 'cvl')).toEqual({ count: 0 });
-    const block = await dispatchCreate({ templateId: hier!.blockTemplateId, name: `${P}-DB3` });
-    const other = await dispatchCreate({ templateId: otherTpl, name: `${P}-DO3` });
-    extraInstanceIds.push(block.id, other.id);
+    const block = await makeInstance(hier!.blockTemplateId, `${P}-DB3`);
+    const other = await makeInstance(otherTpl, `${P}-DO3`);
     const res = await dispatchSoftDeleteMany([block.id, other.id], 'cvl-remover');
     expect(res).toEqual({ count: 2 });
     const rows = await prisma.assetInstance.findMany({ where: { id: { in: [block.id, other.id] } } });

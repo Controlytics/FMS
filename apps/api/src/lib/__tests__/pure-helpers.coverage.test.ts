@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { requireChangeReason, MIN_CHANGE_REASON, MAX_CHANGE_REASON, changeReasonSchemaProp } from '../change-reason.js';
 import { AppError } from '../errors.js';
-import { neutralizeFormula, neutralizeRow } from '../spreadsheet-safe.js';
+import { neutralizeFormula, neutralizeRow, neutralizeFormulaReversibly, restoreNeutralizedFormula } from '../spreadsheet-safe.js';
 import { flattenFilterFields, flattenFilterFieldsAll } from '../filter-details.js';
 import { runWithRequestStore, getRequestStore } from '../request-store.js';
 import { formatDateWith, formatDateTimeWith } from '../format-datetime.js';
@@ -71,6 +71,28 @@ describe('neutralizeFormula / neutralizeRow (CSV injection)', () => {
     const d = new Date('2026-01-01T00:00:00Z');
     expect(neutralizeRow({ name: '=HYPERLINK("x")', qty: 3, when: d, remark: 'ok', flag: true }))
       .toEqual({ name: `'=HYPERLINK("x")`, qty: 3, when: d, remark: 'ok', flag: true });
+  });
+
+  // The CSV backup's reversible form: what is written is neutralised, and what
+  // is read back is exactly what was written.
+  it.each([
+    ['=SUM(A1)', "'=SUM(A1)"],
+    ["'=x", "''=x"],
+    ["''+1", "'''+1"],
+    ['\tTAB', "'\tTAB"],
+    ['plain', 'plain'],
+    ["'plain", "'plain"],
+    ['a=b', 'a=b'],
+    ['', ''],
+  ])('neutralizes %j reversibly as %j and restores it exactly', (original, stored) => {
+    expect(neutralizeFormulaReversibly(original)).toBe(stored);
+    expect(restoreNeutralizedFormula(stored)).toBe(original);
+  });
+
+  it('the one-way form cannot tell a neutralised "=" from an original "\'=" (why the reversible form exists)', () => {
+    expect(neutralizeFormula('=x')).toBe("'=x");
+    expect(neutralizeFormula("'=x")).toBe("'=x");
+    expect(neutralizeFormulaReversibly('=x')).not.toBe(neutralizeFormulaReversibly("'=x"));
   });
 });
 

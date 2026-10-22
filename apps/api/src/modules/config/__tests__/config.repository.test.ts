@@ -90,9 +90,21 @@ describe('config.repository', () => {
 
   describe('getMaxUserIdNum', () => {
     it('returns max user id number for prefix', async () => {
-      mockPrisma.$queryRawUnsafe.mockResolvedValue([{ max_num: 42 }]);
-      const result = await configRepository.getMaxUserIdNum('USR');
-      expect(result[0].max_num).toBe(42);
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([{ max_num: '42' }]);
+      const result = await configRepository.getMaxUserIdNum('USR', 3);
+      expect(result[0].max_num).toBe('42');
+    });
+
+    // D-CFG-3: only the generated shape counts, the prefix is a literal (a '_'
+    // or '.' in it is not a wildcard), and the cast cannot overflow.
+    it('matches the literal prefix + exactly `width` digits, cast as NUMERIC', async () => {
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([{ max_num: null }]);
+      await configRepository.getMaxUserIdNum('U.S_R-', 4);
+      const [sql, pattern, tail] = mockPrisma.$queryRawUnsafe.mock.calls.at(-1)!;
+      expect(sql).toContain('AS NUMERIC');
+      expect(sql).not.toContain('AS INTEGER');
+      expect(pattern).toBe('^U\\.S_R\\-[0-9]{4}$');
+      expect(tail).toBe('[0-9]{4}$');
     });
   });
 });

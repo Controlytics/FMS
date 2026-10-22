@@ -16,6 +16,7 @@ import backupRoutes from '../modules/backup/routes.js';
 import systemHealthRoutes from '../modules/system-health/routes.js';
 import { prisma } from '../lib/prisma.js';
 import { buildErrorHandler } from '../lib/error-handler.js';
+import { MAX_UPLOAD_FILE_SIZE } from '../lib/upload-limits.js';
 
 /**
  * Every genuine internal error (the 500 path) a harness app answered, in order.
@@ -50,7 +51,8 @@ export async function buildApp(extraRoutes: ExtraRoute[] = []): Promise<FastifyI
   });
 
   await app.register(cors, { origin: true, credentials: true });
-  await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+  // Same registration as app.ts: the one upload limit (lib/upload-limits.ts).
+  await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_FILE_SIZE, files: 1 } });
 
   // Plugins
   await app.register(authPlugin);

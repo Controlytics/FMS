@@ -416,7 +416,7 @@ export default async function auditRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Audit record ID' },
+          id: { type: 'string', format: 'uuid', description: 'Audit record ID' },
         },
       },
       response: {
@@ -568,7 +568,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['id'],
-        properties: { id: { type: 'string', description: 'Audit record ID' } },
+        properties: { id: { type: 'string', format: 'uuid', description: 'Audit record ID' } },
       },
       body: {
         type: 'object',
@@ -736,7 +736,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['id'],
-        properties: { id: { type: 'string', description: 'Audit record ID' } },
+        properties: { id: { type: 'string', format: 'uuid', description: 'Audit record ID' } },
       },
       body: {
         type: 'object',
@@ -845,7 +845,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['id'],
-        properties: { id: { type: 'string', description: 'Audit record ID' } },
+        properties: { id: { type: 'string', format: 'uuid', description: 'Audit record ID' } },
       },
       body: {
         type: 'object',

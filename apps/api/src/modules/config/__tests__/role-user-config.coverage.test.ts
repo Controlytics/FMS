@@ -170,16 +170,26 @@ describe('PUT /api/config/roles/:role — refusals', () => {
     expect(await prisma.roleConfig.findUnique({ where: { role: HIGH_ROLE } })).toBeNull();
   });
 
-  it('a caller cannot grant a permission its own role does not hold, and the role keeps its permissions', async () => {
+  // D-CFG-1: the privilege check runs before ANY write — a refused save leaves no
+  // role_configs row (it used to store the toggle as granted) and no audit row.
+  it('a caller cannot grant a permission its own role does not hold, and nothing at all is written', async () => {
     const before = await rolePerms(TARGET_ROLE);
+    const auditBefore = await prisma.auditTrail.count({ where: { action: 'CONFIG_CHANGED', targetType: 'role_config', targetId: TARGET_ROLE } });
     const res = await authPut(app, `/api/config/roles/${TARGET_ROLE}`, callerToken,
       { permissions: { 'audit.delete': true }, reason: REASON }, PW);
     expect(res.statusCode).toBe(403);
     expect(res.json().message).toContain('You cannot grant permissions your own role does not hold');
     expect(res.json().message).toContain('AUDIT_DELETE');
     expect(await rolePerms(TARGET_ROLE)).toEqual(before);
-    // Clean up whatever the refused save may have left behind (see the defect log).
-    await prisma.roleConfig.deleteMany({ where: { role: TARGET_ROLE } });
+    const leftover = await prisma.roleConfig.findUnique({ where: { role: TARGET_ROLE } });
+    expect(leftover).toBeNull();
+    expect(await prisma.auditTrail.count({ where: { action: 'CONFIG_CHANGED', targetType: 'role_config', targetId: TARGET_ROLE } })).toBe(auditBefore);
+    // A sidebar save whose implied primary permission the caller lacks is refused the same way.
+    const viaSidebar = await authPut(app, `/api/config/roles/${TARGET_ROLE}`, callerToken, { sidebarItems: ['audit'], reason: REASON }, PW);
+    expect(viaSidebar.statusCode).toBe(403);
+    expect(await prisma.roleConfig.findUnique({ where: { role: TARGET_ROLE } })).toBeNull();
+    expect(await rolePerms(TARGET_ROLE)).toEqual(before);
+    expect(internalErrors).toEqual([]);
   });
 });
 
@@ -316,15 +326,29 @@ describe('user-specific config', () => {
     expect(res.json()).toMatchObject({ userId: targetUserId, sidebarItems: ['audit'], homeWidgets: ['audit_trail'] });
   });
 
-  it('a save for a user id that does not exist is not reported as a server error', async () => {
+  // D-CFG-2: an unknown user is a 404 — no orphan user_configs row, no audit row.
+  it('a save for a user id that does not exist is a 404 and writes nothing', async () => {
     const ghost = randomUUID();
     try {
       const res = await authPut(app, `/api/config/users/${ghost}`, callerToken, { homeWidgets: ['x'] }, PW);
-      expect(res.statusCode).toBeLessThan(500);
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ error: 'NOT_FOUND', message: 'User not found' });
+      expect(await prisma.userConfig.findUnique({ where: { userId: ghost } })).toBeNull();
+      expect(await prisma.auditTrail.count({ where: { action: 'CONFIG_CHANGED', targetType: 'user_config', targetId: ghost } })).toBe(0);
       expect(internalErrors).toEqual([]);
     } finally {
       await prisma.userConfig.deleteMany({ where: { userId: ghost } });
     }
+  });
+
+  it('a malformed user id is a 400 VALIDATION_ERROR from the route schema (GET and PUT)', async () => {
+    const put = await authPut(app, '/api/config/users/not-a-uuid', callerToken, { homeWidgets: ['x'] }, PW);
+    const get = await authGet(app, '/api/config/users/not-a-uuid', callerToken);
+    for (const res of [put, get]) {
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('VALIDATION_ERROR');
+    }
+    expect(internalErrors).toEqual([]);
   });
 });
 

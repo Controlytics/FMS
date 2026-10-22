@@ -184,7 +184,12 @@ export const configService = {
     const existing = await configRepository.findRoleConfig(role);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
-    const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
+    // D-CFG-1 (2026-10-22): the expanded permission set is computed and checked
+    // BEFORE anything is written. The role_configs upsert used to run first, so a
+    // save refused by the privilege check below (403) had already stored the
+    // toggles as granted, with no audit row — the Permissions tab then showed a
+    // grant the role does not hold. Every write now happens after every check.
+    let permissionsArray: string[] | null = null;
 
     // Sync feature privileges + sidebar selections to the role's permissions
     // array. Runs whenever EITHER tab saves so the two stay linked (2026-06-15,
@@ -228,7 +233,7 @@ export const configService = {
       }
       for (const perm of sidebarPerms) permissionSet.add(perm);
 
-      const permissionsArray = Array.from(permissionSet);
+      permissionsArray = Array.from(permissionSet);
       // F3 (cont.): the guard above checked the caller may touch this role at
       // all; this one checks every permission the expansion is about to grant.
       await assertRoleWithinCallerPrivilege(ctx, { permissions: permissionsArray }, {
@@ -236,6 +241,11 @@ export const configService = {
         hierarchyLevel: targetRole.hierarchyLevel,
         permissions: (targetRole.permissions as string[]) ?? [],
       });
+    }
+
+    const config = await configRepository.upsertRoleConfig(role, data, existing, ctx.userId);
+
+    if (permissionsArray) {
       await prisma.role.updateMany({
         where: { name: role },
         data: { permissions: permissionsArray },
@@ -293,6 +303,11 @@ export const configService = {
   },
 
   async updateUserConfig(userId: string, data: { sidebarItems?: string[]; homeWidgets?: string[]; permissions?: Record<string, boolean> }, ctx: RequestContext, reason?: string) {
+    // D-CFG-2 (2026-10-22): user_configs.user_id has no foreign key, so a save
+    // for an id that is no user stored an orphan row and audited a phantom
+    // target. Same 404 as the role path's unknown-role check above.
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new NotFoundError('User not found');
     const existing = await configRepository.findUserConfig(userId);
     const beforeValue = existing ? { sidebarItems: existing.sidebarItems, homeWidgets: existing.homeWidgets, permissions: existing.permissions } : null;
 
@@ -438,20 +453,22 @@ export const configService = {
 
     if (!cfg.autoGenerate) return { autoGenerate: false, nextId: null };
 
-    const prefix = cfg.prefix + cfg.prefixSeparator;
-    let maxNum = cfg.startNumber - 1;
+    // The separator only exists after a prefix (the generated id below omits it
+    // without one, as the User ID page's preview does). Subtracting it anyway made
+    // a prefix-less id one digit shorter than `length`, which the User ID
+    // validator then refused.
+    const prefix = cfg.prefix ? cfg.prefix + cfg.prefixSeparator : '';
+    const width = Math.max(1, cfg.length - prefix.length);
+    let maxNum = BigInt(cfg.startNumber - 1);
 
-    if (cfg.prefix) {
-      const result = await configRepository.getMaxUserIdNum(prefix);
-      if (result[0]?.max_num && result[0].max_num > maxNum) maxNum = result[0].max_num;
-    } else {
-      const result = await configRepository.getMaxUserIdNumAll();
-      if (result[0]?.max_num && result[0].max_num > maxNum) maxNum = result[0].max_num;
-    }
+    // D-CFG-3: only ids of the generated shape (prefix + exactly `width` digits)
+    // count, compared as exact numbers — see configRepository.getMaxUserIdNum.
+    const result = await configRepository.getMaxUserIdNum(prefix, width);
+    const found = result[0]?.max_num;
+    if (found != null && BigInt(found) > maxNum) maxNum = BigInt(found);
 
-    const nextNum = maxNum + 1;
-    const numStr = String(nextNum).padStart(cfg.length - (cfg.prefix?.length ?? 0) - (cfg.prefixSeparator?.length ?? 0), '0');
-    const nextId = cfg.prefix ? `${cfg.prefix}${cfg.prefixSeparator}${numStr}` : numStr;
+    const numStr = String(maxNum + 1n).padStart(width, '0');
+    const nextId = `${prefix}${numStr}`;
 
     return { autoGenerate: true, nextId };
   },

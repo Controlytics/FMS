@@ -439,3 +439,114 @@ describe('widget data', () => {
     expect(missing.json().error).toBe('Widget not found');
   });
 });
+
+/**
+ * Defects D-OPS-1..6 (found 2026-10-21 by this file, fixed 2026-10-22). Each
+ * test was written FIRST and seen failing against the unfixed routes.
+ */
+describe('defects D-OPS-1..6', () => {
+  async function widgetOn(dashId: string, title: string) {
+    const res = await authPost(app, `/api/dashboards/${dashId}/widgets`, tok.mgr, { widgetType: 'gauge', title });
+    expect(res.statusCode).toBe(201);
+    return res.json();
+  }
+  const pos = async (widgetId: string) => (await prisma.dashboardWidget.findUnique({ where: { id: widgetId } }))!.position;
+  const layoutAudits = (dashId: string) => prisma.auditTrail.count({ where: { action: 'DASHBOARD_LAYOUT_UPDATED', targetId: dashId } });
+
+  it('D-OPS-1: PUT /:id/layout refuses a widget of ANOTHER dashboard, naming it, and moves nothing', async () => {
+    const a = await createDashboard(`cvo-l1a-${S}`);
+    const b = await createDashboard(`cvo-l1b-${S}`);
+    const wA = await widgetOn(a.id, 'A1');
+    const wOfDashboardB = (await widgetOn(b.id, 'B1')).id;
+    const auditsBefore = await layoutAudits(a.id);
+    const res = await authPut(app, `/api/dashboards/${a.id}/layout`, tok.mgr, {
+      positions: [{ widgetId: wA.id, x: 3, y: 3, w: 3, h: 3 }, { widgetId: wOfDashboardB, x: 9, y: 9, w: 9, h: 9 }],
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'NOT_FOUND', details: { widgetIds: [wOfDashboardB] } });
+    expect(res.json().message).toContain(wOfDashboardB);
+    expect((await prisma.dashboardWidget.findUnique({ where: { id: wOfDashboardB } }))!.position).toEqual({ x: 0, y: 0, w: 4, h: 3 });
+    expect(await pos(wA.id)).toEqual({ x: 0, y: 0, w: 4, h: 3 });
+    expect(await layoutAudits(a.id)).toBe(auditsBefore);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('D-OPS-2: an unknown widget id refuses the WHOLE layout (all-or-nothing): the valid widget is not moved, nothing is audited', async () => {
+    const a = await createDashboard(`cvo-l2-${S}`);
+    const validWidget = await widgetOn(a.id, 'V1');
+    const unknownUuid = randomUUID();
+    const auditsBefore = await layoutAudits(a.id);
+    const res = await authPut(app, `/api/dashboards/${a.id}/layout`, tok.mgr, {
+      positions: [{ widgetId: validWidget.id, x: 7, y: 7, w: 7, h: 7 }, { widgetId: unknownUuid, x: 1, y: 1, w: 1, h: 1 }],
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().details).toEqual({ widgetIds: [unknownUuid] });
+    expect(await pos(validWidget.id)).toEqual({ x: 0, y: 0, w: 4, h: 3 });
+    expect(await layoutAudits(a.id)).toBe(auditsBefore);
+  });
+
+  it('D-OPS-1: a layout for a dashboard that does not exist is 404 and moves nothing', async () => {
+    const a = await createDashboard(`cvo-l3-${S}`);
+    const w = await widgetOn(a.id, 'X1');
+    const res = await authPut(app, `/api/dashboards/${randomUUID()}/layout`, tok.mgr, { positions: [{ widgetId: w.id, x: 8, y: 8, w: 8, h: 8 }] });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('Dashboard not found');
+    expect(await pos(w.id)).toEqual({ x: 0, y: 0, w: 4, h: 3 });
+  });
+
+  it('D-OPS-3: SUPER_ADMIN gets 404 (not 200 null) for a dashboard id that does not exist', async () => {
+    const res = await authGet(app, '/api/dashboards/' + randomUUID(), tok.sa);
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('Dashboard not found');
+  });
+
+  it('D-OPS-4: a soft-deleted dashboard is 404 on GET /:id and on its widget data, for every role; PUT can still undelete it', async () => {
+    const d = await createDashboard(`cvo-softdel-${S}`);
+    const w = await widgetOn(d.id, 'gone');
+    expect((await authDelete(app, `/api/dashboards/${d.id}`, tok.mgr)).statusCode).toBe(200);
+    for (const t of [tok.sa, tok.admin, tok.v1]) {
+      const res = await authGet(app, '/api/dashboards/' + d.id, t);
+      expect(res.statusCode).toBe(404);
+      const data = await authGet(app, `/api/dashboards/${d.id}/data/${w.id}`, t);
+      expect(data.statusCode).toBe(404);
+      expect(data.json().error).toBe('Dashboard not found');
+    }
+    const undelete = await authPut(app, `/api/dashboards/${d.id}`, tok.mgr, { isActive: true });
+    expect(undelete.statusCode).toBe(200);
+    expect((await authGet(app, '/api/dashboards/' + d.id, tok.admin)).statusCode).toBe(200);
+  });
+
+  it('D-OPS-5: assigning a dashboard that does not exist (or is deleted) is 404 and writes nothing', async () => {
+    const missing = randomUUID();
+    const res = await authPost(app, `/api/dashboards/${missing}/assign`, tok.mgr, { assigneeType: 'USER', userId: ids.v1 });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toBe('Dashboard not found');
+    expect(await prisma.dashboardAssignment.count({ where: { dashboardId: missing } })).toBe(0);
+
+    const gone = await createDashboard(`cvo-asgdel-${S}`);
+    await authDelete(app, `/api/dashboards/${gone.id}`, tok.mgr);
+    const res2 = await authPost(app, `/api/dashboards/${gone.id}/assign`, tok.mgr, { assigneeType: 'ROLE', roleValue: ROLE_VIEW });
+    expect(res2.statusCode).toBe(404);
+    expect(await prisma.dashboardAssignment.count({ where: { dashboardId: gone.id } })).toBe(0);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('D-OPS-6: an assignment whose assignee can match nobody is refused and nothing is stored', async () => {
+    const d = await createDashboard(`cvo-asgbad-${S}`);
+    const noUser = await authPost(app, `/api/dashboards/${d.id}/assign`, tok.mgr, { assigneeType: 'USER' });
+    expect(noUser.statusCode).toBe(400);
+    expect(noUser.json().error).toBe('VALIDATION_ERROR');
+    const noRole = await authPost(app, `/api/dashboards/${d.id}/assign`, tok.mgr, { assigneeType: 'ROLE', roleValue: '' });
+    expect(noRole.statusCode).toBe(400);
+    expect(noRole.json().error).toBe('VALIDATION_ERROR');
+    const ghostUser = await authPost(app, `/api/dashboards/${d.id}/assign`, tok.mgr, { assigneeType: 'USER', userId: randomUUID() });
+    expect(ghostUser.statusCode).toBe(404);
+    expect(ghostUser.json().error).toBe('User not found');
+    const ghostRole = await authPost(app, `/api/dashboards/${d.id}/assign`, tok.mgr, { assigneeType: 'ROLE', roleValue: `cvoNoRole${S}` });
+    expect(ghostRole.statusCode).toBe(404);
+    expect(ghostRole.json().error).toBe('Role not found');
+    expect(await prisma.dashboardAssignment.count({ where: { dashboardId: d.id } })).toBe(0);
+    expect(await prisma.auditTrail.count({ where: { action: 'DASHBOARD_ASSIGNED', targetId: d.id } })).toBe(0);
+    expect(internalErrors).toEqual([]);
+  });
+});

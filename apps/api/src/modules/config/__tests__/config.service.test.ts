@@ -24,7 +24,6 @@ const {
     findFieldId: vi.fn(),
     updateFieldId: vi.fn(),
     getMaxUserIdNum: vi.fn(),
-    getMaxUserIdNumAll: vi.fn(),
   },
   mockAuditLog: vi.fn(),
   mockGetActionReauthConfig: vi.fn(),

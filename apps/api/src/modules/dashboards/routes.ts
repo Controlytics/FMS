@@ -1,6 +1,7 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
+import { AppError } from '../../lib/errors.js';
 // getTsdbPool removed with data-ingestion removal.
 
 /**
@@ -22,14 +23,18 @@ export default async function dashboardRoutes(app: FastifyInstance) {
 
 
   // Helper: check if user can see a dashboard
+  //
+  // Existence + isActive come FIRST, for every role (D-OPS-3/4, 2026-10-22).
+  // SUPER_ADMIN used to return true before the lookup, so an unknown id answered
+  // 200 with a `null` body, and a soft-deleted dashboard (which the list already
+  // hides) stayed readable by id. PUT /:id deliberately does not use this helper:
+  // `isActive: true` there is how a deleted dashboard is restored.
   async function canAccessDashboard(req: FastifyRequest, dashboardId: string): Promise<boolean> {
-    const role = req.user.role;
-    if (role === 'SUPER_ADMIN') return true;
-
-    const dashboard = await prisma.dashboard.findFirst({ where: { id: dashboardId } });
+    const dashboard = await prisma.dashboard.findFirst({ where: { id: dashboardId, isActive: true } });
     if (!dashboard) return false;
 
-    if (role === 'ADMIN') return true;
+    const role = req.user.role;
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') return true;
 
     // Check assignment
     const assignment = await prisma.dashboardAssignment.findFirst({
@@ -385,20 +390,38 @@ export default async function dashboardRoutes(app: FastifyInstance) {
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_MANAGE')],
-  }, async (req) => {
+  }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const { positions } = req.body as { positions: Array<{ widgetId: string; x: number; y: number; w: number; h: number }> };
-    await Promise.all(positions.map(p =>
-      prisma.dashboardWidget.update({
-        where: { id: p.widgetId },
-        data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } },
-      })
-    ));
-    await auditLog({
-      userId: req.user.username, userRole: req.user.role,
-      action: 'DASHBOARD_LAYOUT_UPDATED', targetType: 'dashboard', targetId: id,
-      afterValue: { positions },
-      ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+    const dashboard = await prisma.dashboard.findFirst({ where: { id } });
+    if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
+
+    // D-OPS-1/2 (2026-10-22): the updates used to go by widget id alone, as
+    // independent writes. A widget of ANOTHER dashboard was moved (and the audit
+    // row filed under this one), and an unknown id answered 404 after the valid
+    // widgets had already moved, with no audit row for what was written. Now
+    // every id must belong to this dashboard, checked before anything is
+    // written, and the moves + their audit row commit together or not at all.
+    await prisma.$transaction(async (tx) => {
+      const wanted = [...new Set(positions.map(p => p.widgetId))];
+      const owned = await tx.dashboardWidget.findMany({ where: { id: { in: wanted }, dashboardId: id }, select: { id: true } });
+      const ownedIds = new Set(owned.map(w => w.id));
+      const foreign = wanted.filter(w => !ownedIds.has(w));
+      if (foreign.length > 0) {
+        throw new AppError(404, 'NOT_FOUND', `Widget(s) not on this dashboard: ${foreign.join(', ')}`, { widgetIds: foreign });
+      }
+      for (const p of positions) {
+        await tx.dashboardWidget.update({
+          where: { id: p.widgetId },
+          data: { position: { x: p.x, y: p.y, w: p.w, h: p.h } },
+        });
+      }
+      await auditLog({
+        userId: req.user.username, userRole: req.user.role,
+        action: 'DASHBOARD_LAYOUT_UPDATED', targetType: 'dashboard', targetId: id,
+        afterValue: { positions },
+        ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
+      }, tx);
     });
     return { success: true, updated: positions.length };
   });
@@ -419,14 +442,34 @@ export default async function dashboardRoutes(app: FastifyInstance) {
         properties: {
           assigneeType: { type: 'string', enum: ['USER', 'ROLE'] },
           userId: { type: 'string', format: 'uuid' },
-          roleValue: { type: 'string' },
+          roleValue: { type: 'string', minLength: 1 },
         },
+        // D-OPS-6 (2026-10-22): an assignment matches by userId (USER) or by
+        // roleValue (ROLE). Without the matching field it matches nobody, yet it
+        // was stored and audited.
+        allOf: [
+          { if: { properties: { assigneeType: { const: 'USER' } } }, then: { required: ['userId'] } },
+          { if: { properties: { assigneeType: { const: 'ROLE' } } }, then: { required: ['roleValue'] } },
+        ],
       },
     },
     preHandler: [app.requirePermission('DASHBOARD_ASSIGN')],
   }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as any;
+
+    // D-OPS-5 (2026-10-22): a missing or deleted dashboard is 404 like every
+    // sibling handler (the insert used to fail on the foreign key: 400
+    // DATA_CONSTRAINT). The assignee must exist too: user_id has no foreign key
+    // and role_value is free text, so an unknown one stored a row matching nobody.
+    const dashboard = await prisma.dashboard.findFirst({ where: { id, isActive: true } });
+    if (!dashboard) return reply.code(404).send({ error: 'Dashboard not found' });
+    if (body.assigneeType === 'USER' && !(await prisma.user.findUnique({ where: { id: body.userId }, select: { id: true } }))) {
+      return reply.code(404).send({ error: 'User not found' });
+    }
+    if (body.assigneeType === 'ROLE' && !(await prisma.role.findUnique({ where: { name: body.roleValue }, select: { id: true } }))) {
+      return reply.code(404).send({ error: 'Role not found' });
+    }
 
     const assignment = await prisma.dashboardAssignment.create({
       data: {

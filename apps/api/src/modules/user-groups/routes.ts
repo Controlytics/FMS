@@ -9,6 +9,9 @@ import { NotFoundError } from '../../lib/errors.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
 
+// Every id here is a uuid column. The params / members schemas say so (D-AUTH-4,
+// 2026-10-22): without `format: 'uuid'` a malformed id reached Prisma and came
+// back as 400 DATA_CONSTRAINT plus an ERROR-level "Unmapped Prisma error" line.
 export default async function userGroupRoutes(app: FastifyInstance) {
 
   // GET /api/user-groups — list all groups with member count
@@ -60,7 +63,7 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['User Groups'],
       summary: 'Update user group',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       body: {
         type: 'object',
         properties: {
@@ -103,7 +106,7 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['User Groups'],
       summary: 'Delete user group',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
     const { ok: reauthOk } = await enforceReauth('MANAGE_USER_GROUPS', req, reply);
@@ -141,7 +144,7 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['User Groups'],
       summary: 'List group members',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
@@ -174,11 +177,11 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     schema: {
       tags: ['User Groups'],
       summary: 'Add users to group',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       body: {
         type: 'object',
         required: ['userIds'],
-        properties: { userIds: { type: 'array', items: { type: 'string' } } },
+        properties: { userIds: { type: 'array', items: { type: 'string', format: 'uuid' } } },
       },
     },
   }, async (req, reply) => {
@@ -188,6 +191,16 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     const { userIds } = req.body as { userIds: string[] };
     const group = await prisma.userGroup.findUnique({ where: { id } });
     if (!group) throw new NotFoundError('User group not found');
+
+    // D-AUTH-5 (2026-10-22): user_group_members.user_id has no foreign key, so an
+    // id that is no user was stored, audited as "added" and resolved as a
+    // notification recipient that does not exist. Refuse the whole request,
+    // naming every unknown id, before anything is written.
+    const requested = [...new Set(userIds)];
+    const known = await prisma.user.findMany({ where: { id: { in: requested } }, select: { id: true } });
+    const knownIds = new Set(known.map((u) => u.id));
+    const unknown = requested.filter((u) => !knownIds.has(u));
+    if (unknown.length > 0) throw new NotFoundError(`User not found: ${unknown.join(', ')}`);
 
     const data = userIds.map(userId => ({ groupId: id, userId }));
     const result = await prisma.userGroupMember.createMany({ data, skipDuplicates: true });
@@ -215,7 +228,7 @@ export default async function userGroupRoutes(app: FastifyInstance) {
       summary: 'Remove user from group',
       params: {
         type: 'object',
-        properties: { id: { type: 'string' }, userId: { type: 'string' } },
+        properties: { id: { type: 'string', format: 'uuid' }, userId: { type: 'string', format: 'uuid' } },
         required: ['id', 'userId'],
       },
     },
@@ -225,6 +238,10 @@ export default async function userGroupRoutes(app: FastifyInstance) {
     const { id, userId } = req.params as { id: string; userId: string };
     const group = await prisma.userGroup.findUnique({ where: { id } });
     if (!group) throw new NotFoundError('User group not found');
+    // A removal that removes nothing must not be audited as one. Membership, not
+    // the user row, is checked: a member whose user was deleted must stay removable.
+    const membership = await prisma.userGroupMember.findUnique({ where: { groupId_userId: { groupId: id, userId } } });
+    if (!membership) throw new NotFoundError('User is not a member of this group');
 
     // Removing a QA user from a group silently stops their alerts — audit-first
     // inside the tx so the removal can't commit unrecorded.

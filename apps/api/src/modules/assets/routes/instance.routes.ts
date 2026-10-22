@@ -4,6 +4,7 @@ import { enforceReauth } from '../../../lib/reauth-check.js';
 import { AppError } from '../../../lib/errors.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
+import { MAX_UPLOAD_FILE_SIZE } from '../../../lib/upload-limits.js';
 import { createAssetInstanceSchema, updateAssetInstanceSchema, assetQuerySchema } from '@digilog/shared';
 import { instanceService } from '../services/instance.service.js';
 import { bulkUploadFilters, type UploadScope } from '../services/bulk-upload-filter.service.js';
@@ -424,7 +425,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
   /** 413 for the multipart size-limit throw (see readBulkUploadParts); null for anything else. */
   function fileTooLarge(err: any, reply: any) {
     if (err?.code !== 'FST_REQ_FILE_TOO_LARGE') return null;
-    return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' });
+    return reply.code(413).send({ error: 'FILE_TOO_LARGE', message: `Upload exceeds the maximum file size (${MAX_UPLOAD_FILE_SIZE / 1024 / 1024} MB).` });
   }
 
   // Creating an AHU / Area from the sheet needs what the Structure-view create

@@ -224,12 +224,59 @@ describe('user-groups routes', () => {
     await expectChained(row!);
   });
 
-  it('a malformed group id is a client error (400), never a 500', async () => {
-    // The params schema does not check the uuid format, so this answers
-    // DATA_CONSTRAINT rather than VALIDATION_ERROR — defect D-AUTH-4.
-    const res = await authGet(app, '/api/user-groups/not-a-uuid/members', saTok);
-    expect(res.statusCode).toBe(400);
+  // D-AUTH-4: a malformed id is refused by the route schema (400
+  // VALIDATION_ERROR) and never reaches the database (which answered
+  // DATA_CONSTRAINT and logged an ERROR-level "Unmapped Prisma error").
+  it('a malformed group or user id is a 400 VALIDATION_ERROR from the route schema, on every route', async () => {
+    const gid = groupIds[0];
+    const before = await prisma.auditTrail.count({ where: { targetType: 'UserGroup', targetId: gid } });
+    const answers = [
+      await authGet(app, '/api/user-groups/not-a-uuid/members', saTok),
+      await authPut(app, '/api/user-groups/not-a-uuid', saTok, { description: 'x' }),
+      await authDelete(app, '/api/user-groups/not-a-uuid', saTok),
+      await authPost(app, '/api/user-groups/not-a-uuid/members', saTok, { userIds: [plainMemberId] }),
+      await authDelete(app, `/api/user-groups/not-a-uuid/members/${plainMemberId}`, saTok),
+      await authDelete(app, `/api/user-groups/${gid}/members/not-a-uuid`, saTok),
+      await authPost(app, `/api/user-groups/${gid}/members`, saTok, { userIds: ['not-a-uuid'] }),
+    ];
+    for (const res of answers) {
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('VALIDATION_ERROR');
+    }
+    expect(await prisma.auditTrail.count({ where: { targetType: 'UserGroup', targetId: gid } })).toBe(before);
     expect(internalErrors).toHaveLength(0);
+  });
+
+  // D-AUTH-5: a member id that is no user is refused as a whole — no row, no audit.
+  it('adding user ids that match no user is a 404 naming them; nothing is added or audited', async () => {
+    const gid = groupIds[0];
+    const ghost = '00000000-0000-4000-8000-0000000000bb';
+    const membersBefore = await prisma.userGroupMember.count({ where: { groupId: gid } });
+    const auditBefore = await prisma.auditTrail.count({ where: { action: 'USER_GROUP_MEMBERS_ADDED', targetId: gid } });
+
+    const res = await authPost(app, `/api/user-groups/${gid}/members`, saTok, { userIds: [ghost] });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'NOT_FOUND', message: `User not found: ${ghost}` });
+
+    // Mixed with a real user: still all-or-nothing.
+    const mixed = await authPost(app, `/api/user-groups/${gid}/members`, saTok, { userIds: [plainMemberId, ghost] });
+    expect(mixed.statusCode).toBe(404);
+    expect(mixed.json().message).toBe(`User not found: ${ghost}`);
+
+    expect(await prisma.userGroupMember.count({ where: { groupId: gid } })).toBe(membersBefore);
+    expect(await prisma.userGroupMember.count({ where: { groupId: gid, userId: ghost } })).toBe(0);
+    expect(await prisma.auditTrail.count({ where: { action: 'USER_GROUP_MEMBERS_ADDED', targetId: gid } })).toBe(auditBefore);
+    expect(internalErrors).toHaveLength(0);
+  });
+
+  it('removing a user who is not a member is a 404 and writes no "member removed" audit row', async () => {
+    const gid = groupIds[0];
+    const notMember = '00000000-0000-4000-8000-0000000000cc';
+    const auditBefore = await prisma.auditTrail.count({ where: { action: 'USER_GROUP_MEMBER_REMOVED', targetId: gid } });
+    const res = await authDelete(app, `/api/user-groups/${gid}/members/${notMember}`, saTok);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: 'NOT_FOUND', message: 'User is not a member of this group' });
+    expect(await prisma.auditTrail.count({ where: { action: 'USER_GROUP_MEMBER_REMOVED', targetId: gid } })).toBe(auditBefore);
   });
 
   it('deletes the group with its memberships and records the membership it destroyed', async () => {

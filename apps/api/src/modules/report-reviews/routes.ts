@@ -3,6 +3,10 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { reportReviewService as svc } from './service.js';
 
+// report_reviews.id is @db.Uuid. Validated in the route schema so a mistyped id is
+// a 400 VALIDATION_ERROR, not a Prisma P2023 surfaced as DATA_CONSTRAINT.
+const idParams = { type: 'object' as const, required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } };
+
 // Report Review/Approval workflow — prefix /api/report-reviews
 export default async function reportReviewRoutes(app: FastifyInstance) {
   // Submit a generated report for review (snapshot + assign to a user or role).
@@ -57,7 +61,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
   // Full record incl. the data snapshot — used for preview + (re)download.
   app.get('/:id', {
     preHandler: [app.requireAnyPermission('REPORT_REVIEW_SUBMIT', 'REPORT_REVIEW', 'REPORT_APPROVE')],
-    schema: { tags: ['Report Reviews'], summary: 'Get a report review (with snapshot)' },
+    schema: { tags: ['Report Reviews'], summary: 'Get a report review (with snapshot)', params: idParams },
   }, async (req) => {
     const { id } = req.params as { id: string };
     return svc.getById(buildContext(req), id);
@@ -68,6 +72,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPORT_REVIEW')],
     schema: {
       tags: ['Report Reviews'], summary: 'Review a report (approve → approval stage, or reject)',
+      params: idParams,
       body: {
         type: 'object', required: ['action'],
         properties: {
@@ -93,6 +98,7 @@ export default async function reportReviewRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPORT_APPROVE')],
     schema: {
       tags: ['Report Reviews'], summary: 'Approve a report (→ APPROVED) or reject',
+      params: idParams,
       body: {
         type: 'object', required: ['action'],
         properties: {

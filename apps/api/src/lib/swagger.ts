@@ -103,7 +103,7 @@ path answers like any unknown route. Never enable on a customer machine.`,
         { name: 'Debug Traces', description: 'Debug traces — audited-action pipeline traces for troubleshooting (reads audit_trail)' },
         { name: 'System Health', description: 'System health — request tracking, throughput stats, and system metrics' },
         { name: 'Backup', description: 'Database backup & restore — export (JSON, BAK, pg_dump), validate, and restore with SHA-256 checksum integrity' },
-        { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max 5MB)' },
+        { name: 'Uploads', description: 'File uploads — profile photos (JPEG, PNG, GIF, WebP, max MAX_FILE_SIZE bytes, default 5 MB)' },
         { name: 'Help', description: 'Help articles — versioned documentation with CRUD and version history' },
         { name: 'Dashboards', description: 'Dashboards — user dashboards and widgets' },
         // ── Notifications ──

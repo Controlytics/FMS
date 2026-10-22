@@ -119,7 +119,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['userId'],
-        properties: { userId: { type: 'string', description: 'User ID' } },
+        properties: { userId: { type: 'string', format: 'uuid', description: 'User ID' } },
       },
       response: {
         200: {
@@ -147,7 +147,7 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
       params: {
         type: 'object',
         required: ['userId'],
-        properties: { userId: { type: 'string', description: 'User ID' } },
+        properties: { userId: { type: 'string', format: 'uuid', description: 'User ID' } },
       },
       body: {
         type: 'object',

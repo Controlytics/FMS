@@ -85,7 +85,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Rules'],
       summary: 'Get notification rule',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req) => {
     const { id } = req.params as { id: string };
@@ -185,7 +185,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Rules'],
       summary: 'Update notification rule',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
       body: {
         type: 'object',
         properties: {
@@ -289,7 +289,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Rules'],
       summary: 'Delete notification rule',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
     const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
@@ -315,7 +315,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Rules'],
       summary: 'Toggle notification rule active status',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req, reply) => {
     const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
@@ -356,7 +356,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Rules'],
       summary: 'Test-fire a notification rule',
-      params: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
     },
   }, async (req) => {
     const { id } = req.params as { id: string };

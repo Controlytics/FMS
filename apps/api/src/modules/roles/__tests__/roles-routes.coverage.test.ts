@@ -253,7 +253,9 @@ describe('roles routes', () => {
 
     it('a system role only takes permissions / color / displayName / description', async () => {
       const res = await authPut(app, `/api/roles/${R_SYS}`, saTok, {
-        hierarchyLevel: 9, isActive: false, color: '#abcdef', description: 'sys desc', reason: 'coverage: system role edit',
+        // 5, not 9: a level above SUPER_ADMIN's own is refused before the
+        // system-role rule is reached (D-AUTH-2); this test is about the latter.
+        hierarchyLevel: 5, isActive: false, color: '#abcdef', description: 'sys desc', reason: 'coverage: system role edit',
       });
       expect(res.statusCode).toBe(200);
       const row = await prisma.role.findUnique({ where: { name: R_SYS } });
@@ -332,10 +334,40 @@ describe('roles routes', () => {
 
   describe('a role above SUPER_ADMIN', () => {
     const R_TOP = `CVA_RT_${S}`;
-    afterAll(async () => { await deleteRoles([R_TOP]); });
+    const R_TOP2 = `CVA_RU_${S}`;
+    const R_EQ = `CVA_RE_${S}`;
+    afterAll(async () => { await deleteRoles([R_TOP, R_TOP2, R_EQ]); });
 
-    // POST /api/roles currently ACCEPTS such a level (defect D-AUTH-2 in the
-    // coverage report); the row is made directly so this test does not depend on it.
+    // D-AUTH-2: no caller — SUPER_ADMIN included — may create or raise a role
+    // above the caller's own level. SUPER_ADMIN's level is read from its role row.
+    it('POST refuses a level above SUPER_ADMIN\'s own (400) and writes nothing', async () => {
+      const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
+      const res = await authPost(app, '/api/roles', saTok, { name: R_TOP2, displayName: 'Above SA', hierarchyLevel: saLevel + 2 });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('VALIDATION_ERROR');
+      expect(res.json().message).toBe(`Hierarchy level ${saLevel + 2} is above your own role's level (${saLevel}); no user could ever be given that role`);
+      expect(await prisma.role.findUnique({ where: { name: R_TOP2 } })).toBeNull();
+      expect(await auditFor('ROLE_CREATED', R_TOP2)).toBeFalsy();
+      expect(internalErrors).toHaveLength(0);
+    });
+
+    it('PUT refuses raising a role above SUPER_ADMIN\'s level; the role keeps its level', async () => {
+      const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
+      const res = await authPut(app, `/api/roles/${R_LOW}`, saTok, { hierarchyLevel: saLevel + 1, reason: 'raise it above the top level' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('VALIDATION_ERROR');
+      expect((await prisma.role.findUnique({ where: { name: R_LOW } }))?.hierarchyLevel).toBe(3);
+      expect(internalErrors).toHaveLength(0);
+    });
+
+    it('a role AT SUPER_ADMIN\'s level is still allowed (the bound is "not above")', async () => {
+      const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
+      const res = await authPost(app, '/api/roles', saTok, { name: R_EQ, displayName: 'At SA level', hierarchyLevel: saLevel });
+      expect(res.statusCode).toBe(200);
+      expect((await prisma.role.findUnique({ where: { name: R_EQ } }))?.hierarchyLevel).toBe(saLevel);
+    });
+
+    // A row above SA can still exist from before the fix (made directly here):
     it('can never be given to a user, not even by SUPER_ADMIN, and is never "creatable"', async () => {
       const saLevel = (await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } }))!.hierarchyLevel;
       await makeRole(R_TOP, saLevel + 2, ['USER_READ']);

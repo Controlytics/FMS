@@ -117,8 +117,14 @@ export default async function authRoutes(app: FastifyInstance) {
       tags: ['Auth'],
       summary: 'Logout',
       description: 'Terminate the current session. Optional body { reason } distinguishes a manual logout from an idle auto-logout in the audit trail.',
+      // nullable (D-AUTH-1, 2026-10-22): Fastify validates an ABSENT body as null,
+      // so the tablet's bare POST (no body, no content-type —
+      // apps/web/src/routes/mobile/mobile-login.tsx) was refused "body must be
+      // object" and the session it meant to end stayed active. Same fix as the
+      // identifier DELETE (D3). `{}` / `{ reason }` validate exactly as before.
       body: {
         type: 'object',
+        nullable: true,
         properties: { reason: { type: 'string', enum: ['manual', 'idle_timeout'] } },
         additionalProperties: false,
       },

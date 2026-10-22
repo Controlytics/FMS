@@ -91,17 +91,24 @@ export const configRepository = {
     });
   },
 
-  // Raw queries for User ID next
-  async getMaxUserIdNum(prefix: string) {
+  // Raw query for User ID next (D-CFG-3, 2026-10-22).
+  //
+  // Only usernames shaped exactly like a generated id count: the literal prefix
+  // (separator included) followed by exactly `width` digits. The old queries took
+  // the trailing digit run of EVERY username under the prefix (or, with no prefix,
+  // of every username at all) and cast it AS INTEGER: one username ending in more
+  // than 10 digits overflowed (Postgres 22003) and the endpoint answered 400 to
+  // every caller, and any shorter stray tail (`admin2`, a timestamped tool user)
+  // set the next number and produced an id longer than the configured length.
+  // NUMERIC + ::text keeps a 20-digit id (the schema's maximum length, beyond
+  // BIGINT) exact; the caller does the +1 in BigInt. The prefix is matched as a
+  // literal (regex-escaped) — LIKE treated a '_' separator as a wildcard.
+  async getMaxUserIdNum(prefix: string, width: number) {
+    const literal = prefix.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
     return prisma.$queryRawUnsafe(
-      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username LIKE $1`,
-      `${prefix}%`
-    ) as Promise<{ max_num: number | null }[]>;
-  },
-
-  async getMaxUserIdNumAll() {
-    return prisma.$queryRawUnsafe(
-      `SELECT MAX(CAST(SUBSTRING(username FROM '\\d+$') AS INTEGER)) AS max_num FROM users WHERE username ~ '\\d+$'`
-    ) as Promise<{ max_num: number | null }[]>;
+      `SELECT MAX(CAST(SUBSTRING(username FROM $2::text) AS NUMERIC))::text AS max_num FROM users WHERE username ~ $1::text`,
+      `^${literal}[0-9]{${width}}$`,
+      `[0-9]{${width}}$`,
+    ) as Promise<{ max_num: string | null }[]>;
   },
 };

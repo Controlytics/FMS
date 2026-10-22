@@ -2,19 +2,16 @@
  * A-01 Phase 2 Tier 1 — Typed-asset dispatch helper.
  *
  * Foundation for the asset_instances → typed-tables write-cutover. Used by
- * the canonical instance.repository.ts to dual-write every asset CRUD to
- * both the typed-hierarchy table (blocks / areas / ahus / filters) AND the
- * legacy `asset_instances` table.
+ * the canonical instance.repository.ts to dual-write asset UPDATES and
+ * soft-deletes to both the typed-hierarchy table (blocks / areas / ahus /
+ * filters) AND the legacy `asset_instances` table. Creates are not here — see
+ * the note above dispatchUpdate.
  *
  * Why dual-write rather than typed-only:
  *   - The legacy `asset_instances` table is still read by ~60% of the
  *     backend (107 prisma.assetInstance.* call sites across 39 files).
  *     Until those sites migrate (Phase 2 Tiers 2-7), `asset_instances`
  *     must stay populated.
- *   - The M-04 forward-mirror trigger (`fn_mirror_asset_instance`) is
- *     idempotent on typed-table inserts via `ON CONFLICT (id) DO UPDATE`,
- *     so dual-write doesn't fight the trigger — it pre-populates the
- *     typed row before the trigger fires.
  *   - Transaction rollback cleans up both writes atomically on failure.
  *
  * Why OTHER kind is special-cased:
@@ -57,31 +54,8 @@ export interface CommonAssetData {
 }
 
 // ─── Kind lookup ────────────────────────────────────────────────────────────
-
-/**
- * Resolve the AssetKind for a given templateId. Hits a per-process Map cache
- * (template kinds are immutable for the lifetime of a template) to keep this
- * cheap on hot paths.
- */
-const kindByTemplateIdCache = new Map<string, AssetKind>();
-
-export async function kindFromTemplateId(templateId: string): Promise<AssetKind> {
-  const cached = kindByTemplateIdCache.get(templateId);
-  if (cached) return cached;
-  const tpl = await prisma.assetTemplate.findUnique({
-    where: { id: templateId },
-    select: { templateKind: true },
-  });
-  if (!tpl) throw new Error(`Template not found: ${templateId}`);
-  const kind = normalizeKind(tpl.templateKind);
-  kindByTemplateIdCache.set(templateId, kind);
-  return kind;
-}
-
-/** Exported for tests + cache-invalidation if a template's kind ever changes. */
-export function _clearKindCache(): void {
-  kindByTemplateIdCache.clear();
-}
+// (kindFromTemplateId + its per-process template-kind cache went with
+// dispatchCreate on 2026-10-22: it was that function's only caller.)
 
 function normalizeKind(raw: string): AssetKind {
   switch (raw) {
@@ -157,31 +131,16 @@ function typedDelegate(tx: Tx, kind: HierarchyKind) {
 
 // ─── Public CRUD primitives ─────────────────────────────────────────────────
 
-/**
- * Dual-write create: writes to the typed table first, then to asset_instances
- * with the SAME id. The forward mirror trigger fires on the asset_instances
- * write — its ON CONFLICT (id) DO UPDATE makes it idempotent on the typed row
- * we just wrote. OTHER-kind rows go to asset_instances only.
- */
-export async function dispatchCreate(
-  data: Record<string, unknown> & { templateId: string },
-): Promise<any> {
-  const kind = await kindFromTemplateId(data.templateId);
-
-  if (!isHierarchyKind(kind)) {
-    // OTHER / EQUIPMENT — legacy-only per D1=C.
-    return prisma.assetInstance.create({ data: data as any });
-  }
-
-  return prisma.$transaction(async (tx) => {
-    // Write to typed table first; capture the id so asset_instances can
-    // reuse it (UUID-reuse keystone preserves all soft-FK references).
-    const typedRow = await (typedDelegate(tx, kind) as any).create({
-      data: translateToTypedShape(kind, data),
-    });
-    return tx.assetInstance.create({ data: { ...data, id: typedRow.id } as any });
-  });
-}
+// No dispatchCreate (removed 2026-10-22, D-LIB-1). It had no caller: asset
+// creates go through instance.service.ts `tx.assetInstance.create`, and the
+// forward mirror (fn_mirror_asset_instance) writes the typed row with the same
+// id. It was also broken for FILTER: it inserted the typed `filters` row first,
+// and `filters` is the one typed table WITH a reverse mirror
+// (trg_mirror_typed_to_asset_instance), which immediately inserts the
+// asset_instances row with that id, so the helper's own asset_instances create
+// hit the primary key (P2002, rolled back). A future A-01 tier that creates
+// through the typed tables must write ONE side and let the mirror write the
+// other, never both. OTHER / EQUIPMENT stay asset_instances-only (D1=C).
 
 /**
  * Dual-write update by id. Resolves kind via asset_instances ⇒ template join

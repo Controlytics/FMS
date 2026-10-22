@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Tier 1.5 (2026-05-29): mocks widened to cover the typed-asset-dispatch
 // helper. Helper internally:
-//   - calls prisma.assetTemplate.findUnique (kindFromTemplateId)
 //   - calls prisma.assetInstance.findUnique with { include: { template } } (kindFromInstanceId)
 //   - calls prisma.assetInstance.findMany with template-include (bulk kind resolve in softDeleteMany)
 //   - wraps writes in prisma.$transaction(cb) — cb receives a tx with block/area/ahu/filter + assetInstance delegates
@@ -27,14 +26,9 @@ const { mockPrisma } = vi.hoisted(() => {
 vi.mock('../../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 
 import { instanceRepository } from '../instance.repository.js';
-import { _clearKindCache } from '../../../../lib/typed-asset-dispatch.js';
-
 describe('instance.repository', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Tier 1.5: the dispatch helper caches templateId → kind in a per-process
-    // Map. Clear it between tests so each test can stub a fresh kind.
-    _clearKindCache();
   });
 
   describe('findMany', () => {
@@ -66,34 +60,10 @@ describe('instance.repository', () => {
     });
   });
 
-  describe('create', () => {
-    it('creates a new instance (BLOCK kind → dual-writes blocks + asset_instances)', async () => {
-      mockPrisma.assetTemplate.findUnique.mockResolvedValue({ templateKind: 'BLOCK' });
-      mockPrisma.block.create.mockResolvedValue({ id: 'i2', name: 'Valve-1' });
-      mockPrisma.assetInstance.create.mockResolvedValue({ id: 'i2', name: 'Valve-1' });
-      const result = await instanceRepository.create({
-        name: 'Valve-1', templateId: 't1', status: 'ACTIVE',
-      });
-      expect(result.name).toBe('Valve-1');
-      // Dispatch helper writes both sides.
-      expect(mockPrisma.block.create).toHaveBeenCalled();
-      expect(mockPrisma.assetInstance.create).toHaveBeenCalled();
-    });
-
-    it('creates an OTHER-kind instance (asset_instances only — D1=C)', async () => {
-      mockPrisma.assetTemplate.findUnique.mockResolvedValue({ templateKind: 'OTHER' });
-      mockPrisma.assetInstance.create.mockResolvedValue({ id: 'i3', name: 'Misc-1' });
-      const result = await instanceRepository.create({
-        name: 'Misc-1', templateId: 'tOther', status: 'ACTIVE',
-      });
-      expect(result.name).toBe('Misc-1');
-      // OTHER must NOT touch any typed table.
-      expect(mockPrisma.block.create).not.toHaveBeenCalled();
-      expect(mockPrisma.area.create).not.toHaveBeenCalled();
-      expect(mockPrisma.ahu.create).not.toHaveBeenCalled();
-      expect(mockPrisma.filter.create).not.toHaveBeenCalled();
-      expect(mockPrisma.assetInstance.create).toHaveBeenCalled();
-    });
+  // No `create` block: instanceRepository.create was removed 2026-10-22 (D-LIB-1,
+  // no caller; its typed-first dual write collided with the FILTER reverse mirror).
+  it('has no create (creates go through instance.service tx.assetInstance.create)', () => {
+    expect((instanceRepository as Record<string, unknown>).create).toBeUndefined();
   });
 
   describe('update', () => {

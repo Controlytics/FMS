@@ -201,7 +201,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Notification ID' },
+          id: { type: 'string', format: 'uuid', description: 'Notification ID' },
         },
       },
       response: {
@@ -229,7 +229,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Notification ID' },
+          id: { type: 'string', format: 'uuid', description: 'Notification ID' },
         },
       },
       response: {
@@ -261,7 +261,7 @@ export default async function notificationRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Notification ID' },
+          id: { type: 'string', format: 'uuid', description: 'Notification ID' },
         },
       },
       response: {

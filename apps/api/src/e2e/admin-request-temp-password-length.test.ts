@@ -6,11 +6,17 @@
  * while the Users pages issued `minLength` (8 here) — the operator saw both.
  * Every temporary password now comes from `generatePassword` in
  * @digilog/shared at the policy's minimum length.
+ *
+ * The shared `password-policy` row is NOT written (2026-10-22): the generator's
+ * one policy read (authRepository.getPasswordPolicyConfig) is answered with the
+ * stored policy at a different minLength. Writing the row changed the minimum
+ * length for every password set concurrently by other suites.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '../lib/prisma.js';
 import { hashPassword } from '../lib/password.js';
 import { adminRequestService } from '../modules/admin-requests/admin-request.service.js';
+import { authRepository } from '../modules/auth/auth.repository.js';
 import type { RequestContext } from '../types/context.js';
 
 const ACTOR = 'temppw_actor_sa';
@@ -18,7 +24,8 @@ const ACTOR = 'temppw_actor_sa';
 const NEW_USERS = ['TPWA01', 'TPWB02'];
 const requestIds: string[] = [];
 let ctx: RequestContext;
-let savedPolicy: unknown;
+let storedPolicy: Record<string, unknown> = {};
+let storedMin = 8;
 
 async function approveCreate(username: string) {
   const req = await adminRequestService.create({
@@ -33,19 +40,15 @@ async function approveCreate(username: string) {
   return adminRequestService.process(id, 'approve', 'approved by e2e', ctx) as Promise<{ temporaryPassword?: string }>;
 }
 
-async function setMinLength(minLength: number) {
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'password-policy' } });
-  const value = { ...((row?.configValue as Record<string, unknown>) ?? {}), minLength };
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'password-policy' },
-    update: { configValue: value },
-    create: { configKey: 'password-policy', configValue: value, configType: 'security' },
-  });
+/** The generator reads the stored policy with `minLength` overridden; nothing is written. */
+function setMinLength(minLength: number) {
+  vi.spyOn(authRepository, 'getPasswordPolicyConfig').mockResolvedValue({ ...storedPolicy, minLength });
 }
 
 describe('Admin Requests — temporary password length = policy minLength', () => {
   beforeAll(async () => {
-    savedPolicy = (await prisma.systemConfig.findUnique({ where: { configKey: 'password-policy' } }))?.configValue;
+    storedPolicy = await authRepository.getPasswordPolicyConfig();
+    storedMin = Number(storedPolicy.minLength ?? 8);
     const actor = await prisma.user.upsert({
       where: { username: ACTOR },
       update: { role: 'SUPER_ADMIN', status: 'ENABLED' },
@@ -56,21 +59,37 @@ describe('Admin Requests — temporary password length = policy minLength', () =
   });
 
   afterAll(async () => {
-    if (savedPolicy === undefined) await prisma.systemConfig.deleteMany({ where: { configKey: 'password-policy' } });
-    else await prisma.systemConfig.update({ where: { configKey: 'password-policy' }, data: { configValue: savedPolicy as object } });
-    if (requestIds.length) await prisma.adminRequest.deleteMany({ where: { id: { in: requestIds } } });
+    vi.restoreAllMocks();
+    // Each request wrote a "request submitted" notification (metadata.requestId)
+    // and each approval created a user, which wrote a USER_CREATED notification
+    // (metadata.userId). Remove them by those links, or every run leaves four
+    // notifications pointing at a request and a user that no longer exist.
+    if (requestIds.length) {
+      await prisma.notification.deleteMany({
+        where: { type: 'USER_CREATION_REQUEST_SUBMITTED', OR: requestIds.map((id) => ({ metadata: { path: ['requestId'], equals: id } })) },
+      });
+      await prisma.adminRequest.deleteMany({ where: { id: { in: requestIds } } });
+    }
+    const created = await prisma.user.findMany({ where: { username: { in: NEW_USERS } }, select: { id: true } });
+    if (created.length) {
+      await prisma.notification.deleteMany({
+        where: { type: 'USER_CREATED', OR: created.map((u) => ({ metadata: { path: ['userId'], equals: u.id } })) },
+      });
+    }
     await prisma.user.deleteMany({ where: { username: { in: [...NEW_USERS, ACTOR] } } });
   });
 
-  it('issues exactly minLength characters (8)', async () => {
-    await setMinLength(8);
+  // Lengths derive from the stored minimum: the created user must still pass the
+  // REAL policy check in user.service, which reads the row itself.
+  it('issues exactly minLength characters (the stored minimum)', async () => {
+    setMinLength(storedMin);
     const out = await approveCreate(NEW_USERS[0]);
-    expect(out.temporaryPassword).toHaveLength(8);
+    expect(out.temporaryPassword).toHaveLength(storedMin);
   });
 
-  it('follows the policy when minLength changes (12)', async () => {
-    await setMinLength(12);
+  it('follows the policy when minLength changes (stored minimum + 4)', async () => {
+    setMinLength(storedMin + 4);
     const out = await approveCreate(NEW_USERS[1]);
-    expect(out.temporaryPassword).toHaveLength(12);
+    expect(out.temporaryPassword).toHaveLength(storedMin + 4);
   });
 });

@@ -221,6 +221,9 @@ export default async function roleRoutes(app: FastifyInstance) {
           type: 'object',
           properties: {
             error: { type: 'string' },
+            // The PUT schema already declares it; without it Fastify stripped the
+            // reason for a refused create (e.g. the D-AUTH-2 level ceiling).
+            message: { type: 'string' },
             details: { type: 'object', additionalProperties: true },
           },
         },

@@ -230,7 +230,7 @@ export default async function helpRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Article UUID' },
+          id: { type: 'string', format: 'uuid', description: 'Article UUID' },
         },
       },
       body: {
@@ -335,7 +335,7 @@ export default async function helpRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Article UUID' },
+          id: { type: 'string', format: 'uuid', description: 'Article UUID' },
         },
       },
       response: {
@@ -379,7 +379,7 @@ export default async function helpRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['id'],
         properties: {
-          id: { type: 'string', description: 'Article UUID' },
+          id: { type: 'string', format: 'uuid', description: 'Article UUID' },
         },
       },
       response: {

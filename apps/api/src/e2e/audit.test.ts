@@ -105,8 +105,8 @@ describe('Audit Trail endpoints', () => {
 
     it('returns 404 for non-existent entry', async () => {
       // AuditTrail.id is a UUID. Using a syntactically valid UUID that
-      // won't collide with a real row exercises the 404 path; numeric
-      // strings make Prisma throw a UUID parse error → 500.
+      // won't collide with a real row exercises the 404 path; a non-uuid id
+      // is refused by the route schema (400 VALIDATION_ERROR, D-PLAT-1).
       const res = await authGet(app, '/api/audit/00000000-0000-0000-0000-000000000000', adminToken);
       expect(res.statusCode).toBe(404);
     });

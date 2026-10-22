@@ -3,6 +3,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
+import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
+import { getLogger } from '../../lib/logger.js';
 
 // Uploads directory. UPLOADS_ROOT honors UPLOAD_DIR (customer install) — must
 // match the static serve root in app.ts, otherwise written photos 404.
@@ -15,7 +17,35 @@ async function ensureDirectories() {
 
 // Allowed image types — configurable via environment
 const ALLOWED_TYPES = (process.env.UPLOAD_ALLOWED_TYPES ?? 'image/jpeg,image/png,image/gif,image/webp').split(',');
-const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE ?? `${5 * 1024 * 1024}`, 10); // default 5MB
+// The enforced cap is the multipart registration (app.ts / test-helper.ts), which
+// reads this same constant; this copy only words the 413 (D-OPS-7).
+const MAX_FILE_SIZE = MAX_UPLOAD_FILE_SIZE;
+
+/**
+ * What the CONTENT is, by its signature — never the client's word (D-OPS-8,
+ * 2026-10-22). The old check compared only a prefix of the claimed type
+ * (WebP = "RIFF", so a WAVE/AVI file passed and was served as .webp) and skipped
+ * the check entirely for a type with no rule, so a type added through
+ * UPLOAD_ALLOWED_TYPES stored any bytes under `.jpg`. Each rule here names the
+ * extension the file is stored with.
+ */
+const SIGNATURES: Array<{ mime: string; ext: string; matches: (b: Buffer) => boolean }> = [
+  { mime: 'image/jpeg', ext: '.jpg', matches: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { mime: 'image/png', ext: '.png', matches: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { mime: 'image/gif', ext: '.gif', matches: (b) => ['GIF87a', 'GIF89a'].includes(b.subarray(0, 6).toString('latin1')) },
+  { mime: 'image/webp', ext: '.webp', matches: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' },
+];
+const SIGNATURE_BY_MIME = new Map(SIGNATURES.map((s) => [s.mime, s]));
+
+// An allowed type with no signature rule can never be accepted (fail closed);
+// say so at load rather than leave the operator guessing why uploads of it fail.
+const UNCHECKABLE_TYPES = ALLOWED_TYPES.filter((t) => !SIGNATURE_BY_MIME.has(t));
+if (UNCHECKABLE_TYPES.length > 0) {
+  getLogger('uploads', 'application').warn(
+    { types: UNCHECKABLE_TYPES },
+    'UPLOAD_ALLOWED_TYPES lists types with no content check; uploads of them are refused',
+  );
+}
 
 export default async function uploadRoutes(app: FastifyInstance) {
   // Ensure directories exist on startup
@@ -39,7 +69,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Uploads'],
       summary: 'Upload a profile photo',
-      description: 'Upload a profile photo image file (JPEG, PNG, GIF, or WebP). Maximum file size is 5 MB. Returns the URL path for the uploaded photo.',
+      description: 'Upload a profile photo image file (JPEG, PNG, GIF, or WebP). Maximum file size is MAX_FILE_SIZE bytes (default 5 MB). Returns the URL path for the uploaded photo.',
       consumes: ['multipart/form-data'],
       response: {
         200: {
@@ -87,14 +117,13 @@ export default async function uploadRoutes(app: FastifyInstance) {
           message: 'Only JPEG, PNG, GIF, and WebP images are allowed'
         });
       }
-
-      // Generate unique filename — derive extension from validated MIME type, not user-supplied filename
-      const MIME_TO_EXT: Record<string, string> = {
-        'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
-      };
-      const ext = MIME_TO_EXT[data.mimetype] || '.jpg';
-      const filename = `${req.user.sub}-${randomUUID()}${ext}`;
-      const filepath = path.join(profilePhotosDir, filename);
+      const signature = SIGNATURE_BY_MIME.get(data.mimetype);
+      if (!signature) {
+        return reply.code(400).send({
+          error: 'INVALID_FILE_TYPE',
+          message: `Uploads of ${data.mimetype} cannot be content-checked and are not accepted`,
+        });
+      }
 
       // Buffer the file first
       const chunks: Buffer[] = [];
@@ -115,20 +144,12 @@ export default async function uploadRoutes(app: FastifyInstance) {
         });
       }
 
-      // Validate magic bytes
-      const MAGIC_BYTES: Record<string, number[]> = {
-        'image/jpeg': [0xFF, 0xD8, 0xFF],
-        'image/png': [0x89, 0x50, 0x4E, 0x47],
-        'image/gif': [0x47, 0x49, 0x46],
-        'image/webp': [0x52, 0x49, 0x46, 0x46], // RIFF header
-      };
-      const expectedMagic = MAGIC_BYTES[data.mimetype];
-      if (expectedMagic) {
-        const matches = expectedMagic.every((byte, i) => buffer[i] === byte);
-        if (!matches) {
-          return reply.code(400).send({ error: 'INVALID_FILE', message: 'File content does not match declared type' });
-        }
+      // The content must BE the claimed type; the stored extension is that type's.
+      if (!signature.matches(buffer)) {
+        return reply.code(400).send({ error: 'INVALID_FILE', message: 'File content does not match declared type' });
       }
+      const filename = `${req.user.sub}-${randomUUID()}${signature.ext}`;
+      const filepath = path.join(profilePhotosDir, filename);
 
       // Write to disk
       await writeFile(filepath, buffer);
@@ -143,7 +164,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
       };
     } catch (err: any) {
       if (err.code === 'FST_REQ_FILE_TOO_LARGE') {
-        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: 'File exceeds maximum size of 5MB' });
+        return reply.code(400).send({ error: 'FILE_TOO_LARGE', message: `File exceeds maximum size of ${MAX_FILE_SIZE / 1024 / 1024} MB` });
       }
       if (err.statusCode === 415 || err.message?.includes('multipart')) {
         return reply.code(400).send({ error: 'INVALID_REQUEST', message: 'Request must be multipart/form-data with a file' });

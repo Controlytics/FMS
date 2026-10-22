@@ -625,7 +625,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Settings'],
       summary: 'Delete a notification log entry',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
   }, async (req, reply) => {
@@ -697,7 +697,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Settings'],
       summary: 'Update notification template',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       body: { type: 'object', additionalProperties: false, properties: { name: { type: 'string' }, subject: { type: 'string' }, bodyTemplate: { type: 'string' }, description: { type: 'string' }, variables: { type: 'array', items: { type: 'string' } }, isActive: { type: 'boolean' } } },
       response: { 200: { type: 'object', additionalProperties: true } },
     },
@@ -732,7 +732,7 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Notification Settings'],
       summary: 'Delete notification template',
-      params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' } } } },
     },
   }, async (req) => {
