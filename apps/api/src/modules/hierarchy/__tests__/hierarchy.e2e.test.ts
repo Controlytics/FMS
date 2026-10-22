@@ -328,15 +328,11 @@ describe('hierarchy — filters (write)', () => {
     expect(plain.status).toBe(200);
   });
 
-  it('deleting a filter that does not exist is a client error', async () => {
+  it('deleting a filter that does not exist is 404, like editing one', async () => {
     internalErrors.length = 0;
     const res = await sa.call('DELETE', `/api/hierarchy/filters/${randomUUID()}`);
-    // NOTE (defect reported): this answers 400 VALIDATION_ERROR, while PUT on
-    // the same unknown id answers 404 since P4-09. Only the client-error class
-    // and the message are pinned here.
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
-    expect(res.body.message).toBe('Filter not found');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'NOT_FOUND', message: 'Filter not found' });
     expect(internalErrors).toEqual([]);
   });
 });
