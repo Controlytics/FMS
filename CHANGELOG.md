@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - batch-states no longer reads per in-cycle filter (P-1, 2026-10-22)
+
+- **`GET /api/filters/batch-states`** (the tablet's offline-cache poll) made six queries per
+  filter IN A CYCLE; the 2026-10-17 preload only covered idle filters. On the one-year copy
+  (`digilog_perf`, 2,928 of 3,038 filters mid-cycle): **17,931 → 65 queries per call**.
+  Interleaved A/B in one process (tsx, production-mode Prisma, PC at 100 % CPU from other
+  work): **25.8–34.6 s → 3.2–7.5 s**. Response unchanged: old vs new bodies byte-identical
+  (19.2 MB, 3 rounds), and the batch equals the un-cached `/current-state` for all 3,038 filters.
+  - `batch-preload.ts` now also loads, for the whole batch, each in-cycle filter's cycle row,
+    its events (count + checklist/entry rows, from ONE `unnest … CROSS JOIN LATERAL` probe), the
+    latest stage approval at a QA-gated stage, and every idle filter's AHU PM-due entry.
+    An empty answer is seeded too, so it never falls back to the per-filter read.
+  - Not `cycle_id IN (…)`: with 2,928 ids the planner seq-scans all 6.2 M `filter_events`
+    (41–92 s measured); the LATERAL probe is index scans, 1.2 s cold / 50 ms warm.
+  - `current-state.ts` memoises the shared rows per batch: equipment group (live, pinned
+    version, live version), block groups, checklist questions, profile names.
+    The single-filter path is unchanged and reads directly.
+  - Guard: `filter-operations/__tests__/batch-states-parity.e2e.test.ts`. It checks parity per
+    branch (idle, START, checklist pending / answered / superseded, interlock PENDING / APPROVED,
+    Dry In before and after half-time, five equipment-group branches, profile sync warning, retired).
+    It also checks that six more in-cycle filters add **0** statements. Before the fix: +66.
+
 ## [Unreleased] - Large-database restore script + operator guide (D-DB-6, 2026-10-22)
 
 - **`scripts/restore-database.ps1`** (+ `restore-database-helper.mjs`, `restore-database.cmd`)

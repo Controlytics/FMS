@@ -30,7 +30,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     filterEvent: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     checklistProfile: { findMany: vi.fn() },
     checklistProfileVersion: { findMany: vi.fn() },
-    pmScheduleEntry: { findFirst: vi.fn() },
+    pmScheduleEntry: { findFirst: vi.fn(), findMany: vi.fn() },
     systemConfig: { findUnique: vi.fn() },
   },
 }));
@@ -97,6 +97,7 @@ describe('M39 — getBatchStates does not re-read shared rows per filter', () =>
     });
     mockPrisma.systemConfig.findUnique.mockResolvedValue(null);
     mockPrisma.pmScheduleEntry.findFirst.mockResolvedValue(null);
+    mockPrisma.pmScheduleEntry.findMany.mockResolvedValue([]);
   });
 
   it('reads the stage-interlock config ONCE per batch, not once per filter', async () => {
@@ -115,12 +116,15 @@ describe('M39 — getBatchStates does not re-read shared rows per filter', () =>
     expect(mockPrisma.filterCleaningProfile.findUnique).toHaveBeenCalledTimes(1);
   });
 
-  it("reads an AHU's PM-due entry ONCE for all of its filters", async () => {
+  it("reads the PM-due entries ONCE for all AHUs, never per AHU", async () => {
     const service = new FilterOperationsService();
     await service.getBatchStates(ctx, undefined);
 
     // The PM window question is per-AHU; all three filters share AHU_ID.
-    expect(mockPrisma.pmScheduleEntry.findFirst).toHaveBeenCalledTimes(1);
+    // P-1 (2026-10-22): batch-preload.ts answers it for every AHU in one read
+    // and seeds `pm-due:<ahu>`, so no per-AHU read runs at all.
+    expect(mockPrisma.pmScheduleEntry.findMany).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.pmScheduleEntry.findFirst).not.toHaveBeenCalled();
   });
 
   it('counts cycles for every filter in ONE groupBy instead of a count per filter', async () => {

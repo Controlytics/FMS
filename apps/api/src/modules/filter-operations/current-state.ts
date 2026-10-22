@@ -39,7 +39,7 @@ import {
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
 import { createBatchReadCache, type BatchReadCache } from './batch-cache.js';
-import { preloadBatchReads } from './batch-preload.js';
+import { preloadBatchReads, checklistRowsKey, eventCountKey, latestApprovalKey } from './batch-preload.js';
 import { getModuleLogger } from '../../lib/logger.js';
 
 const filterOpsLog = getModuleLogger('filter-operations');
@@ -146,9 +146,16 @@ export async function getCurrentStateImpl(
 ) {
   const filter = await getFilter(filterId, ctx, cache);
 
+  // P-1 (2026-10-22): batch-only memo for the reads below. Keys of per-cycle reads
+  // are seeded by batch-preload.ts; shared reads (equipment groups, checklist
+  // questions, profile names) are simply deduped. The single-filter path reads
+  // directly, as before.
+  const memo = <T>(key: string, read: () => Promise<T>): Promise<T> => (cache ? cache.memo(key, read) : read());
+
   let currentCycle = null;
   if (filter.currentCycleId) {
-    currentCycle = await prisma.cleaningCycle.findUnique({ where: { id: filter.currentCycleId } });
+    const cycleId = filter.currentCycleId;
+    currentCycle = await memo(`cycle:${cycleId}`, () => prisma.cleaningCycle.findUnique({ where: { id: cycleId } }));
   }
 
   // Stage interlock state. `gatedStage` is STATIC (config-driven) so the offline
@@ -162,7 +169,8 @@ export async function getCurrentStateImpl(
   let interlockLatest: { id: string; status: string } | null = null;
   if (interlockGatedHere && currentCycle) {
     const stageKey = interlockStateKey as string;
-    const row = await getLatestApproval(currentCycle.id, stageKey);
+    const cycleId = currentCycle.id;
+    const row = await memo(latestApprovalKey(cycleId, stageKey), () => getLatestApproval(cycleId, stageKey));
     interlockLatest = row ? { id: row.id, status: row.status } : null;
 
     // Self-heal: a filter parked at a gated stage with NO approval means the
@@ -385,14 +393,14 @@ export async function getCurrentStateImpl(
   const position: string | null = filter.currentLifecycleState ?? null;
   const cycleChecklistRows: Array<{ eventType: string; toState: string | null; performedAt: Date; attributes: unknown }> =
     currentCycle
-      ? await prisma.filterEvent.findMany({
+      ? await memo(checklistRowsKey(filter.id, currentCycle.id, position), () => prisma.filterEvent.findMany({
           where: {
             filterId: filter.id,
-            cycleId: currentCycle.id,
+            cycleId: currentCycle!.id,
             OR: [{ eventType: 'CHECKLIST_COMPLETED' }, ...(position ? [{ toState: position }] : [])],
           },
           select: { eventType: true, toState: true, performedAt: true, attributes: true },
-        })
+        }))
       : [];
 
   if (cp) {
@@ -416,7 +424,13 @@ export async function getCurrentStateImpl(
               // Checklists pending — resolve via cycle's pinned versions (Phase A.1).
               // currentCycle is in scope here.
               const pins = (currentCycle?.checklistVersionPins ?? null) as Record<string, number> | null;
-              pendingChecklist = await resolveChecklistQuestions(checklistNodes.filter(isEnabledChecklistNode), pins);
+              const enabledNodes = checklistNodes.filter(isEnabledChecklistNode);
+              // Keyed by every input the resolution reads: each node, its profile and that profile's pin.
+              const questionsKey = 'checklist-questions:' + enabledNodes.map((n: any) => {
+                const pid = (n.configuration as any)?.checklistProfileId;
+                return `${n.id}=${pid}@${typeof pins?.[pid] === 'number' ? pins[pid] : '-'}`;
+              }).join(',');
+              pendingChecklist = await memo(questionsKey, () => resolveChecklistQuestions(enabledNodes, pins));
               if (pendingChecklist.length > 0) {
                 // Active checklists pending — block until completed
                 nextAllowedStages = [];
@@ -503,13 +517,21 @@ export async function getCurrentStateImpl(
   //      endpoint; advance() is where the 409 GROUP_VERSION_MISSING fires).
   //   3. Pin null (legacy cycle started pre-P1) -> live row.
   //   4. No cycle group at all -> block-fallback below (unchanged).
+  //
+  // P-1: a site has a handful of groups shared by thousands of in-cycle filters,
+  // so under the batch each of these reads is memoised per group (and pin).
   let equipmentGroup: any = null;
+  const readLiveGroup = (groupId: string) => memo(`equipment-group:${groupId}`, () => prisma.equipmentGroup.findUnique({
+    where: { id: groupId },
+    include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+  }));
   if (currentCycle?.equipmentGroupId) {
     const pin = currentCycle.equipmentGroupVersionPin;
+    const groupId = currentCycle.equipmentGroupId;
     if (pin !== null && pin !== undefined) {
-      const versionRow = await prisma.equipmentGroupVersion.findUnique({
-        where: { groupId_versionNumber: { groupId: currentCycle.equipmentGroupId, versionNumber: pin } },
-      });
+      const versionRow = await memo(`equipment-group-version:${groupId}:${pin}`, () => prisma.equipmentGroupVersion.findUnique({
+        where: { groupId_versionNumber: { groupId, versionNumber: pin } },
+      }));
       if (versionRow) {
         const snap = versionRow.snapshot as { name?: string; blockId?: string; isActive?: boolean; instruments?: any[] };
         equipmentGroup = {
@@ -523,10 +545,7 @@ export async function getCurrentStateImpl(
       } else {
         // Lazy first-version: snapshot only exists after the first admin edit.
         // Live row IS the pinned version when versions match.
-        const liveGroup = await prisma.equipmentGroup.findUnique({
-          where: { id: currentCycle.equipmentGroupId },
-          include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-        });
+        const liveGroup = await readLiveGroup(groupId);
         if (liveGroup && liveGroup.version === pin) {
           equipmentGroup = liveGroup;
         } else {
@@ -553,10 +572,7 @@ export async function getCurrentStateImpl(
     } else {
       // Legacy cycle (pre-P1, pin never written). Live row is correct here —
       // documented drift gap, kept only for backwards compatibility.
-      equipmentGroup = await prisma.equipmentGroup.findUnique({
-        where: { id: currentCycle.equipmentGroupId },
-        include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-      });
+      equipmentGroup = await readLiveGroup(groupId);
     }
   }
   // A cycle that has not bound a group yet (a block with 0 or >1 active groups at
@@ -572,11 +588,12 @@ export async function getCurrentStateImpl(
   // pin applies — the cycle hasn't bound a group yet.
   let blockEquipmentGroups: any[] = [];
   if (!currentCycle?.equipmentGroupId && currentCycle?.cleaningAreaId) {
-    blockEquipmentGroups = await prisma.equipmentGroup.findMany({
-      where: { blockId: currentCycle.cleaningAreaId, isActive: true },
+    const blockId = currentCycle.cleaningAreaId;
+    blockEquipmentGroups = await memo(`block-equipment-groups:${blockId}`, () => prisma.equipmentGroup.findMany({
+      where: { blockId, isActive: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-    });
+    }));
     if (!equipmentGroup) equipmentGroup = blockEquipmentGroups[0] ?? null;
   }
 
@@ -642,10 +659,11 @@ export async function getCurrentStateImpl(
   // the cleaning recipe.
   let equipmentGroupSyncWarning: { groupId: string; pinnedVersion: number; liveVersion: number; recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART' } | null = null;
   if (currentCycle?.equipmentGroupId && currentCycle.equipmentGroupVersionPin !== null && currentCycle.equipmentGroupVersionPin !== undefined) {
-    const liveGroup = await prisma.equipmentGroup.findUnique({
-      where: { id: currentCycle.equipmentGroupId },
+    const groupId = currentCycle.equipmentGroupId;
+    const liveGroup = await memo(`equipment-group-live-version:${groupId}`, () => prisma.equipmentGroup.findUnique({
+      where: { id: groupId },
       select: { version: true },
-    });
+    }));
     if (liveGroup && liveGroup.version > currentCycle.equipmentGroupVersionPin) {
       equipmentGroupSyncWarning = {
         groupId: currentCycle.equipmentGroupId,
@@ -671,10 +689,9 @@ export async function getCurrentStateImpl(
     const liveCpId = await normalize(resolvedProfileId);
     const cycleCpId = await normalize(cycleProfileId);
     if (liveCpId !== cycleCpId) {
-      const [liveCp, cycleCp] = await Promise.all([
-        prisma.filterCleaningProfile.findUnique({ where: { id: liveCpId }, select: { name: true } }),
-        prisma.filterCleaningProfile.findUnique({ where: { id: cycleCpId }, select: { name: true } }),
-      ]);
+      const readName = (id: string) => memo(`cleaning-profile-name:${id}`, () =>
+        prisma.filterCleaningProfile.findUnique({ where: { id }, select: { name: true } }));
+      const [liveCp, cycleCp] = await Promise.all([readName(liveCpId), readName(cycleCpId)]);
       profileSyncWarning = {
         cycleProfileId: cycleCpId,
         cycleProfileName: cycleCp?.name ?? null,
@@ -724,7 +741,8 @@ export async function getCurrentStateImpl(
       && e.performedAt.getTime() < currentEntryAt
     ));
   const filterEventCount = currentCycle
-    ? await prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } })
+    ? await memo(eventCountKey(filter.id, currentCycle.id), () =>
+        prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle!.id } }))
     : 0;
 
   const tape = generateTape({

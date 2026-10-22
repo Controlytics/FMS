@@ -31,7 +31,7 @@ const { mockPrisma, mockAuditLog } = vi.hoisted(() => ({
     filterEvent: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     checklistProfile: { findMany: vi.fn() },
     checklistProfileVersion: { findMany: vi.fn() },
-    pmScheduleEntry: { findFirst: vi.fn() },
+    pmScheduleEntry: { findFirst: vi.fn(), findMany: vi.fn() },
     systemConfig: { findUnique: vi.fn() },
   },
   mockAuditLog: vi.fn(),
@@ -80,6 +80,7 @@ describe('D5 — batch-states and current-state shape contract', () => {
       where?.id?.in ? where.id.in.filter((id: string) => id === FILTER_ID).map(() => filterFixture()) : [{ id: FILTER_ID }]);
     mockPrisma.systemConfig.findUnique.mockResolvedValue(null);
     mockPrisma.pmScheduleEntry.findFirst.mockResolvedValue(null);
+    mockPrisma.pmScheduleEntry.findMany.mockResolvedValue([]);
     // totalCycles (M39): the single path counts per filter; the batch path loads
     // every filter's count in ONE groupBy. These two mocks are the SAME fact
     // stated both ways, so the parity assertion below genuinely proves the two
