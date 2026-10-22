@@ -364,7 +364,7 @@ describe('POST /api/audit/report-export-log', () => {
 // ─── POST /api/audit/:id/redact, /bulk-redact ────────────────────────────
 describe('redaction', () => {
   it('redacts one row: payload nulled, stamps set, meta row chained, then reported on read', async () => {
-    const res = await authPost(app, `/api/audit/${R.redactOne}/redact`, saTok, { reason: 'Contains personal data' });
+    const res = await authPost(app, `/api/audit/${R.redactOne}/redact`, saTok, { reason: 'Contains personal data' }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json().success).toBe(true);
     const row = await prisma.auditTrail.findUniqueOrThrow({ where: { id: R.redactOne } });
@@ -382,19 +382,19 @@ describe('redaction', () => {
   });
 
   it('refuses to redact twice (the first redactor is never overwritten)', async () => {
-    const res = await authPost(app, `/api/audit/${R.redactOne}/redact`, saTok, { reason: 'Second attempt here' });
+    const res = await authPost(app, `/api/audit/${R.redactOne}/redact`, saTok, { reason: 'Second attempt here' }, PW);
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('ALREADY_REDACTED');
   });
 
   it('404s an unknown id and refuses a non-SUPER_ADMIN', async () => {
-    expect((await authPost(app, `/api/audit/${randomUUID()}/redact`, saTok, { reason: 'Nothing here' })).statusCode).toBe(404);
-    expect((await authPost(app, `/api/audit/${R.redactPair1}/redact`, rdTok, { reason: 'Not allowed' })).statusCode).toBe(403);
+    expect((await authPost(app, `/api/audit/${randomUUID()}/redact`, saTok, { reason: 'Nothing here' }, PW)).statusCode).toBe(404);
+    expect((await authPost(app, `/api/audit/${R.redactPair1}/redact`, rdTok, { reason: 'Not allowed' }, PW)).statusCode).toBe(403);
     expect((await prisma.auditTrail.findUniqueOrThrow({ where: { id: R.redactPair1 } })).redactedAt).toBeNull();
   });
 
   it('bulk-redacts only the un-redacted ids and records them in one meta row', async () => {
-    const res = await authPost(app, '/api/audit/bulk-redact', saTok, { ids: [R.redactPair1, R.redactPair2, R.redactOne], reason: 'Bulk privacy cleanup' });
+    const res = await authPost(app, '/api/audit/bulk-redact', saTok, { ids: [R.redactPair1, R.redactPair2, R.redactOne], reason: 'Bulk privacy cleanup' }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ success: true, count: 2 });
     for (const id of [R.redactPair1, R.redactPair2]) {
@@ -410,13 +410,13 @@ describe('redaction', () => {
   });
 
   it('bulk-redact 409s when nothing matching is left to redact', async () => {
-    const res = await authPost(app, '/api/audit/bulk-redact', saTok, { ids: [R.redactOne, randomUUID()], reason: 'Nothing to do here' });
+    const res = await authPost(app, '/api/audit/bulk-redact', saTok, { ids: [R.redactOne, randomUUID()], reason: 'Nothing to do here' }, PW);
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('ALREADY_REDACTED_OR_MISSING');
   });
 
   it('shows the raw redactor id once the redactor account no longer exists', async () => {
-    expect((await authPost(app, `/api/audit/${R.redactByGone}/redact`, sa2Tok, { reason: 'Redacted by a leaver' })).statusCode).toBe(200);
+    expect((await authPost(app, `/api/audit/${R.redactByGone}/redact`, sa2Tok, { reason: 'Redacted by a leaver' }, PW)).statusCode).toBe(200);
     await deleteUsers([sa2User.id]);
     const detail = (await authGet(app, `/api/audit/${R.redactByGone}`, saTok)).json();
     expect(detail.redactedByName).toBe(sa2User.id);
@@ -444,7 +444,7 @@ describe('PUT /api/audit/:id (edit in place)', () => {
       reason: 'Correct the mis-keyed name', userName: 'Corrected Name', userRole: 'OPERATOR', targetType: '',
       targetId: 'T-1', signatureMeaning: 'corrected', afterValue: { n: 'fixed' }, beforeValue: { n: 'was' },
       timestamp: '2026-01-02T03:04:05.000Z',
-    });
+    }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ success: true, chainBroken: true });
     const row = await prisma.auditTrail.findUniqueOrThrow({ where: { id: R.edit } });
@@ -460,38 +460,38 @@ describe('PUT /api/audit/:id (edit in place)', () => {
 
   it('refuses to edit a meta-audit row', async () => {
     const meta = await latestMeta('AUDIT_RECORD_UPDATED', saUser.username, R.edit);
-    const res = await authPut(app, `/api/audit/${meta!.id}`, saTok, { reason: 'rewrite history', action: 'X' });
+    const res = await authPut(app, `/api/audit/${meta!.id}`, saTok, { reason: 'rewrite history', action: 'X' }, PW);
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('META_AUDIT_IMMUTABLE');
   });
 
   it('refuses to edit a redacted row', async () => {
-    await authPost(app, `/api/audit/${R.editRedacted}/redact`, saTok, { reason: 'mask before edit' });
-    const res = await authPut(app, `/api/audit/${R.editRedacted}`, saTok, { reason: 'try an edit', action: 'X' });
+    await authPost(app, `/api/audit/${R.editRedacted}/redact`, saTok, { reason: 'mask before edit' }, PW);
+    const res = await authPut(app, `/api/audit/${R.editRedacted}`, saTok, { reason: 'try an edit', action: 'X' }, PW);
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('REDACTED');
   });
 
   it('400s an unparseable timestamp and an edit with no editable field, changing nothing', async () => {
-    const t = await authPut(app, `/api/audit/${R.del1}`, saTok, { reason: 'bad date edit', timestamp: 'not a date' });
+    const t = await authPut(app, `/api/audit/${R.del1}`, saTok, { reason: 'bad date edit', timestamp: 'not a date' }, PW);
     expect(t.statusCode).toBe(400);
     expect(t.json().error).toBe('INVALID');
-    const empty = await authPut(app, `/api/audit/${R.del1}`, saTok, { reason: 'nothing to change' });
+    const empty = await authPut(app, `/api/audit/${R.del1}`, saTok, { reason: 'nothing to change' }, PW);
     expect(empty.statusCode).toBe(400);
     expect(empty.json().error).toBe('NO_CHANGES');
     expect(await latestMeta('AUDIT_RECORD_UPDATED', saUser.username, R.del1)).toBeNull();
   });
 
   it('404s an unknown id; refuses non-SUPER_ADMIN', async () => {
-    expect((await authPut(app, `/api/audit/${randomUUID()}`, saTok, { reason: 'no such row', action: 'X' })).statusCode).toBe(404);
-    expect((await authPut(app, `/api/audit/${R.del1}`, rdTok, { reason: 'not mine to edit', action: 'X' })).statusCode).toBe(403);
+    expect((await authPut(app, `/api/audit/${randomUUID()}`, saTok, { reason: 'no such row', action: 'X' }, PW)).statusCode).toBe(404);
+    expect((await authPut(app, `/api/audit/${R.del1}`, rdTok, { reason: 'not mine to edit', action: 'X' }, PW)).statusCode).toBe(403);
   });
 });
 
 // ─── DELETE /api/audit/:id, POST /bulk-delete ────────────────────────────
 describe('hard delete (AUDIT_DELETE)', () => {
   it('a non-SUPER_ADMIN holder deletes a row it can see; the meta row is written first and chained', async () => {
-    const res = await authDelete(app, `/api/audit/${R.del1}`, rdTok, undefined, { reason: 'Duplicate test entry' });
+    const res = await authDelete(app, `/api/audit/${R.del1}`, rdTok, PW, { reason: 'Duplicate test entry' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ success: true });
     expect(await prisma.auditTrail.findUnique({ where: { id: R.del1 } })).toBeNull();
@@ -505,46 +505,42 @@ describe('hard delete (AUDIT_DELETE)', () => {
   });
 
   it('cannot delete what it cannot see: a SUPER_ADMIN-authored row is a 404 and survives', async () => {
-    const res = await authDelete(app, `/api/audit/${R.bySa}`, rdTok, undefined, { reason: 'Reach a hidden row' });
+    const res = await authDelete(app, `/api/audit/${R.bySa}`, rdTok, PW, { reason: 'Reach a hidden row' });
     expect(res.statusCode).toBe(404);
     expect(await prisma.auditTrail.findUnique({ where: { id: R.bySa } })).not.toBeNull();
   });
 
   it('is refused to a role without AUDIT_DELETE', async () => {
-    const res = await authDelete(app, `/api/audit/${R.delGated}`, noneTok, undefined, { reason: 'No permission here' });
+    const res = await authDelete(app, `/api/audit/${R.delGated}`, noneTok, PW, { reason: 'No permission here' });
     expect(res.statusCode).toBe(403);
   });
 
-  it('with re-auth on for the role, a delete without the password writes nothing', async () => {
-    reauthAdded = [...reauthAdded, ...(await addReauth([['DELETE_AUDIT_RECORD', R_READER], ['BULK_DELETE_AUDIT_RECORDS', R_READER]]))];
-    try {
-      const one = await authDelete(app, `/api/audit/${R.delGated}`, rdTok, undefined, { reason: 'Needs a signature' });
-      expect(one.statusCode).toBe(401);
-      expect(one.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'DELETE_AUDIT_RECORD' });
-      const bulk = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.delGated], reason: 'Needs a signature' });
-      expect(bulk.statusCode).toBe(401);
-      expect(bulk.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'BULK_DELETE_AUDIT_RECORDS' });
-      expect(await prisma.auditTrail.findUnique({ where: { id: R.delGated } })).not.toBeNull();
-      expect(await latestMeta('AUDIT_RECORD_DELETED', rdUser.username, R.delGated)).toBeNull();
+  // OD-01 (2026-10-22): the delete ALWAYS takes the password — no policy row is
+  // added here, and the policy has never heard of this file's role.
+  it('a delete without the password writes nothing, whatever the re-auth policy says', async () => {
+    const one = await authDelete(app, `/api/audit/${R.delGated}`, rdTok, undefined, { reason: 'Needs a signature' });
+    expect(one.statusCode).toBe(401);
+    expect(one.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'DELETE_AUDIT_RECORD' });
+    const bulk = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.delGated], reason: 'Needs a signature' });
+    expect(bulk.statusCode).toBe(401);
+    expect(bulk.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'BULK_DELETE_AUDIT_RECORDS' });
+    expect(await prisma.auditTrail.findUnique({ where: { id: R.delGated } })).not.toBeNull();
+    expect(await latestMeta('AUDIT_RECORD_DELETED', rdUser.username, R.delGated)).toBeNull();
 
-      const signed = await authDelete(app, `/api/audit/${R.delGated}`, rdTok, PW, { reason: 'Signed deletion' });
-      expect(signed.statusCode).toBe(200);
-      const meta = await latestMeta('AUDIT_RECORD_DELETED', rdUser.username, R.delGated);
-      const sig = await latestMeta('REAUTH_SUCCESS', rdUser.username);
-      expect(meta?.signatureAuditId).toBe(sig?.id);
-    } finally {
-      await removeReauth(reauthAdded);
-      reauthAdded = [];
-    }
+    const signed = await authDelete(app, `/api/audit/${R.delGated}`, rdTok, PW, { reason: 'Signed deletion' });
+    expect(signed.statusCode).toBe(200);
+    const meta = await latestMeta('AUDIT_RECORD_DELETED', rdUser.username, R.delGated);
+    const sig = await latestMeta('REAUTH_SUCCESS', rdUser.username);
+    expect(meta?.signatureAuditId).toBe(sig?.id);
   });
 
   it('404s a single delete of an unknown id', async () => {
-    const res = await authDelete(app, `/api/audit/${randomUUID()}`, saTok, undefined, { reason: 'Unknown row id' });
+    const res = await authDelete(app, `/api/audit/${randomUUID()}`, saTok, PW, { reason: 'Unknown row id' });
     expect(res.statusCode).toBe(404);
   });
 
   it('bulk-deletes only the visible ids and records them in one meta row', async () => {
-    const res = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.delBulk1, R.delBulk2, R.bySa], reason: 'Bulk test cleanup' });
+    const res = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.delBulk1, R.delBulk2, R.bySa], reason: 'Bulk test cleanup' }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ success: true, count: 2 });
     expect(await prisma.auditTrail.count({ where: { id: { in: [R.delBulk1, R.delBulk2] } } })).toBe(0);
@@ -556,7 +552,7 @@ describe('hard delete (AUDIT_DELETE)', () => {
   });
 
   it('bulk-delete 404s when no id is visible to the caller', async () => {
-    const res = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.bySa, randomUUID()], reason: 'Only hidden ids' });
+    const res = await authPost(app, '/api/audit/bulk-delete', rdTok, { ids: [R.bySa, randomUUID()], reason: 'Only hidden ids' }, PW);
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe('NO_MATCHING_RECORDS');
   });

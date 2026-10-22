@@ -458,20 +458,40 @@ describe('verifyAuditChecksum — chained rows (non-genesis)', () => {
  * assert instead.
  */
 describe('verifyAuditChecksum — redacted rows', () => {
+  const REDACTED_AT = new Date('2025-02-01T00:00:00.000Z');
   const redacted = (extra: Record<string, unknown> = {}) => ({
     timestamp: '2025-01-01T00:00:00.000Z',
     action: 'SOME_ACTION',
     checksum: 'cannot-be-recomputed-after-redaction',
-    redactedAt: new Date(),
+    redactedAt: REDACTED_AT,
     ...extra,
   });
+  /** The redaction record of `redacted()` as the redact handler writes it (v2), its own checksum verified. */
+  const evidence = {
+    snapshot: {
+      snapshotVersion: 2, timestamp: '2025-01-01T00:00:00.000Z', action: 'SOME_ACTION', checksum: 'cannot-be-recomputed-after-redaction',
+      redactedAt: REDACTED_AT.toISOString(),
+    },
+    recordValid: true, recordCoversSnapshot: true, metaRowId: 'meta-1',
+  };
 
-  it('accepts a properly redacted row (both payloads NULL)', () => {
-    expect(verifyAuditChecksum(redacted({ beforeValue: null, afterValue: null }))).toBe(true);
+  // 2026-10-22 (security assessment P1): these two used to pass with NO
+  // evidence - "both payloads NULL" was the whole check, so any row could be
+  // marked redacted and have its who/what rewritten. A redacted row is valid only
+  // against its redaction record; without one it is unverifiable, never valid.
+  it('accepts a properly redacted row (both payloads NULL) only against its redaction record', () => {
+    expect(verifyAuditChecksum(redacted({ beforeValue: null, afterValue: null }), evidence)).toBe(true);
+    expect(verifyAuditChecksum(redacted({ beforeValue: null, afterValue: null }))).toBe(false);
   });
 
-  it('accepts a redacted row whose payloads are absent rather than null', () => {
-    expect(verifyAuditChecksum(redacted())).toBe(true);
+  it('accepts a redacted row whose payloads are absent rather than null, against its record', () => {
+    expect(verifyAuditChecksum(redacted(), evidence)).toBe(true);
+    expect(verifyAuditChecksum(redacted(), null)).toBe(false);
+  });
+
+  it('REJECTS a redacted row whose who/what was rewritten after the redaction (P1)', () => {
+    expect(verifyAuditChecksum(redacted({ action: 'USER_LOGIN' }), evidence)).toBe(false);
+    expect(verifyAuditChecksum(redacted({ userId: 'mallory' }), evidence)).toBe(false);
   });
 
   // ── the tamper case the old test allowed through ──

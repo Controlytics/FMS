@@ -25,7 +25,8 @@
  *     daily snapshot).
  */
 import { prisma } from './prisma.js';
-import { verifyAuditChecksum, getAuditChainKeyedFrom, computeChainedChecksum, computeChecksum } from './hash-chain.js';
+import { verifyAuditChecksum, verifyRedactedRow, getAuditChainKeyedFrom, computeChainedChecksum, computeChecksum } from './hash-chain.js';
+import { buildRedactionIndex, evidenceFor, rawRowToChecksumRecord, REDACTION_META_ACTIONS, type RedactionIndex } from './audit-redaction.js';
 
 /**
  * 2026-09-04 investigation of the 3,308 "PER_ROW_CHECKSUM_MISMATCH" rows dated
@@ -127,8 +128,14 @@ export interface ChainAnomaly {
   position: number;
   id: string;
   kind: 'PER_ROW_CHECKSUM_MISMATCH' | 'CHAIN_LINK_MISMATCH' | 'CHAIN_POSITION_GAP' | 'KEYED_ERA_DOWNGRADE'
-      | 'LEGACY_V1_KEY_ORDER' | 'LEGACY_V1_KEY_ORDER_UNVERIFIABLE';
-  /** true for the two LEGACY_* kinds: reported, counted, but not tampering and not counted against `intact`. */
+      | 'LEGACY_V1_KEY_ORDER' | 'LEGACY_V1_KEY_ORDER_UNVERIFIABLE'
+      // Redacted rows (security assessment P1, 2026-10-22) - see verifyRedactedRow:
+      | 'REDACTION_UNRECORDED'            // redacted, but no redaction record names it: unverifiable, never valid
+      | 'REDACTED_ROW_MISMATCH'           // a field differs from what its redaction recorded
+      | 'REDACTION_RECORD_INVALID'        // its redaction record fails its own checksum
+      | 'REDACTION_RECORD_UNTRUSTED'      // its record's checksum does not cover the snapshot (pre-2026-07-04)
+      | 'REDACTION_PARTIALLY_VERIFIED';   // pre-2026-10-22 5-field record matched; other fields uncheckable (informational)
+  /** true for the LEGACY_* kinds and REDACTION_PARTIALLY_VERIFIED: reported, counted, but not tampering and not counted against `intact`. */
   informational?: boolean;
   message: string;
   expected?: string | null;
@@ -179,8 +186,19 @@ interface AuditRow {
   checksum: string;
   previous_checksum: string | null;
   redacted_at: Date | null;
+  redacted_by?: string | null;
+  redaction_reason?: string | null;
   checksum_version: number | null;
 }
+
+const REDACTION_ANOMALY: Record<string, { kind: ChainAnomaly['kind']; informational?: true; message: (id: string, fields?: string[]) => string }> = {
+  PAYLOAD_PRESENT: { kind: 'PER_ROW_CHECKSUM_MISMATCH', message: (id) => `Row ${id} is marked redacted but its payload is present — tampering detected.` },
+  NO_RECORD: { kind: 'REDACTION_UNRECORDED', message: (id) => `Row ${id} is marked redacted but no redaction record names it — its fields cannot be verified, so it is not accepted as valid.` },
+  MISMATCH: { kind: 'REDACTED_ROW_MISMATCH', message: (id, f) => `Row ${id} differs from what its redaction recorded (${(f ?? []).join(', ')}) — tampering detected.` },
+  RECORD_INVALID: { kind: 'REDACTION_RECORD_INVALID', message: (id) => `Row ${id} is redacted, but the record of that redaction fails its own checksum — tampering detected.` },
+  RECORD_UNTRUSTED: { kind: 'REDACTION_RECORD_UNTRUSTED', message: (id) => `Row ${id} is redacted, but the record of that redaction predates field-level checksum coverage, so its snapshot is not protected and cannot vouch for the row.` },
+  PARTIAL: { kind: 'REDACTION_PARTIALLY_VERIFIED', informational: true, message: (id) => `Row ${id} was redacted before 2026-10-22: its action, time, actor and target match the redaction record; its other fields were not recorded and cannot be verified.` },
+};
 
 export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<VerifyChainResult> {
   const maxAnomalies = opts.maxAnomalies ?? Number.POSITIVE_INFINITY;
@@ -195,12 +213,30 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
     SELECT id, chain_position, timestamp, user_id, user_name, user_role, action,
            target_type, target_id, before_value, after_value, reason,
            ip_address, user_agent, session_id, signature_meaning, signature_audit_id,
-           checksum, previous_checksum, redacted_at, checksum_version
+           checksum, previous_checksum, redacted_at, redacted_by, redaction_reason, checksum_version
     FROM audit_trail
     WHERE chain_position >= ${fromPos}
       AND chain_position <= ${toPos}
     ORDER BY chain_position ASC NULLS LAST
   `;
+
+  // Redacted rows are judged against their redaction records (P1). The records
+  // are read from the WHOLE table - a redaction made later than `toPosition`
+  // still vouches for a row inside the range - and only when needed. The action
+  // filter is repeated in code (buildRedactionIndex) so the result never depends
+  // on the SQL alone.
+  let redactionIndex: RedactionIndex | null = null;
+  if (rows.some((r) => r.redacted_at != null)) {
+    const metaRows = await prisma.$queryRaw<AuditRow[]>`
+      SELECT id, chain_position, timestamp, user_id, user_name, user_role, action,
+             target_type, target_id, before_value, after_value, reason,
+             ip_address, user_agent, session_id, signature_meaning, signature_audit_id,
+             checksum, previous_checksum, redacted_at, redacted_by, redaction_reason, checksum_version
+      FROM audit_trail
+      WHERE action IN (${REDACTION_META_ACTIONS[0]}, ${REDACTION_META_ACTIONS[1]})
+    `;
+    redactionIndex = buildRedactionIndex(metaRows);
+  }
 
   const anomalies: ChainAnomaly[] = [];
   let preChainRows = 0;
@@ -238,62 +274,70 @@ export async function verifyAuditChain(opts: VerifyChainOptions = {}): Promise<V
       if (anomalies.length >= maxAnomalies) break;
     }
 
-    // Per-row checksum verification.
-    const perRowOk = verifyAuditChecksum({
-      timestamp: row.timestamp,
-      userId: row.user_id,
-      // #audit-3 (2026-07-04): plumb ALL persisted columns so the expanded
-      // checksum (audit.ts) verifies for new rows. Omitting any of these would
-      // reconstruct the expanded field set with nulls → per-row mismatch on
-      // every post-expansion row. Old rows ignore the extras via the reduced
-      // fallback in verifyAuditChecksum.
-      userName: row.user_name,
-      userRole: row.user_role,
-      action: row.action,
-      targetType: row.target_type,
-      targetId: row.target_id,
-      beforeValue: row.before_value ?? undefined,
-      afterValue: row.after_value ?? undefined,
-      reason: row.reason,
-      ipAddress: row.ip_address,
-      userAgent: row.user_agent,
-      sessionId: row.session_id,
-      signatureMeaning: row.signature_meaning,
-      // 2026-09-25: e-signature link is inside the checksum envelope.
-      signatureAuditId: row.signature_audit_id ?? null,
-      checksum: row.checksum,
-      previousChecksum: row.previous_checksum,
-      // #audit-2: plumb redacted_at so verifyAuditChecksum's redaction
-      // short-circuit (hash-chain.ts) fires during the chain walk. Without
-      // this, a chain-preserving REDACT (after_value nulled, checksum kept)
-      // false-FAILs verify-chain while GET /api/audit shows the row valid.
-      redactedAt: row.redacted_at ?? undefined,
-      // Keyed-era (v3) rows must verify against the HMAC; legacy rows (NULL)
-      // keep using the unkeyed V1/V2 fallback in verifyAuditChecksum.
-      checksumVersion: row.checksum_version,
-    });
-    if (!perRowOk) {
-      const legacy = classifyLegacyKeyOrderRow({
-        timestamp: row.timestamp, checksumVersion: row.checksum_version, checksum: row.checksum, previousChecksum: row.previous_checksum,
-        userId: row.user_id, action: row.action, targetType: row.target_type, targetId: row.target_id, afterValue: row.after_value ?? undefined,
-      });
-      if (legacy === 'PROVEN') {
-        legacyKeyOrderRows.proven++;
-        anomalies.push({ position, id: row.id, kind: 'LEGACY_V1_KEY_ORDER', informational: true,
-          message: `Row ${row.id} was written before 2026-05-30 with the V1 formula; its stored checksum is reproduced once the payload keys are put back in insertion order (JSONB re-ordered them). Not tampering.` });
-      } else if (legacy === 'UNVERIFIABLE') {
-        legacyKeyOrderRows.unverifiable++;
-        anomalies.push({ position, id: row.id, kind: 'LEGACY_V1_KEY_ORDER_UNVERIFIABLE', informational: true,
-          message: `Row ${row.id} was written before 2026-05-30 with the V1 formula and its payload keys were re-ordered by JSONB; the payload is too large to prove by permutation, so its FIELDS cannot be verified (its chain link still is).` });
-      } else {
-        anomalies.push({
-          position,
-          id: row.id,
-          kind: 'PER_ROW_CHECKSUM_MISMATCH',
-          message: `Row ${row.id} checksum does not match its current field values — in-place tampering detected.`,
-        });
+    // Per-row checksum verification. A redacted row cannot be recomputed (its
+    // payload is gone); it is checked against its redaction record instead.
+    if (row.redacted_at != null) {
+      const { verdict, mismatchedFields } = verifyRedactedRow(
+        rawRowToChecksumRecord(row),
+        redactionIndex ? evidenceFor(redactionIndex, row.id, row.chain_position) : null,
+      );
+      const a = REDACTION_ANOMALY[verdict];
+      if (a) {
+        anomalies.push({ position, id: row.id, kind: a.kind, ...(a.informational ? { informational: true } : {}), message: a.message(row.id, mismatchedFields) });
+        if (anomalies.length >= maxAnomalies) break;
       }
-      if (anomalies.length >= maxAnomalies) break;
+    } else {
+      const perRowOk = verifyAuditChecksum({
+        timestamp: row.timestamp,
+        userId: row.user_id,
+        // #audit-3 (2026-07-04): plumb ALL persisted columns so the expanded
+        // checksum (audit.ts) verifies for new rows. Omitting any of these would
+        // reconstruct the expanded field set with nulls → per-row mismatch on
+        // every post-expansion row. Old rows ignore the extras via the reduced
+        // fallback in verifyAuditChecksum.
+        userName: row.user_name,
+        userRole: row.user_role,
+        action: row.action,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        beforeValue: row.before_value ?? undefined,
+        afterValue: row.after_value ?? undefined,
+        reason: row.reason,
+        ipAddress: row.ip_address,
+        userAgent: row.user_agent,
+        sessionId: row.session_id,
+        signatureMeaning: row.signature_meaning,
+        // 2026-09-25: e-signature link is inside the checksum envelope.
+        signatureAuditId: row.signature_audit_id ?? null,
+        checksum: row.checksum,
+        previousChecksum: row.previous_checksum,
+        // Keyed-era (v3) rows must verify against the HMAC; legacy rows (NULL)
+        // keep using the unkeyed V1/V2 fallback in verifyAuditChecksum.
+        checksumVersion: row.checksum_version,
+      });
+      if (!perRowOk) {
+        const legacy = classifyLegacyKeyOrderRow({
+          timestamp: row.timestamp, checksumVersion: row.checksum_version, checksum: row.checksum, previousChecksum: row.previous_checksum,
+          userId: row.user_id, action: row.action, targetType: row.target_type, targetId: row.target_id, afterValue: row.after_value ?? undefined,
+        });
+        if (legacy === 'PROVEN') {
+          legacyKeyOrderRows.proven++;
+          anomalies.push({ position, id: row.id, kind: 'LEGACY_V1_KEY_ORDER', informational: true,
+            message: `Row ${row.id} was written before 2026-05-30 with the V1 formula; its stored checksum is reproduced once the payload keys are put back in insertion order (JSONB re-ordered them). Not tampering.` });
+        } else if (legacy === 'UNVERIFIABLE') {
+          legacyKeyOrderRows.unverifiable++;
+          anomalies.push({ position, id: row.id, kind: 'LEGACY_V1_KEY_ORDER_UNVERIFIABLE', informational: true,
+            message: `Row ${row.id} was written before 2026-05-30 with the V1 formula and its payload keys were re-ordered by JSONB; the payload is too large to prove by permutation, so its FIELDS cannot be verified (its chain link still is).` });
+        } else {
+          anomalies.push({
+            position,
+            id: row.id,
+            kind: 'PER_ROW_CHECKSUM_MISMATCH',
+            message: `Row ${row.id} checksum does not match its current field values — in-place tampering detected.`,
+          });
+        }
+        if (anomalies.length >= maxAnomalies) break;
+      }
     }
 
     if (row.previous_checksum != null) {

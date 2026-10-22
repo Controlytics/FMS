@@ -416,6 +416,10 @@ export async function verifyBackupAuditChain(
   rows: Array<Record<string, any>>,
 ): Promise<BackupChainReport> {
   const { verifyAuditChecksum } = await import('../../lib/hash-chain.js');
+  // A redacted row is verified against its redaction record (security
+  // assessment P1, 2026-10-22) - here, the record inside the same backup.
+  const { buildRedactionIndex, evidenceFor } = await import('../../lib/audit-redaction.js');
+  const redactionIndex = rows.some((r) => r.redacted_at != null) ? buildRedactionIndex(rows) : null;
   const report: BackupChainReport = {
     totalRows: rows.length,
     preChainRows: 0,
@@ -462,13 +466,16 @@ export async function verifyBackupAuditChain(
       signatureAuditId: row.signature_audit_id ?? null,
       checksum: row.checksum,
       previousChecksum: row.previous_checksum ?? null,
-      // Redacted rows can't be recomputed (payloads are NULLed by design);
-      // the verifier asserts the null-payload invariant instead.
+      // Redacted rows can't be recomputed (payloads are NULLed by design); they
+      // are checked against their redaction record in this backup instead.
       redactedAt: row.redacted_at ?? null,
+      redactedBy: row.redacted_by ?? null,
+      redactionReason: row.redaction_reason ?? null,
+      chainPosition: row.chain_position ?? null,
       // Route keyed-era rows (v3) to the HMAC path; old backups lack the column
       // (undefined → legacy V1/V2 verify, unchanged).
       checksumVersion: (row as { checksum_version?: number | null }).checksum_version ?? null,
-    });
+    }, redactionIndex && row.redacted_at != null ? evidenceFor(redactionIndex, String(row.id), row.chain_position) : null);
     if (!perRowOk) {
       report.checksumFailures++;
       addSample(i, row, 'checksum');

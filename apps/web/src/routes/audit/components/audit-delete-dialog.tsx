@@ -10,6 +10,8 @@ interface AuditDeleteDialogProps {
   // 'redact' preserves the hash chain (masks payload); 'delete' physically removes
   // the row and BREAKS the chain. Defaults to 'redact' (the safe, common path).
   mode?: 'redact' | 'delete';
+  /** Redact mode: selected rows left out because they cannot be redacted (already redacted, or the record of a redaction). */
+  excludedCount?: number;
 }
 
 export function AuditDeleteDialog({
@@ -19,6 +21,7 @@ export function AuditDeleteDialog({
   onClose,
   onConfirm,
   mode = 'redact',
+  excludedCount = 0,
 }: AuditDeleteDialogProps) {
   const isDelete = mode === 'delete';
   const verb = isDelete ? 'permanently delete' : 'redact';
@@ -45,6 +48,11 @@ export function AuditDeleteDialog({
         <p className="text-sm text-slate-600">
           Are you sure you want to {verb} <span className="font-semibold text-red-700">{selectedCount}</span> audit record{selectedCount > 1 ? 's' : ''}? This action cannot be undone.
         </p>
+        {!isDelete && excludedCount > 0 && (
+          <p className="text-sm text-slate-600">
+            {excludedCount} selected record{excludedCount > 1 ? 's are' : ' is'} left out: already redacted, or a record of an earlier audit-trail change, which cannot be redacted.
+          </p>
+        )}
         <div className="p-3 rounded-lg bg-red-50 border border-red-100">
           <p className="text-xs text-red-700 font-medium">{warning}</p>
         </div>
@@ -52,7 +60,7 @@ export function AuditDeleteDialog({
           <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" onClick={onConfirm} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white">
+          <Button size="sm" onClick={onConfirm} disabled={deleting || selectedCount === 0}className="bg-red-600 hover:bg-red-700 text-white">
             {btnLabel}
           </Button>
         </div>

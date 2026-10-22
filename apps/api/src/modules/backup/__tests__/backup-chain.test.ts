@@ -9,6 +9,7 @@ vi.mock('../../../lib/prisma.js', () => ({
 
 import { computeChainedChecksumV2 } from '../../../lib/hash-chain.js';
 import { verifyBackupAuditChain, describeChainReport } from '../backup.repository.js';
+import { redactionSnapshot } from '../../../lib/audit-redaction.js';
 
 const TS = '2026-08-08T10:00:00.000Z';
 
@@ -179,13 +180,38 @@ describe('verifyBackupAuditChain', () => {
     expect(report.checksumFailures).toBe(0); // the rows themselves are untouched
   });
 
-  it('holds a redacted row to the null-payload invariant instead of recomputing', async () => {
-    const rows = chain([(prev) => makeModernRow({ id: 'a', position: 1, previousChecksum: prev })]);
-    rows[0].redacted_at = TS;
-    rows[0].before_value = null;
-    rows[0].after_value = null;
-    const ok = await verifyBackupAuditChain(rows);
+  it('holds a redacted row to its redaction record (in the same backup) instead of recomputing', async () => {
+    // 2026-10-22 (security assessment P1): a redacted row used to pass on "both
+    // payloads NULL" alone, so a backup could carry a row marked redacted with its
+    // who/what rewritten. It is now checked against the redaction record the
+    // backup also holds; without one it is unverifiable and counted as a failure.
+    const a = makeModernRow({ id: 'a', position: 1, previousChecksum: 'p0' });
+    const REDACTED_AT = new Date('2026-08-09T00:00:00.000Z');
+    const snapshot = redactionSnapshot(a, { redactedAt: REDACTED_AT, redactedBy: 'sa-uuid', redactionReason: 'privacy request' });
+    const metaFields: Record<string, unknown> = {
+      timestamp: TS, userId: 'sa', userName: undefined, userRole: 'SUPER_ADMIN', action: 'AUDIT_RECORD_REDACTED',
+      targetType: 'audit_trail', targetId: 'a', beforeValue: snapshot, afterValue: undefined, reason: 'privacy request',
+      ipAddress: undefined, userAgent: undefined, sessionId: undefined, signatureMeaning: undefined,
+    };
+    const meta = {
+      ...makeModernRow({ id: 'meta', position: 2, previousChecksum: a.checksum }),
+      user_id: 'sa', user_name: null, user_role: 'SUPER_ADMIN', action: 'AUDIT_RECORD_REDACTED', target_type: 'audit_trail', target_id: 'a',
+      before_value: snapshot, after_value: null, reason: 'privacy request', ip_address: null, user_agent: null, session_id: null, signature_meaning: null,
+      checksum: computeChainedChecksumV2(metaFields, a.checksum),
+    };
+    const redactedA = { ...a, before_value: null, after_value: null, redacted_at: REDACTED_AT.toISOString(), redacted_by: 'sa-uuid', redaction_reason: 'privacy request' };
+
+    const ok = await verifyBackupAuditChain([redactedA, meta]);
     expect(ok.checksumFailures).toBe(0);
+    expect(ok.linkFailures).toBe(0);
+
+    // The same redacted row with no record of its redaction: unverifiable, not valid.
+    const unrecorded = await verifyBackupAuditChain([redactedA]);
+    expect(unrecorded.checksumFailures).toBe(1);
+
+    // Its who/what rewritten after the redaction: caught against the record.
+    const rewritten = await verifyBackupAuditChain([{ ...redactedA, user_id: 'mallory' }, meta]);
+    expect(rewritten.checksumFailures).toBe(1);
 
     // A "redacted" row whose payload came back is tampered with, whatever its
     // checksum says. The old caller never passed redactedAt at all, so redacted

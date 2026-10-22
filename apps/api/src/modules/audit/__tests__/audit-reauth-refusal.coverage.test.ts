@@ -10,6 +10,10 @@
  * REAUTH_REQUIRED + `{ ok: false }`). The real gate is covered in
  * audit-routes.coverage.test.ts on this suite's own role.
  *
+ * OD-01 (2026-10-22): redact / bulk-redact / PUT / DELETE / bulk-delete now use
+ * `enforceReauthAlways`, which refuses an unsigned call for real (SUPER_ADMIN
+ * included) — the mock is still what refuses the policy-driven export log.
+ *
  * Asserted for each of the six gated audit routes: the 401 reaches the client,
  * the target row is untouched, and no meta-audit row was written.
  */

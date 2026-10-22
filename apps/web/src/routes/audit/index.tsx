@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { getDefaultTemplates } from '@digilog/shared';
 import { ReportPageWrapper } from '@/components/report-page-wrapper';
-import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType, isRedacted, redactionNote } from './audit-helpers';
+import { ACTION_COLORS, getAuditStatus, getAuditSummary, friendlyTargetType, isRedacted, redactionNote, canRedactRecord } from './audit-helpers';
 import { AuditFilters } from './components/audit-filters';
 import { AuditTable } from './components/audit-table';
 import { AuditDetailModal } from './components/audit-detail-modal';
@@ -140,6 +140,13 @@ export function AuditTrailPage() {
     [selectedIds, visibleRecords],
   );
   const selectedTargetIds = useMemo(() => selectedRecords.map((r) => r.id), [selectedRecords]);
+  // A bulk REDACT sends only what the API would redact: it refuses the whole
+  // request if one row records an earlier change to the audit trail (409
+  // META_AUDIT_IMMUTABLE) and silently skips rows already redacted. Filtering
+  // here keeps the confirmed count equal to what is redacted; the rest are named
+  // as left out. Hard delete still acts on the whole selection.
+  const redactTargetIds = useMemo(() => selectedRecords.filter(canRedactRecord).map((r) => r.id), [selectedRecords]);
+  const notRedactableCount = selectedRecords.length - redactTargetIds.length;
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -200,14 +207,14 @@ export function AuditTrailPage() {
   };
 
   const bulkRedactAudit = () => {
-    if (selectedTargetIds.length === 0) return;
-    const reason = window.prompt(`Reason for redacting ${selectedCount} audit records (min 5 characters):`);
+    if (redactTargetIds.length === 0) return;
+    const reason = window.prompt(`Reason for redacting ${redactTargetIds.length} audit records (min 5 characters):`);
     if (!reason || reason.trim().length < 5) return;
     setDeleting(true);
     reauth.execute(
       'BULK_REDACT_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: selectedTargetIds, reason: reason.trim() };
+        const body = { ids: redactTargetIds, reason: reason.trim() };
         if (password) await api.postWithReauth('/api/audit/bulk-redact', body, password);
         else await apiClient.post('/api/audit/bulk-redact', body);
       },
@@ -479,8 +486,14 @@ export function AuditTrailPage() {
             </button>
           </div>
           <div className="flex items-center gap-2">
+            {canRedact && notRedactableCount > 0 && (
+              <span className="text-xs text-slate-500">
+                {redactTargetIds.length === 0 ? 'None of these can be redacted' : `${notRedactableCount} can't be redacted`}
+                {' '}(already redacted, or a record of an earlier audit-trail change)
+              </span>
+            )}
             {canRedact && (
-              <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50">
+              <Button variant="outline" size="sm" onClick={() => setShowDeleteConfirm(true)} disabled={redactTargetIds.length === 0} className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                 </svg>
@@ -605,7 +618,8 @@ export function AuditTrailPage() {
       {/* Bulk Redact Confirmation Dialog (chain-preserving) */}
       <AuditDeleteDialog
         open={showDeleteConfirm}
-        selectedCount={selectedCount}
+        selectedCount={redactTargetIds.length}
+        excludedCount={notRedactableCount}
         deleting={deleting}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={bulkRedactAudit}

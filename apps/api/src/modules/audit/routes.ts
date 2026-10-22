@@ -7,7 +7,9 @@ import { auditQuerySchema, REPORT_EXPORT_ACTIONS, hasEffectivePermission } from 
 import { getRolePerms } from '../../plugins/rbac.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { verifyAuditChain } from '../../lib/audit-verify.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { loadRedactionIndex, evidenceFor, redactionSnapshot, isRedactionMetaAction, type RawAuditRow } from '../../lib/audit-redaction.js';
+import { AppError } from '../../lib/errors.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
 
 // 2026-10-17 load test (operator decision): the dashboard card asks for the
@@ -320,6 +322,9 @@ export default async function auditRoutes(app: FastifyInstance) {
       for (const f of extra) filterNameById.set(f.id, f.name);
     }
 
+    // A redacted row's integrity is judged against its redaction record (P1,
+    // 2026-10-22). One read for the page, and only when the page holds one.
+    const redactionIndex = records.some((r: any) => r.redactedAt != null) ? await loadRedactionIndex() : null;
     const data = records.map((record: any) => {
       const af = (record.afterValue ?? {}) as Record<string, unknown>;
       const bf = (record.beforeValue ?? {}) as Record<string, unknown>;
@@ -392,7 +397,10 @@ export default async function auditRoutes(app: FastifyInstance) {
         // null afterValue to '{}' instead of 'null' → false mismatch).
         // verifyAuditChecksum null-normalizes internally. beforeValue + the rest
         // pass through raw via `...record` (needed for the expanded checksum).
-        integrityValid: verifyAuditChecksum({ ...record, afterValue: record.afterValue }),
+        integrityValid: verifyAuditChecksum(
+          { ...record, afterValue: record.afterValue },
+          redactionIndex && record.redactedAt != null ? evidenceFor(redactionIndex, record.id, record.chainPosition) : null,
+        ),
       };
     });
 
@@ -470,10 +478,12 @@ export default async function auditRoutes(app: FastifyInstance) {
     const redactor = record.redactedBy && DETAIL_UUID_RE.test(record.redactedBy)
       ? await prisma.user.findUnique({ where: { id: record.redactedBy }, select: { username: true } })
       : null;
+    // A redacted row is valid only against its redaction record (P1, 2026-10-22).
+    const redaction = record.redactedAt != null ? evidenceFor(await loadRedactionIndex(), record.id, record.chainPosition) : null;
     return {
       ...record,
       redactedByName: record.redactedBy ? (redactor?.username ?? record.redactedBy) : null,
-      integrityValid: verifyAuditChecksum(record),
+      integrityValid: verifyAuditChecksum(record, redaction),
     };
   });
 
@@ -581,39 +591,54 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('REDACT_AUDIT_RECORD', req, reply);
+    const { ok } = await enforceReauthAlways('REDACT_AUDIT_RECORD', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
     const { reason } = req.body as { reason: string };
 
-    const record = await prisma.auditTrail.findUnique({ where: { id } });
+    const record = await prisma.auditTrail.findUnique({ where: { id }, select: { id: true } });
     if (!record) return reply.code(404).send({ error: 'Audit record not found' });
-    // redactedAt accessed via raw SQL because the Prisma client may not yet
-    // be regenerated against the 20260520140000 migration on dev machines
-    // with tsx watch holding the engine DLL (per LOCAL_SETUP_WINDOWS notes).
-    const priorRedact = await prisma.$queryRaw<Array<{ redacted_at: Date | null }>>`
-      SELECT redacted_at FROM audit_trail WHERE id = ${id}::uuid
-    `;
-    if (priorRedact[0]?.redacted_at) return reply.code(409).send({ error: 'ALREADY_REDACTED', message: 'Record was already redacted' });
 
     const now = new Date();
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`
+      // 2026-10-22 (security assessment P1): the record of this redaction is now
+      // what a redacted row is VERIFIED against, so it is taken from the row
+      // LOCKED inside this transaction - a concurrent redaction or edit cannot
+      // slip between the read and the write, and two simultaneous redactions can
+      // no longer both succeed and leave two conflicting records.
+      const locked = (await tx.$queryRaw<RawAuditRow[]>`
+        SELECT id, chain_position, timestamp, user_id, user_name, user_role, action, target_type, target_id,
+               reason, ip_address, user_agent, session_id, signature_meaning, signature_audit_id,
+               checksum, previous_checksum, checksum_version, redacted_at
+        FROM audit_trail WHERE id = ${id}::uuid FOR UPDATE
+      `)[0];
+      if (!locked) throw new AppError(404, 'NOT_FOUND', 'Audit record not found');
+      // A record of a change to the audit trail (edit, delete, redact) is not
+      // rewritable - same five actions as the edit refusal: a redaction record is
+      // the only evidence for the row it masked, a deletion record the only copy
+      // of the row it deleted.
+      if (isRedactionMetaAction(locked.action)) {
+        throw new AppError(409, 'META_AUDIT_IMMUTABLE', 'This row records a previous change to the audit trail and cannot itself be redacted.');
+      }
+      if (locked.redacted_at) throw new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
+      const updated = await tx.$executeRaw`
         UPDATE audit_trail
         SET before_value = NULL,
             after_value = NULL,
             redacted_at = ${now},
             redacted_by = ${req.user.sub},
             redaction_reason = ${reason}
-        WHERE id = ${id}::uuid
+        WHERE id = ${id}::uuid AND redacted_at IS NULL
       `;
-      // Meta-audit row records the redaction itself (within the same tx so
-      // it cannot be lost if anything else fails).
+      if (updated !== 1) throw new AppError(409, 'ALREADY_REDACTED', 'Record was already redacted');
+      // Meta-audit row records the redaction itself (same tx, so it cannot be
+      // lost) - and every non-payload field of the row it masked, which is what
+      // verifyRedactedRow checks the row against from now on.
       await auditLog({
         userId: req.user.username, userRole: req.user.role,
         action: 'AUDIT_RECORD_REDACTED',
         targetType: 'audit_trail', targetId: id,
-        beforeValue: { id: record.id, action: record.action, timestamp: record.timestamp, userId: record.userId, targetType: record.targetType, targetId: record.targetId },
+        beforeValue: redactionSnapshot(locked, { redactedAt: now, redactedBy: req.user.sub, redactionReason: reason }),
         reason,
         signatureMeaning: `Audit record ${id} payload redacted; chain link preserved`,
         ipAddress: req.ip, sessionId: req.user.sessionId,
@@ -644,23 +669,29 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('BULK_REDACT_AUDIT_RECORDS', req, reply);
+    const { ok } = await enforceReauthAlways('BULK_REDACT_AUDIT_RECORDS', req, reply);
     if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
 
-    // Pull un-redacted matching ids via raw SQL (Prisma client regen-pending
-    // on dev). The redacted_at filter ensures we never re-redact (which
-    // would overwrite the prior redactor's name + reason).
-    const unredacted = await prisma.$queryRaw<Array<{ id: string; action: string; timestamp: Date; user_id: string | null; target_type: string | null; target_id: string | null }>>`
-      SELECT id, action, timestamp, user_id, target_type, target_id
-      FROM audit_trail
-      WHERE id = ANY(${ids}::uuid[]) AND redacted_at IS NULL
-    `;
-    if (unredacted.length === 0) return reply.code(409).send({ error: 'ALREADY_REDACTED_OR_MISSING', message: 'No matching un-redacted records' });
-    const matchedIds = unredacted.map((r) => r.id);
-
     const now = new Date();
     const result = await prisma.$transaction(async (tx) => {
+      // Lock the requested rows, then decide (P1, 2026-10-22): see the single
+      // redact above. The redacted_at filter ensures we never re-redact (which
+      // would overwrite the prior redactor's name + reason).
+      const locked = await tx.$queryRaw<RawAuditRow[]>`
+        SELECT id, chain_position, timestamp, user_id, user_name, user_role, action, target_type, target_id,
+               reason, ip_address, user_agent, session_id, signature_meaning, signature_audit_id,
+               checksum, previous_checksum, checksum_version, redacted_at
+        FROM audit_trail WHERE id = ANY(${ids}::uuid[])
+        ORDER BY id -- one lock order for every caller: two overlapping bulk redactions cannot deadlock
+        FOR UPDATE
+      `;
+      if (locked.some((r) => isRedactionMetaAction(r.action))) {
+        throw new AppError(409, 'META_AUDIT_IMMUTABLE', 'The selection includes a row that records a previous change to the audit trail; such rows cannot themselves be redacted.');
+      }
+      const unredacted = locked.filter((r) => r.redacted_at == null);
+      if (unredacted.length === 0) throw new AppError(409, 'ALREADY_REDACTED_OR_MISSING', 'No matching un-redacted records');
+      const matchedIds = unredacted.map((r) => r.id as string);
       const updated = await tx.$executeRaw`
         UPDATE audit_trail
         SET before_value = NULL,
@@ -668,7 +699,7 @@ export default async function auditRoutes(app: FastifyInstance) {
             redacted_at = ${now},
             redacted_by = ${req.user.sub},
             redaction_reason = ${reason}
-        WHERE id = ANY(${matchedIds}::uuid[])
+        WHERE id = ANY(${matchedIds}::uuid[]) AND redacted_at IS NULL
       `;
       await auditLog({
         userId: req.user.username, userRole: req.user.role,
@@ -678,10 +709,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         // the whole bulk op rolled back with a 500. The full id list already
         // lives in the unbounded JSONB beforeValue.records below.
         targetType: 'audit_trail', targetId: undefined,
-        beforeValue: { recordCount: unredacted.length, records: unredacted.map((r) => ({
-          id: r.id, action: r.action, timestamp: r.timestamp, userId: r.user_id,
-          targetType: r.target_type, targetId: r.target_id,
-        })) },
+        // Each entry is the full record a redacted row is verified against.
+        beforeValue: { recordCount: unredacted.length, records: unredacted.map((r) =>
+          redactionSnapshot(r, { redactedAt: now, redactedBy: req.user.sub, redactionReason: reason })) },
         reason,
         signatureMeaning: `${unredacted.length} audit record payloads redacted; chain links preserved`,
         ipAddress: req.ip, sessionId: req.user.sessionId,
@@ -760,7 +790,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_AUDIT_RECORD', req, reply);
+    const { ok } = await enforceReauthAlways('UPDATE_AUDIT_RECORD', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
     const body = req.body as Record<string, unknown>;
@@ -858,7 +888,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('DELETE_AUDIT_RECORD', req, reply);
+    const { ok } = await enforceReauthAlways('DELETE_AUDIT_RECORD', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
     const { reason } = req.body as { reason: string };
@@ -924,7 +954,7 @@ export default async function auditRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('BULK_DELETE_AUDIT_RECORDS', req, reply);
+    const { ok } = await enforceReauthAlways('BULK_DELETE_AUDIT_RECORDS', req, reply);
     if (!ok) return;
     const { ids, reason } = req.body as { ids: string[]; reason: string };
 

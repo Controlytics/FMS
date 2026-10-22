@@ -14,6 +14,7 @@ const db = vi.hoisted(() => ({ rows: [] as unknown[], queryRaw: vi.fn() }));
 vi.mock('../prisma.js', () => ({ prisma: { $queryRaw: db.queryRaw } }));
 
 import { verifyAuditChain, V2_WRITE_CUTOVER } from '../audit-verify.js';
+import { redactionSnapshot } from '../audit-redaction.js';
 import {
   computeChainedChecksum, computeChainedChecksumV2, computeChainedChecksumV3, computeChecksum,
   __setAuditChainKeyForTest, __setAuditChainKeyedFromForTest,
@@ -116,12 +117,35 @@ describe('verifyAuditChain', () => {
     expect(res).toMatchObject({ highestPosition: null, anomalies: [], intact: true });
   });
 
-  it('accepts a redacted row whose payload is null, and flags one whose payload came back', async () => {
+  it('accepts a redacted row against its redaction record, and flags one with no record or whose payload came back', async () => {
+    // 2026-10-22 (security assessment P1): "payload is null" alone used to pass
+    // here, so marking ANY row redacted and rewriting its who/what passed too.
     const r = chain(40, 2);
-    const redacted = { ...r[0], after_value: null, redacted_at: new Date(NOW) };
-    db.rows = [redacted, r[1]];
-    expect((await verifyAuditChain()).intact).toBe(true);
-    db.rows = [{ ...redacted, after_value: { n: 'forged' } }, r[1]];
+    const REDACTED_AT = new Date(NOW);
+    const snapshot = redactionSnapshot(r[0], { redactedAt: REDACTED_AT, redactedBy: 'sa-uuid', redactionReason: 'privacy' });
+    const metaFields = {
+      timestamp: NOW, userId: 'sa', userName: undefined, userRole: undefined, action: 'AUDIT_RECORD_REDACTED', targetType: 'audit_trail',
+      targetId: r[0].id, beforeValue: snapshot, afterValue: undefined, reason: 'privacy', ipAddress: undefined, userAgent: undefined,
+      sessionId: undefined, signatureMeaning: undefined,
+    };
+    const meta = {
+      ...row(42, r[1].checksum, f(42)), id: 'meta-42', user_id: 'sa', action: 'AUDIT_RECORD_REDACTED', target_type: 'audit_trail',
+      target_id: r[0].id, before_value: snapshot, after_value: null, reason: 'privacy',
+      checksum: computeChainedChecksumV2(metaFields, r[1].checksum),
+    };
+    const redacted = { ...r[0], after_value: null, redacted_at: REDACTED_AT, redacted_by: 'sa-uuid', redaction_reason: 'privacy' };
+    db.rows = [redacted, r[1], meta];
+    expect(await verifyAuditChain()).toMatchObject({ intact: true, anomalies: [] });
+
+    db.rows = [redacted, r[1]]; // the record of the redaction is missing
+    const missing = await verifyAuditChain();
+    expect(missing.anomalies.map((a) => a.kind)).toEqual(['REDACTION_UNRECORDED']);
+    expect(missing.intact).toBe(false);
+
+    db.rows = [{ ...redacted, user_id: 'mallory' }, r[1], meta]; // who was rewritten after the redaction
+    expect((await verifyAuditChain()).anomalies.map((a) => a.kind)).toEqual(['REDACTED_ROW_MISMATCH']);
+
+    db.rows = [{ ...redacted, after_value: { n: 'forged' } }, r[1], meta];
     expect((await verifyAuditChain()).anomalies.map((a) => a.kind)).toEqual(['PER_ROW_CHECKSUM_MISMATCH']);
   });
 

@@ -36,15 +36,17 @@ async function ready(api: ReturnType<typeof mockApi>, checkboxes = 6) {
 const box = (i: number) => screen.getAllByRole('checkbox')[i];
 
 describe('SUPER_ADMIN — selection and redact (chain-preserving)', () => {
-  it('gets selection, redact (not on a redacted row), delete on every row, edit (not on redacted / meta-audit rows)', async () => {
+  it('gets selection, redact (not on a redacted or meta-audit row), delete on every row, edit (not on redacted / meta-audit rows)', async () => {
     const api = mockApi(routes());
     renderPage(<AuditTrailPage />, { user: SA, api });
     await ready(api);
-    expect(screen.getAllByTitle(/^Redact record/)).toHaveLength(4);
+    // a1-a3 only: a4 is redacted, a5 records an audit-trail edit (the API refuses to redact it, 2026-10-22)
+    expect(screen.getAllByTitle(/^Redact record/)).toHaveLength(3);
     expect(within(rowOf(/PII entered by mistake/)).queryByTitle(/^Redact record/)).toBeNull();
     expect(screen.getAllByTitle(/^Delete permanently/)).toHaveLength(5);
     expect(screen.getAllByTitle(/^Edit record/)).toHaveLength(3);
     expect(within(rowOf('AHU-7')).queryByTitle(/^Edit record/)).toBeNull();
+    expect(within(rowOf('AHU-7')).queryByTitle(/^Redact record/)).toBeNull();
     await waitFor(() => expect(api.calls('GET', '/api/users')).toHaveLength(1));
     expect(api.calls('GET', '/api/users')[0].query.get('limit')).toBe('1000000');
   });

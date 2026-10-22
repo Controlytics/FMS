@@ -243,7 +243,7 @@ export function computeChainedChecksumV2(
  * previousChecksum == null AND their stored checksum was computed by the
  * old computeChecksum path, so the V1 fallback handles them correctly.
  */
-export function verifyAuditChecksum(record: {
+export interface AuditChecksumRecord {
   timestamp: Date | string;
   userId?: string | null;
   userName?: string | null;
@@ -263,31 +263,130 @@ export function verifyAuditChecksum(record: {
   checksum: string;
   previousChecksum?: string | null;
   redactedAt?: Date | string | null;
+  /** Redaction columns - outside every checksum; checked against the redaction record (P1). */
+  redactedBy?: string | null;
+  redactionReason?: string | null;
+  chainPosition?: bigint | number | string | null;
   checksumVersion?: number | null;
-}): boolean {
+}
+
+/**
+ * What a redacted row is checked against (security assessment P1, 2026-10-22).
+ *
+ * A redacted row's payload is gone, so its checksum can never be recomputed.
+ * Its OTHER fields - who, what, when, target, reason, the redaction's own
+ * columns - are still on the row, and audit_trail has no UPDATE trigger: a
+ * DB-level actor could set redacted_at on any row, null its payload and rewrite
+ * the rest, and the old "both payloads NULL" check passed it. The redaction's
+ * meta row (AUDIT_RECORD_REDACTED / AUDIT_RECORDS_BULK_REDACTED) is itself
+ * hash-chained and records those fields; that record is the evidence.
+ */
+export interface RedactionEvidence {
+  /** The meta row's record of the redacted row (its beforeValue, or one entry of a bulk row's `records`). */
+  snapshot: Record<string, unknown>;
+  /** The meta row's OWN checksum verifies. */
+  recordValid: boolean;
+  /** ...over a field set that includes the snapshot (EXPANDED covers beforeValue; REDUCED does not). */
+  recordCoversSnapshot: boolean;
+  metaRowId: string;
+}
+
+export type RedactionVerdict =
+  | 'VERIFIED'          // full (v2) record, every field matches
+  | 'PARTIAL'           // pre-2026-10-22 5-field record, those fields match; the rest cannot be checked
+  | 'PAYLOAD_PRESENT'   // a "redacted" row whose payload came back
+  | 'NO_RECORD'         // no redaction record names this row
+  | 'RECORD_INVALID'    // the redaction record fails its own checksum
+  | 'RECORD_UNTRUSTED'  // the record's checksum does not cover its snapshot (pre-2026-07-04 row)
+  | 'MISMATCH';         // a field differs from what the redaction recorded
+
+/** Fields a v2 redaction record holds (snapshot key = record key). */
+const REDACTION_FULL_FIELDS = [
+  'timestamp', 'userId', 'userName', 'userRole', 'action', 'targetType', 'targetId', 'reason', 'ipAddress',
+  'userAgent', 'sessionId', 'signatureMeaning', 'signatureAuditId', 'checksum', 'previousChecksum',
+  'chainPosition', 'checksumVersion', 'redactedAt', 'redactedBy', 'redactionReason',
+] as const;
+/** The five fields the redact handler recorded before 2026-10-22. */
+const REDACTION_LEGACY_FIELDS = ['timestamp', 'userId', 'action', 'targetType', 'targetId'] as const;
+const REDACTION_TIME_FIELDS = new Set(['timestamp', 'redactedAt']);
+
+function normRedactionField(field: string, v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (REDACTION_TIME_FIELDS.has(field)) {
+    const d = v instanceof Date ? v : new Date(String(v));
+    return Number.isNaN(d.getTime()) ? String(v) : d.toISOString();
+  }
+  return String(v);
+}
+
+/**
+ * Verdict for a redacted row against the evidence its redaction record holds.
+ * Pure: the caller supplies the evidence (see lib/audit-redaction.ts).
+ */
+export function verifyRedactedRow(
+  record: AuditChecksumRecord,
+  evidence: RedactionEvidence | null | undefined,
+): { verdict: RedactionVerdict; mismatchedFields?: string[] } {
+  if (record.beforeValue != null || record.afterValue != null) return { verdict: 'PAYLOAD_PRESENT' };
+  if (!evidence) return { verdict: 'NO_RECORD' };
+  if (!evidence.recordValid) return { verdict: 'RECORD_INVALID' };
+  // A record written before 2026-07-04 (REDUCED checksum: beforeValue is not
+  // covered) cannot vouch for anything - its snapshot is as forgeable as the row.
+  // It counts against `intact` (operator decision 2026-10-22): no known database
+  // holds one (digilog_db had 0 redacted rows after its 2026-10-07 wipe; every
+  // customer install is 1.2.x from 2026-10-14), and passing it would reopen P1.
+  if (!evidence.recordCoversSnapshot) return { verdict: 'RECORD_UNTRUSTED' };
+  const full = evidence.snapshot.snapshotVersion === 2;
+  const fields = full ? REDACTION_FULL_FIELDS : REDACTION_LEGACY_FIELDS;
+  const rec = record as unknown as Record<string, unknown>;
+  const mismatchedFields = fields.filter((f) => normRedactionField(f, evidence.snapshot[f]) !== normRedactionField(f, rec[f]));
+  if (mismatchedFields.length > 0) return { verdict: 'MISMATCH', mismatchedFields };
+  return { verdict: full ? 'VERIFIED' : 'PARTIAL' };
+}
+
+/**
+ * Which field set a NON-redacted row's checksum verifies over: 'EXPANDED' (every
+ * persisted column, rows written since 2026-07-04), 'REDUCED' (the original six
+ * fields - beforeValue, reason, userName ... are NOT covered), or null (no match).
+ */
+export function checksumCoverage(record: AuditChecksumRecord): 'EXPANDED' | 'REDUCED' | null {
+  const ts = record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp;
+  const { expandedFields, reducedFields } = checksumFieldSets(record, ts);
+  if (record.checksumVersion === 3) {
+    const key = getAuditChainKey();
+    if (!key) return null;
+    if (matchesStoredChecksumV3(expandedFields, record.checksum, record.previousChecksum, key)) return 'EXPANDED';
+    return matchesStoredChecksumV3(reducedFields, record.checksum, record.previousChecksum, key) ? 'REDUCED' : null;
+  }
+  if (matchesStoredChecksum(expandedFields, record.checksum, record.previousChecksum)) return 'EXPANDED';
+  return matchesStoredChecksum(reducedFields, record.checksum, record.previousChecksum) ? 'REDUCED' : null;
+}
+
+export function verifyAuditChecksum(record: AuditChecksumRecord, redaction?: RedactionEvidence | null): boolean {
   // Audit 2026-05-20 §C1 fix: redacted rows preserve the original checksum +
   // chain link, but beforeValue + afterValue are NULLed. Recomputing would now
   // fail because the payload no longer matches the original, so a redacted row
   // can't be checksum-verified the normal way.
   //
-  // 2026-07-15: this used to `return true` unconditionally, and the reasoning
-  // for that was WRONG. It claimed a payload mutation "would still surface via
-  // chain mismatch on the NEXT row (its previous_checksum points at this row's
-  // stored checksum)" — but the next row's link points at this row's STORED
-  // checksum, which an attacker simply doesn't touch. Rewrite before_value /
-  // after_value, leave the checksum alone, and every link still matches: the
-  // row verifies, the chain verifies, and the API serves the forgery. That is
-  // precisely the DB-level actor this file names as its threat model below, and
-  // it fires ahead of the V3 HMAC path too, so even a keyed chain didn't help.
+  // 2026-07-15: this used to `return true` unconditionally - wrong: an attacker
+  // who rewrote before/after_value and left the checksum alone kept every chain
+  // link intact. It then asserted "both payloads are NULL".
   //
-  // We can't re-derive the original payload, but we CAN assert the one thing
-  // redaction guarantees: both payloads are NULL. A redacted row whose payload
-  // came back is tampered with, whatever its checksum says.
+  // 2026-10-22 (security assessment P1): that was still not enough. Only the
+  // payload was checked; who / what / when / target / reason were not, so
+  // setting redacted_at on ANY row, nulling its payload and rewriting the rest
+  // passed - keyed chain or not, since this fires before the V3 path. A
+  // redacted row is now valid only when its redaction record (passed in as
+  // `redaction`) verifies and matches every field it holds. WITHOUT that
+  // evidence it is unverifiable, and unverifiable is never "valid".
   if (record.redactedAt != null) {
-    return record.beforeValue == null && record.afterValue == null;
+    const { verdict } = verifyRedactedRow(record, redaction);
+    return verdict === 'VERIFIED' || verdict === 'PARTIAL';
   }
-  const ts = record.timestamp instanceof Date ? record.timestamp.toISOString() : record.timestamp;
+  return checksumCoverage(record) !== null;
+}
 
+function checksumFieldSets(record: AuditChecksumRecord, ts: string) {
   // EXPANDED field set (audit finding, 2026-07-04): the per-row checksum now
   // covers EVERY persisted audit column — beforeValue / reason / signatureMeaning
   // (§11.50) / userRole / userName / ipAddress / userAgent / sessionId — not just
@@ -327,19 +426,11 @@ export function verifyAuditChecksum(record: {
     afterValue: record.afterValue ?? undefined,
   };
 
-  // V3 (keyed) rows: REQUIRE the key + an HMAC match. Do NOT fall back to the
-  // unkeyed V1/V2 formulas — accepting them would let a DB actor downgrade a
-  // row to unkeyed and still pass, defeating the point of the key. A missing
-  // key makes v3 rows unverifiable (fail loud) rather than silently "valid".
-  if (record.checksumVersion === 3) {
-    const key = getAuditChainKey();
-    if (!key) return false;
-    return matchesStoredChecksumV3(expandedFields, record.checksum, record.previousChecksum, key)
-        || matchesStoredChecksumV3(reducedFields, record.checksum, record.previousChecksum, key);
-  }
-
-  return matchesStoredChecksum(expandedFields, record.checksum, record.previousChecksum)
-      || matchesStoredChecksum(reducedFields, record.checksum, record.previousChecksum);
+  // V3 (keyed) rows are matched in checksumCoverage: they REQUIRE the key + an
+  // HMAC match and never fall back to the unkeyed V1/V2 formulas - accepting
+  // them would let a DB actor downgrade a row to unkeyed and still pass. A
+  // missing key makes v3 rows unverifiable (fail loud) rather than "valid".
+  return { expandedFields, reducedFields };
 }
 
 /** V3 keyed variant of matchesStoredChecksum (chain row, then genesis). */

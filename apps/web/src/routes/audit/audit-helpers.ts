@@ -408,6 +408,29 @@ export function redactionNote(record: any): string {
   return `[REDACTED by ${by}: ${reason}]`;
 }
 
+/**
+ * Rows that record a change to the audit trail itself: an edit, a deletion or a
+ * redaction. The API refuses to EDIT or REDACT any of them (409
+ * META_AUDIT_IMMUTABLE): the record of a change to the audit trail must not
+ * itself be rewritable. A redacted row is verified against its redaction record
+ * (security assessment P1, 2026-10-22), and an AUDIT_RECORD_DELETED row holds
+ * the only surviving copy of what was deleted. Same list as AUDIT_META_ACTIONS
+ * in apps/api/src/lib/audit-redaction.ts; a test keeps the two equal.
+ */
+export const AUDIT_META_ACTIONS: ReadonlySet<string> = new Set([
+  'AUDIT_RECORD_UPDATED', 'AUDIT_RECORD_DELETED', 'AUDIT_RECORDS_BULK_DELETED',
+  'AUDIT_RECORD_REDACTED', 'AUDIT_RECORDS_BULK_REDACTED',
+]);
+
+/**
+ * Whether Redact may be offered for (or sent with) a row: everything the API
+ * would redact, nothing it refuses or skips. A row already redacted is skipped
+ * (bulk) or refused (single, 409 ALREADY_REDACTED); an audit-change record is refused.
+ */
+export function canRedactRecord(record: any): boolean {
+  return !isRedacted(record) && !AUDIT_META_ACTIONS.has(record?.action);
+}
+
 // Sensitive audit keys — kept in sync with apps/api/src/lib/audit-diff.ts.
 const SENSITIVE_KEY_RE = /password|secret|token|apikey|api[_-]?key|private[_-]?key|credential/i;
 const DIFF_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
