@@ -17,6 +17,20 @@ export function loadInventory() {
   }
   return ops;
 }
+/**
+ * The inventory brought to a later commit: gates changed since it was derived are replaced and
+ * added operations appended (QA/tests/phase4/gates-head.mjs). Each changed op carries `gateSrc`/`gateCommit`.
+ */
+export async function loadInventoryAtHead() {
+  const { GATE_OVERRIDES, ADDED_OPS, REMOVED_OPS } = await import('./gates-head.mjs');
+  const gone = new Set(REMOVED_OPS.map((r) => `${r.method} ${r.path}`));
+  const ops = loadInventory().filter((o) => !gone.has(`${o.method} ${o.path}`)).map((o) => {
+    const ov = GATE_OVERRIDES[`${o.method} ${o.path}`];
+    return ov ? { ...o, inventoryGate: o.gate, gate: ov.gate, gateSrc: ov.src, gateCommit: ov.commit } : o;
+  });
+  for (const a of ADDED_OPS) ops.push({ ...a, gateSrc: a.src, gateCommit: a.commit, added: true });
+  return ops;
+}
 export const hasParam = (p) => /\{[^}]+\}/.test(p);
 /** Parses the gate column into { kind, perms, roles }. */
 export function parseGate(g) {

@@ -6,14 +6,15 @@
 import fs from 'node:fs';
 import { hasEffectivePermission } from '../../../packages/shared/src/types/permissions.ts';
 import { sql } from '../lib/qa.mjs';
-import { loadInventory, parseGate } from './inventory.mjs';
+import { loadInventory, loadInventoryAtHead, parseGate } from './inventory.mjs';
 import { ROLES } from './accounts.mjs';
+const OUT = process.env.P4_OUT ?? 'QA/results/phase4'; // re-run at a later commit: P4_OUT, P4_HEAD=1, P4_TARGET_MATRIX
 
-const { nodes } = JSON.parse(fs.readFileSync('QA/results/phase4/tree.json', 'utf8'));
+const { nodes } = JSON.parse(fs.readFileSync(`${OUT}/tree.json`, 'utf8'));
 const conf = nodes.filter((n: any) => n.configurable);
-const live: any[] = JSON.parse(fs.readFileSync('QA/results/phase4/live-roles.json', 'utf8'));
+const live: any[] = JSON.parse(fs.readFileSync(`${OUT}/live-roles.json`, 'utf8'));
 const perms: Record<string, string[]> = JSON.parse(sql(`select json_object_agg(name, permissions) from roles`));
-const ops = loadInventory().filter((o: any) => o.method !== 'GET');
+const ops = (process.env.P4_HEAD === '1' ? await loadInventoryAtHead() : loadInventory()).filter((o: any) => o.method !== 'GET');
 const hits: any[] = [];
 for (const role of ROLES) {
   const on = new Set(Object.entries(live.find((r) => r.role === role).cfgperms).filter(([, v]) => v === true).map(([k]) => k));
@@ -31,6 +32,6 @@ for (const role of ROLES) {
     }
   }
 }
-fs.writeFileSync('QA/results/phase4/effective-vs-toggles.json', JSON.stringify(hits, null, 1));
+fs.writeFileSync(`${OUT}/effective-vs-toggles.json`, JSON.stringify(hits, null, 1));
 for (const h of hits) console.log(`${h.role.padEnd(12)} ${h.method.padEnd(6)} ${h.path.padEnd(52)} via ${h.via.join('/')} <- toggles [${h.grantedByToggles.join(', ') || 'NONE: manual/unmapped perm'}]; owners [${h.owners.join(', ')}]`);
 console.log('hits', hits.length);

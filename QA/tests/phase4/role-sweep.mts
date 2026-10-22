@@ -22,25 +22,35 @@
 // Otherwise an empty body is sent (usually INCONCLUSIVE for an allowed role).
 //
 //   cd <repo> && MSYS_NO_PATHCONV=1 npx tsx QA/tests/phase4/role-sweep.mts
+//
+// Re-run at a later commit (deliverable 04, 2026-10-22): P4_HEAD=1 applies gates-head.mjs (changed gates,
+// added ops, always-on re-auth actions), P4_SPEC = that commit's /docs/json, P4_OUT = output folder:
+//   PERF_TARGET=https://localhost:3111 P4_HEAD=1 P4_SPEC=QA/results/phase4/2026-10-22/openapi.json \
+//   P4_OUT=QA/results/phase4/2026-10-22 MSYS_NO_PATHCONV=1 npx tsx QA/tests/phase4/role-sweep.mts
 import fs from 'node:fs';
 import path from 'node:path';
 import { hasEffectivePermission } from '../../../packages/shared/src/types/permissions.ts';
 import { call, sql, QA_RESULTS, TARGET } from '../lib/qa.mjs';
-import { loadInventory, parseGate } from './inventory.mjs';
+import { loadInventory, loadInventoryAtHead, parseGate } from './inventory.mjs';
 import { buildRequest } from './bodygen.mjs';
 import { phase4Tokens, ROLES } from './accounts.mjs';
+import { ALWAYS_REAUTH } from './gates-head.mjs';
 
-const spec = JSON.parse(fs.readFileSync('QA/results/phase4/openapi.json', 'utf8'));
-const ops = loadInventory();
+const AT_HEAD = process.env.P4_HEAD === '1';
+const spec = JSON.parse(fs.readFileSync(process.env.P4_SPEC ?? 'QA/results/phase4/openapi.json', 'utf8'));
+const ops = AT_HEAD ? await loadInventoryAtHead() : loadInventory();
 const livePerms: Record<string, string[]> = JSON.parse(sql(`select json_object_agg(name, permissions) from roles`));
 const reauthCfg: Record<string, string[]> = JSON.parse(sql(`select config_value::text from system_config where config_key='action-reauth'`));
 
-const SKIP_ALWAYS = [/^\/api\/auth\/(logout|refresh|beacon-logout|verify|change-password|offline-grant|login|forgot-password)/, /^\/api\/uploads\/photo/, /^\/api\/admin-requests\/$/, /^\/api\/notifications\/mark-all-read/];
+const SKIP_ALWAYS = [/^\/api\/auth\/(logout|refresh|beacon-logout|verify|change-password|offline-grant|login|forgot-password)/, /^\/api\/uploads\/photo/, /^\/api\/notifications\/mark-all-read/];
+// POST /api/admin-requests/ is a self-service create (any role). The 10-21 run matched GET too, by mistake.
+const skipOp = (op: any) => SKIP_ALWAYS.some((r) => r.test(op.path)) || (op.method === 'POST' && op.path === '/api/admin-requests/');
 const DANGER = [/^\/api\/backup\/restore/, /^\/api\/notification-settings\/(send|email\/test|sms\/test)/, /^\/api\/ldap\/test-connection/,
   /^\/api\/equipment-groups\/(test-url|fetch-readings)/, /password-expiry-sweep/, /deviations\/sweep/, /^\/api\/audit\/bulk-/, /^\/api\/users\/bulk-delete/,
   /^\/api\/super-admin\/api-lock/, /^\/api\/config\//, /^\/api\/ldap\/config/, /^\/api\/notification-settings\//];
 const SAFE_FULL = [/\/validate$/, /ahu-completion-status\/batch$/, /ahu-set-availability$/, /\/entries\/(approve|reject|review)$/, /\/instances\/(approve|reject|review)$/,
-  /\/bulk-operate$/, /\/bulk-decide$/, /\/bulk-(read|unread)$/];
+  /\/bulk-operate$/, /\/bulk-decide$/, /\/bulk-(read|unread)$/,
+  /^\/api\/pm-schedules\/visits$/]; // random entityId -> 404 'AHU not found' before any write (pm-visits.ts:55-59)
 
 function reauthDefinite(op: any, role: string): boolean | 'unknown' {
   const r: string = op.reauth;
@@ -48,6 +58,7 @@ function reauthDefinite(op: any, role: string): boolean | 'unknown' {
   if (/computed/.test(r)) return 'unknown';
   if (/always/.test(r)) return true;
   const actions = r.replace(/\(.*?\)/g, '').replace(/[[\]]/g, '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (AT_HEAD && actions.some((a) => ALWAYS_REAUTH.has(a))) return true; // OD-01 (1f8b8de): enforceReauthAlways
   return actions.some((a) => (reauthCfg[a] ?? []).includes(role));
 }
 
@@ -81,8 +92,9 @@ for (const op of ops) {
   const gate = op.path === '/api/admin-requests/{id}/process' ? { kind: 'perm', perms: ['ADMIN_REQUEST_APPROVE'] } : parseGate(op.gate);
   for (const role of ROLES) {
     const exp = expectBackend(gate, role);
-    const base = { module: op.module, method: op.method, path: op.path, gate: op.gate, reauth: op.reauth, line: op.line, role, expected: exp };
-    if (exp === 'PUBLIC' || SKIP_ALWAYS.some((r) => r.test(op.path))) { rows.push({ ...base, observed: 'SKIPPED', why: exp === 'PUBLIC' ? 'public' : 'session/auth/self-service route' }); continue; }
+    const base = { module: op.module, method: op.method, path: op.path, gate: op.gate, reauth: op.reauth, line: op.line, role, expected: exp,
+      ...(op.gateSrc ? { gateSrc: op.gateSrc, gateCommit: op.gateCommit, inventoryGate: op.inventoryGate, added: op.added } : {}) };
+    if (exp === 'PUBLIC' || skipOp(op)) { rows.push({ ...base, observed: 'SKIPPED', why: exp === 'PUBLIC' ? 'public' : 'session/auth/self-service route' }); continue; }
     const write = !['GET', 'DELETE'].includes(op.method);
     const danger = DANGER.some((r) => r.test(op.path));
     const uuidPath = /\{(id|[a-zA-Z]*Id)\}/.test(op.path) && !/\{fieldId\}/.test(op.path);
@@ -118,7 +130,7 @@ const verdict = (r: any) => {
   return 'UNKNOWN_GATE';
 };
 for (const r of rows) r.verdict = verdict(r);
-const dir = path.join(QA_RESULTS, 'phase4');
+const dir = process.env.P4_OUT ? path.resolve(process.env.P4_OUT) : path.join(QA_RESULTS, 'phase4');
 fs.mkdirSync(dir, { recursive: true });
 const file = path.join(dir, `role-sweep-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
 const tally = rows.reduce((m: any, r) => ((m[r.verdict] = (m[r.verdict] ?? 0) + 1), m), {});

@@ -6,11 +6,12 @@
 //   npx tsx QA/tests/phase4/unlock-map.mts
 import fs from 'node:fs';
 import { hasEffectivePermission } from '../../../packages/shared/src/types/permissions.ts';
-import { loadInventory, parseGate } from './inventory.mjs';
+import { loadInventory, loadInventoryAtHead, parseGate } from './inventory.mjs';
+const OUT = process.env.P4_OUT ?? 'QA/results/phase4'; // re-run at a later commit: P4_OUT, P4_HEAD=1, P4_TARGET_MATRIX
 
-const { nodes } = JSON.parse(fs.readFileSync('QA/results/phase4/tree.json', 'utf8'));
+const { nodes } = JSON.parse(fs.readFileSync(`${OUT}/tree.json`, 'utf8'));
 const conf = nodes.filter((n: any) => n.configurable);
-const ops = loadInventory().filter((o: any) => o.method !== 'GET');
+const ops = (process.env.P4_HEAD === '1' ? await loadInventoryAtHead() : loadInventory()).filter((o: any) => o.method !== 'GET');
 const out: any[] = [];
 for (const op of ops) {
   const g: any = op.path === '/api/admin-requests/{id}/process' ? { kind: 'perm', perms: ['ADMIN_REQUEST_APPROVE', 'ADMIN_REQUEST_REJECT'] } : parseGate(op.gate);
@@ -18,5 +19,5 @@ for (const op of ops) {
   const unlockedBy = conf.filter((n: any) => g.perms.some((p: string) => hasEffectivePermission(n.permissions, p))).map((n: any) => n.id);
   out.push({ method: op.method, path: op.path, gate: op.gate, line: op.line, module: op.module, unlockedBy });
 }
-fs.writeFileSync('QA/results/phase4/unlock-map.json', JSON.stringify(out, null, 1));
+fs.writeFileSync(`${OUT}/unlock-map.json`, JSON.stringify(out, null, 1));
 for (const o of out) console.log(`${o.method.padEnd(6)} ${o.path.padEnd(58)} ${o.gate.padEnd(44)} <- ${o.unlockedBy.join(', ')}`);

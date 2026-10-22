@@ -1,6 +1,7 @@
 // Renders QA/results/phase4/matrix.json as a compact markdown table (privilege x role).
 import fs from 'node:fs';
-const m = JSON.parse(fs.readFileSync('QA/results/phase4/matrix.json', 'utf8'));
+const OUT = process.env.P4_OUT ?? 'QA/results/phase4'; // re-run at a later commit: P4_OUT, P4_HEAD=1, P4_TARGET_MATRIX
+const m = JSON.parse(fs.readFileSync(`${OUT}/matrix.json`, 'utf8'));
 const roles = ['ADMIN', 'SUPERVISOR', 'MANAGER', 'QA', 'SHIFTOFFICER', 'OPERATOR'];
 const code = (r) => {
   if (r.verdict.startsWith('LEAK') && r.verdict.includes('toggle ON')) return r.passedAtBaseline ? '**D=**' : '**D+**';
@@ -15,5 +16,5 @@ const code = (r) => {
 const ids = [...new Set(m.map((r) => r.node))];
 let s = `| Privilege | ${roles.join(' | ')} |\n|---|${roles.map(() => '---').join('|')}|\n`;
 for (const id of ids) s += `| \`${id}\` | ${roles.map((ro) => code(m.find((r) => r.node === id && r.role === ro))).join(' | ')} |\n`;
-fs.writeFileSync('QA/results/phase4/matrix.md', s);
+fs.writeFileSync(`${OUT}/matrix.md`, s);
 console.log(ids.length, 'rows');

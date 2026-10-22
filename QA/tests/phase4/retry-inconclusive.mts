@@ -8,8 +8,9 @@ import { call } from '../lib/qa.mjs';
 import { buildRequest, gen } from './bodygen.mjs';
 import { phase4Tokens } from './accounts.mjs';
 
-const spec = JSON.parse(fs.readFileSync('QA/results/phase4/openapi.json', 'utf8'));
-const file = 'QA/results/phase4/role-sweep-latest.json';
+// P4_SPEC / P4_OUT as in role-sweep.mts (re-run at a later commit).
+const spec = JSON.parse(fs.readFileSync(process.env.P4_SPEC ?? 'QA/results/phase4/openapi.json', 'utf8'));
+const file = `${process.env.P4_OUT ?? 'QA/results/phase4'}/role-sweep-latest.json`;
 const d = JSON.parse(fs.readFileSync(file, 'utf8'));
 const OUTBOUND = /notification-settings\/(send|sms\/test|email\/test)|equipment-groups\/(test-url|fetch-readings)|ldap\/test-connection/;
 const tokens = await phase4Tokens();

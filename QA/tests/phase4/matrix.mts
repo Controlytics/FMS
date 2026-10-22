@@ -8,15 +8,16 @@
 //              matches the node's gate; export nodes use export-gate-probe.json
 //   npx tsx QA/tests/phase4/matrix.mts
 import fs from 'node:fs';
-import { loadInventory, parseGate } from './inventory.mjs';
+import { loadInventory, loadInventoryAtHead, parseGate } from './inventory.mjs';
 import { ROLES } from './accounts.mjs';
+const OUT = process.env.P4_OUT ?? 'QA/results/phase4'; // re-run at a later commit: P4_OUT, P4_HEAD=1, P4_TARGET_MATRIX
 
-const target = JSON.parse(fs.readFileSync('tasks/role-privileges-baseline/target-matrix.json', 'utf8'));
-const { nodes } = JSON.parse(fs.readFileSync('QA/results/phase4/tree.json', 'utf8'));
-const live: any[] = JSON.parse(fs.readFileSync('QA/results/phase4/live-roles.json', 'utf8'));
-const sweep = JSON.parse(fs.readFileSync('QA/results/phase4/role-sweep-latest.json', 'utf8'));
-const exportProbe: any[] = JSON.parse(fs.readFileSync('QA/results/phase4/export-gate-probe.json', 'utf8'));
-const inv = loadInventory();
+const target = JSON.parse(fs.readFileSync(process.env.P4_TARGET_MATRIX ?? 'tasks/role-privileges-baseline/target-matrix.json', 'utf8'));
+const { nodes } = JSON.parse(fs.readFileSync(`${OUT}/tree.json`, 'utf8'));
+const live: any[] = JSON.parse(fs.readFileSync(`${OUT}/live-roles.json`, 'utf8'));
+const sweep = JSON.parse(fs.readFileSync(`${OUT}/role-sweep-latest.json`, 'utf8'));
+const exportProbe: any[] = JSON.parse(fs.readFileSync(`${OUT}/export-gate-probe.json`, 'utf8'));
+const inv = (process.env.P4_HEAD === '1' ? await loadInventoryAtHead() : loadInventory());
 
 const AMEND: Record<string, string[]> = {
   MANAGER: ['filters.review', 'retirement.view', 'replacement.view'],
@@ -70,7 +71,7 @@ for (const n of conf) {
     out.push({ node: n.id, role, doc, toggle, frontend, observed, verdict, evidence });
   }
 }
-fs.writeFileSync('QA/results/phase4/matrix.json', JSON.stringify(out, null, 1));
+fs.writeFileSync(`${OUT}/matrix.json`, JSON.stringify(out, null, 1));
 const tally = out.reduce((m: any, r) => ((m[r.verdict.split(' (')[0]] = (m[r.verdict.split(' (')[0]] ?? 0) + 1), m), {});
 console.log(tally);
 for (const r of out.filter((x) => !/^OK$|^n\/a/.test(x.verdict))) console.log(r.role.padEnd(12), r.node.padEnd(28), 'doc', String(r.doc).padEnd(5), 'tog', String(r.toggle).padEnd(5), 'FE', String(r.frontend).padEnd(5), r.observed.padEnd(10), r.verdict, '|', r.evidence);
