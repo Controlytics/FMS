@@ -33,7 +33,13 @@ export function stripYear(formatted: string, dateFormat: string): string {
 // server's PDFs could disagree; a table cannot (WSH-DT-2, 2026-10-21).
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
+/**
+ * Render a date in the configured format + zone. Exported so the Date/Time config
+ * page previews with THIS function rather than a copy (a copy drifted: the preview
+ * kept printing "6/15/2026" and "Sept" after the screens were fixed). Must produce
+ * the same strings as the API's lib/format-datetime.ts.
+ */
+export function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
   try {
     // Year / month / day in the CONFIGURED zone — never date.getMonth(), which is
     // the browser's zone and puts month-end instants in the wrong month.
@@ -53,7 +59,7 @@ function formatDateValue(date: Date, dateFormat: string, timezone: string): stri
       case 'DD-MMM-YYYY':
         return `${d}-${mmm}-${y}`;
       case 'MMM DD, YYYY':
-        return `${mmm} ${Number(d)}, ${y}`;
+        return `${mmm} ${d}, ${y}`; // DD: zero-padded, "Sep 05, 2026"
       case 'DD/MM/YYYY':
       default:
         return `${d}/${m}/${y}`;
@@ -64,7 +70,8 @@ function formatDateValue(date: Date, dateFormat: string, timezone: string): stri
   }
 }
 
-function formatTimeValue(date: Date, timeFormat: string, timezone: string): string {
+/** Render a time in the configured clock + zone (exported for the config preview). */
+export function formatTimeValue(date: Date, timeFormat: string, timezone: string): string {
   try {
     if (timeFormat === '12-hour') {
       return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: timezone });

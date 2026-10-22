@@ -7,6 +7,7 @@ import useSWR, { mutate } from 'swr';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
 import { useReauth } from '@/hooks/use-reauth';
+import { formatDateValue, formatTimeValue } from '@/hooks/use-datetime-format';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -49,45 +50,14 @@ export function DatetimeConfigPage() {
     });
   };
 
-  // Preview function - uses the configured timezone
-  const getPreviewDate = () => {
-    const date = new Date();
-    const tz = watchedTimezone || 'Asia/Kolkata';
-    try {
-      const opts: Intl.DateTimeFormatOptions = { timeZone: tz };
-      const formats: Record<string, string> = {
-        'DD/MM/YYYY': date.toLocaleDateString('en-GB', opts),
-        'MM/DD/YYYY': date.toLocaleDateString('en-US', opts),
-        'YYYY-MM-DD': (() => {
-          const y = date.toLocaleString('en-US', { year: 'numeric', timeZone: tz });
-          const m = date.toLocaleString('en-US', { month: '2-digit', timeZone: tz });
-          const d = date.toLocaleString('en-US', { day: '2-digit', timeZone: tz });
-          return `${y}-${m}-${d}`;
-        })(),
-        'DD-MMM-YYYY': date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...opts }).replace(/ /g, '-'),
-        'MMM DD, YYYY': date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...opts }),
-      };
-      return formats[watchedDateFormat || 'DD/MM/YYYY'] || date.toLocaleDateString('en-GB', opts);
-    } catch {
-      return date.toLocaleDateString('en-GB');
-    }
-  };
+  // Preview with the SAME formatters every screen uses (useDatetimeFormat), so the
+  // preview is exactly what the operator will see — including the UTC fallback for
+  // an unusable zone. A local copy here drifted from the real formatter.
+  const getPreviewDate = () =>
+    formatDateValue(new Date(), watchedDateFormat || 'DD/MM/YYYY', watchedTimezone || 'Asia/Kolkata');
 
-  const getPreviewTime = () => {
-    const date = new Date();
-    const tz = watchedTimezone || 'Asia/Kolkata';
-    try {
-      if (watchedTimeFormat === '12-hour') {
-        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz });
-      }
-      return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-    } catch {
-      if (watchedTimeFormat === '12-hour') {
-        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-      }
-      return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-    }
-  };
+  const getPreviewTime = () =>
+    formatTimeValue(new Date(), watchedTimeFormat || '24-hour', watchedTimezone || 'Asia/Kolkata');
 
   return (
     <div className="space-y-6 animate-fade-in">

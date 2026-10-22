@@ -6,7 +6,12 @@ import { DatetimeConfigPage } from '../datetime';
 import { SUPER_ADMIN, commonRoutes, reauthRequired, resetEnv, signReauth, cancelReauth } from './config-test-helpers';
 import { spyConsoleError, expectSilentCancel } from './reauth-cancel-assertions';
 
-afterEach(() => { vi.restoreAllMocks(); resetEnv(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); resetEnv(); });
+
+// The preview renders "now". Pin it (Date only — timers stay real for waitFor) to a
+// day whose month AND day are one digit, in September, so every padding / short-month
+// rule is visible: 2026-09-05T06:00Z is 05 Sep 11:30 in Asia/Kolkata.
+const pinNow = () => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-09-05T06:00:00.000Z')); };
 
 const PATH = '/api/config/datetime';
 const SAVED = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' };
@@ -32,40 +37,43 @@ const tz = { timeZone: 'Asia/Kolkata' } as const;
 
 describe('Date/Time format config page', () => {
   it('loads the saved formats and previews today in the configured timezone', async () => {
+    pinNow();
     const api = setup();
     await loaded();
     expect(timeSelect().value).toBe('24-hour');
-    const today = new Date().toLocaleDateString('en-GB', tz);
-    expect(screen.getAllByText(today).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('05/09/2026').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('05/09/2026 11:30').length).toBeGreaterThan(0);
     expect(saveBtn()).toBeDisabled();
     expect(api.unmatched).toEqual([]);
   });
 
-  it('every date format option re-renders the live preview', async () => {
+  // The preview is what every screen will render, so it must come from the SAME
+  // formatter as useDatetimeFormat (and the API's format-datetime) — the exact
+  // strings, not ICU's: zero-padded MM/DD, "Sep" never "Sept", DD padded in MMM DD.
+  it('every date format option previews exactly what the app renders', async () => {
+    pinNow();
     setup();
     await loaded();
-    const now = new Date();
     const cases: [string, string][] = [
-      ['MM/DD/YYYY', now.toLocaleDateString('en-US', tz)],
-      ['DD-MMM-YYYY', now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...tz }).replace(/ /g, '-')],
-      ['MMM DD, YYYY', now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...tz })],
-      ['YYYY-MM-DD', `${now.toLocaleString('en-US', { year: 'numeric', ...tz })}-${now.toLocaleString('en-US', { month: '2-digit', ...tz })}-${now.toLocaleString('en-US', { day: '2-digit', ...tz })}`],
-    ];
+      ['MM/DD/YYYY', '09/05/2026'],
+      ['DD-MMM-YYYY', '05-Sep-2026'],
+      ['MMM DD, YYYY', 'Sep 05, 2026'],
+      ['YYYY-MM-DD', '2026-09-05'],
+    ]; // DD/MM/YYYY ('05/09/2026') is the saved format, asserted on load above
     for (const [fmt, expected] of cases) {
       fireEvent.change(dateSelect(), { target: { value: fmt } });
-      await waitFor(() => expect(screen.getAllByText(expected, { exact: false }).length).toBeGreaterThan(0));
+      await waitFor(() => expect(screen.getAllByText(expected).length).toBeGreaterThan(0));
     }
     // Any edit makes the form dirty.
     expect(saveBtn()).not.toBeDisabled();
   });
 
   it('switching to 12-hour shows an AM/PM time in the preview', async () => {
+    pinNow();
     setup();
     await loaded();
     fireEvent.change(timeSelect(), { target: { value: '12-hour' } });
-    const t12 = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, ...tz });
-    await waitFor(() => expect(screen.getAllByText(t12, { exact: false }).length).toBeGreaterThan(0));
-    expect(t12).toMatch(/AM|PM/);
+    await waitFor(() => expect(screen.getAllByText('11:30 AM').length).toBeGreaterThan(0));
   });
 
   it('saves the whole form with PUT, shows success and becomes clean again', async () => {
@@ -181,18 +189,19 @@ describe('Date/Time format config page', () => {
     expect(saveBtn()).not.toHaveAttribute('title');
   });
 
-  it('an unusable stored timezone falls back to a plain preview instead of crashing', async () => {
+  // Same fallback as every screen (useDatetimeFormat): an unusable zone renders in UTC,
+  // not the browser's local zone — 06:00 UTC, where this machine's IST would read 11:30.
+  it('an unusable stored timezone falls back to UTC, like the rest of the app, instead of crashing', async () => {
+    pinNow();
     setup({ data: { ...SAVED, timeFormat: '12-hour', timezone: 'Mars/Olympus' } });
     await waitFor(() => expect(timeSelect().value).toBe('12-hour'));
-    const now = new Date();
     // The preview reads watched values, which settle a render after the inputs.
     await waitFor(() => {
-      expect(screen.getAllByText(now.toLocaleDateString('en-GB'), { exact: false }).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), { exact: false }).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('05/09/2026').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('06:00 AM').length).toBeGreaterThan(0);
     });
     fireEvent.change(timeSelect(), { target: { value: '24-hour' } });
-    const t24 = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-    await waitFor(() => expect(screen.getAllByText(t24, { exact: false }).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('06:00').length).toBeGreaterThan(0));
   });
 
   it('Cancel goes back to the configuration index', async () => {

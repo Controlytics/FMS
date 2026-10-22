@@ -21,6 +21,9 @@ describe('formatDateWith', () => {
     ['YYYY-MM-DD', SEP_05, '2026-09-05'],
     ['DD-MMM-YYYY', SEP_05, '05-Sep-2026'],
     ['DD-MMM-YYYY', JUN_15, '15-Jun-2026'],
+    // The format says DD: a one-digit day is zero-padded, like every other format.
+    ['MMM DD, YYYY', SEP_05, 'Sep 05, 2026'],
+    ['MMM DD, YYYY', JUN_15, 'Jun 15, 2026'],
   ])('%s %s -> %s', (format, value, expected) => {
     expect(formatDateWith(cfg(format), value)).toBe(expected);
   });

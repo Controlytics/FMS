@@ -162,6 +162,14 @@ describe('useDatetimeFormat', () => {
     expect(result.current.formatDateTime(INSTANT)).toBe(`${date} 14:35`);
   });
 
+  it('MMM DD, YYYY zero-pads a one-digit day — the format says DD (same string as the API)', async () => {
+    const { result } = setup({ dateFormat: 'MMM DD, YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' });
+    await waitFor(() => expect(result.current.config.dateFormat).toBe('MMM DD, YYYY'));
+    expect(result.current.formatDate('2026-09-05T09:05:00.000Z')).toBe('Sep 05, 2026');
+    expect(result.current.formatDayMonth('2026-09-05T09:05:00.000Z')).toBe('Sep 05');
+    noConsoleNoise();
+  });
+
   it('applies the configured timezone (the date can roll over)', async () => {
     const { result } = setup({ dateFormat: 'DD/MM/YYYY', timeFormat: '12-hour', timezone: 'America/Los_Angeles' });
     await waitFor(() => expect(result.current.config.timezone).toBe('America/Los_Angeles'));

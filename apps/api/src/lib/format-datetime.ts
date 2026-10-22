@@ -55,8 +55,11 @@ function formatDateValue(date: Date, dateFormat: string, timezone: string): stri
       const { day, month, year } = zonedParts(date, timezone);
       return `${pad(day)}-${MONTHS_3[month - 1]}-${year}`;
     }
-    case 'MMM DD, YYYY':
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...opts });
+    case 'MMM DD, YYYY': {
+      // DD: zero-padded ("Sep 05, 2026"); en-US alone prints "Sep 5, 2026".
+      const { day, month, year } = zonedParts(date, timezone);
+      return `${MONTHS_3[month - 1]} ${pad(day)}, ${year}`;
+    }
     default:
       return date.toLocaleDateString('en-GB', { ...opts });
   }
