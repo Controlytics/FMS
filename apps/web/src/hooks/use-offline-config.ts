@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import useSWR from 'swr';
 import { setRuntimeOfflineTtlMs } from '../lib/offline-store';
 import { setHardCutoffMs } from '../lib/hard-cutoff';
+import { useAuth } from './use-auth';
 
 interface OfflineCacheConfigResponse {
   cacheStalenessHours: number;
@@ -29,9 +30,15 @@ export function useOfflineConfig(): OfflineCacheConfigResponse {
   // without this gate the SWR fires on every tokenless app open (fresh tab =
   // empty sessionStorage). /api/config/offline-cache/current is not a public
   // endpoint, so that call 401s with "Missing token" and surfaces a toast.
+  //
+  // And wait for a signed-in user whose password does not have to change first:
+  // until it is changed the server answers this 403 FORCE_PASSWORD_CHANGE, which
+  // logged "[SWR Error] You must change your password before continuing." on the
+  // way to /change-password (D03-11, 2026-10-22).
+  const { user } = useAuth();
   const hasToken = typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('access_token');
   const { data } = useSWR<OfflineCacheConfigResponse>(
-    hasToken ? '/api/config/offline-cache/current' : null,
+    hasToken && user && !user.forcePasswordChange ? '/api/config/offline-cache/current' : null,
     {
       revalidateOnMount: true,
       revalidateOnFocus: true,

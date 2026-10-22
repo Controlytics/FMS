@@ -17,7 +17,8 @@ export function useSuperAdminLock() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   const { data, isLoading, mutate } = useSWR<{ enabled: boolean }>(
-    isSuperAdmin ? '/api/super-admin/api-lock' : null,
+    // Not while a password change is forced: the server refuses it then (D03-11).
+    isSuperAdmin && !user?.forcePasswordChange ? '/api/super-admin/api-lock' : null,
     // Re-check on focus so a flip made elsewhere (or via DB) reflects quickly.
     { refreshInterval: 0, revalidateOnFocus: true },
   );

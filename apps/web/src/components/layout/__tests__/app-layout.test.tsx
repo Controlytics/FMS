@@ -104,6 +104,25 @@ describe('AppLayout — gates', () => {
     renderShell({ ...operator, forcePasswordChange: true });
     expect(await screen.findByText('change password page')).toBeInTheDocument();
   });
+
+  // D03-11 (2026-10-22): until the password is changed the server answers every
+  // other authed call 403 FORCE_PASSWORD_CHANGE (plugins/auth.ts allow-list), and
+  // the layout still asked for the offline-cache config ("[SWR Error] You must
+  // change your password before continuing."), the Super Admin API lock and a sync.
+  it.each([
+    ['an operator who syncs', operator],
+    ['a Super Admin', { ...operator, id: 'u-sa', role: 'SUPER_ADMIN' }],
+  ])('a forced password change (%s) asks only for what the server allows before the change', async (_label, user) => {
+    const { api } = renderShell({ ...user, forcePasswordChange: true });
+    expect(await screen.findByText('change password page')).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    const allowed = new Set([
+      'GET /api/auth/me', 'GET /api/config/password-policy/current', // the server's allow-list
+      'GET /api/config/branding', 'GET /api/config/datetime/current', 'GET /api/roles/active', // public
+    ]);
+    expect(api.requests.map((r) => `${r.method} ${r.path}`).filter((c) => !allowed.has(c))).toEqual([]);
+    expect(sync.trigger).not.toHaveBeenCalled();
+  });
 });
 
 describe('AppLayout — signed in', () => {

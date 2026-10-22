@@ -58,7 +58,8 @@ export function AppLayout() {
   // Roles without either (ADMIN today) got a 403 at app start and again on
   // every 60 s poll. The versioned caches only serve filter operations, so a
   // role that cannot read filters has nothing to sync.
-  const canSync = !!user && (user.role === 'SUPER_ADMIN'
+  // Nor while a password change is forced: the server refuses /sync/since then (D03-11).
+  const canSync = !!user && !user.forcePasswordChange && (user.role === 'SUPER_ADMIN'
     || (user.permissions ?? []).some(p => p === 'ASSET_VIEW' || p === 'FILTER_OPERATE'));
   useEffect(() => {
     if (!isAuthenticated || !canSync) return;
