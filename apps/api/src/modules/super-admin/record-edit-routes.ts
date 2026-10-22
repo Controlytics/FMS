@@ -11,12 +11,14 @@
  * write path at all.
  */
 import type { FastifyInstance } from 'fastify';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { buildContext } from '../../lib/build-context.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../lib/errors.js';
 import { filterService } from '../assets/services/filter.service.js';
 import { identifierService } from '../assets/services/identifier.service.js';
+import { lockIdentifierScope } from '../assets/services/identifier-locks.js';
 import { instanceService } from '../assets/services/instance.service.js';
 import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManualChange, sanitizeSnapshot } from './manual-change.js';
 import { RFID_EVENT_ACTIONS, decideLiveTag, planRfidEventEdit, type RfidEventRow } from './rfid-event-edit.js';
@@ -82,12 +84,12 @@ export default async function recordEditRoutes(app: FastifyInstance) {
       userId, userName, remarks: body.remarks,
     });
 
-    // "Latest event for this tag number" = no other Assigned/Removed row with a
-    // later timestamp mentions it, on either side. Only that row describes the
-    // tag's present state, so only that row may touch asset_identifiers.
-    const latestFor = async (value: string) => {
+    // "Latest event for this tag number" = no other Assigned/Removed row mentions
+    // it, on either side. Only that row describes the tag's present state, so
+    // only that row may touch asset_identifiers.
+    const latestFor = async (db: Prisma.TransactionClient, value: string) => {
       if (!value) return false;
-      const later = await prisma.auditTrail.count({
+      const later = await db.auditTrail.count({
         where: {
           id: { not: row.id },
           action: { in: [...RFID_EVENT_ACTIONS] },
@@ -100,34 +102,51 @@ export default async function recordEditRoutes(app: FastifyInstance) {
       });
       return later === 0;
     };
-    const [latestForNew, latestForOld, existingByNew, existingByOld] = await Promise.all([
-      latestFor(plan.newValue),
-      plan.oldValue === plan.newValue ? Promise.resolve(true) : latestFor(plan.oldValue),
-      prisma.assetIdentifier.findUnique({ where: { identifierValue: plan.newValue }, select: { id: true, assetId: true } }),
-      plan.oldValue && plan.oldValue !== plan.newValue
-        ? prisma.assetIdentifier.findUnique({ where: { identifierValue: plan.oldValue }, select: { id: true, assetId: true } })
-        : Promise.resolve(null),
-    ]);
-    const targetOtherTag = plan.newAssetId
-      ? await prisma.assetIdentifier.findFirst({
-          where: { assetId: plan.newAssetId, identifierValue: { notIn: [plan.newValue, plan.oldValue].filter(Boolean) } },
-          select: { id: true, identifierValue: true },
-        })
-      : null;
-    const targetFilterName = plan.newAssetId
-      ? (await prisma.assetInstance.findUnique({ where: { id: plan.newAssetId }, select: { name: true } }))?.name ?? null
-      : null;
+    const otherNumber = plan.oldValue && plan.oldValue !== plan.newValue ? plan.oldValue : null;
 
-    // Decide BEFORE writing anything, so a conflict leaves the row untouched.
-    const live = decideLiveTag(plan, {
-      latestForNew, latestForOld: plan.oldValue === plan.newValue ? latestForNew : latestForOld,
-      existingByNew,
-      existingByOld: plan.oldValue === plan.newValue ? existingByNew : existingByOld,
-      targetOtherTag, targetFilterName,
-    });
+    // D-DB-2 (2026-10-22): the live-tag correction is a write to
+    // asset_identifiers like any assign, so it follows the same locking rule
+    // (lockIdentifierScope). Its reads used to run before the transaction with
+    // no lock, so a tag moved onto a filter while an operator tagged that filter
+    // left it with two tags. The filters it can touch are the target and the
+    // current holders of either number; those holders are read here only to
+    // know what to lock - every decision is re-read under the locks.
+    const [heldNew, heldOld] = await Promise.all([
+      prisma.assetIdentifier.findUnique({ where: { identifierValue: plan.newValue }, select: { assetId: true } }),
+      otherNumber ? prisma.assetIdentifier.findUnique({ where: { identifierValue: otherNumber }, select: { assetId: true } }) : Promise.resolve(null),
+    ]);
+    const lockedAssets = [plan.newAssetId, heldNew?.assetId, heldOld?.assetId].filter((v): v is string => !!v);
 
     const u = req.user as any;
-    await prisma.$transaction(async (tx) => {
+    const live = await prisma.$transaction(async (tx) => {
+      await lockIdentifierScope(tx, { assetIds: lockedAssets, tagValues: [plan.newValue, plan.oldValue] });
+
+      const latestForNew = await latestFor(tx, plan.newValue);
+      const latestForOld = otherNumber ? await latestFor(tx, otherNumber) : latestForNew;
+      const existingByNew = await tx.assetIdentifier.findUnique({ where: { identifierValue: plan.newValue }, select: { id: true, assetId: true } });
+      const existingByOld = otherNumber
+        ? await tx.assetIdentifier.findUnique({ where: { identifierValue: otherNumber }, select: { id: true, assetId: true } })
+        : existingByNew;
+      // A number bound to a filter outside the lock set between the read above
+      // and the lock: refuse rather than write past an unlocked filter.
+      for (const held of [existingByNew, existingByOld]) {
+        if (held && !lockedAssets.includes(held.assetId)) {
+          throw new ConflictError('The tag was assigned elsewhere while this edit was being saved - reload and try again.', 'CONCURRENT_CHANGE');
+        }
+      }
+      const targetOtherTag = plan.newAssetId
+        ? await tx.assetIdentifier.findFirst({
+            where: { assetId: plan.newAssetId, identifierValue: { notIn: [plan.newValue, plan.oldValue].filter(Boolean) } },
+            select: { id: true, identifierValue: true },
+          })
+        : null;
+      const targetFilterName = plan.newAssetId
+        ? (await tx.assetInstance.findUnique({ where: { id: plan.newAssetId }, select: { name: true } }))?.name ?? null
+        : null;
+
+      // Decide BEFORE writing anything, so a conflict leaves the row untouched.
+      const live = decideLiveTag(plan, { latestForNew, latestForOld, existingByNew, existingByOld, targetOtherTag, targetFilterName });
+
       // Meta-audit row FIRST, inside the same transaction: it preserves the
       // original values and says, in the chain itself, that this row was
       // rewritten - the chain break that follows is then explained, not hidden.
@@ -155,6 +174,7 @@ export default async function recordEditRoutes(app: FastifyInstance) {
       } else if (live.kind === 'delete') {
         await tx.assetIdentifier.deleteMany({ where: { id: { in: live.identifierIds } } });
       }
+      return live;
     });
 
     return { success: true, chainBroken: true, liveTag: live.kind, liveTagNote: live.note };

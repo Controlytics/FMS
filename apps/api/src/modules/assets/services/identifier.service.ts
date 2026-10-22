@@ -7,11 +7,8 @@ import { instanceRepository } from '../repositories/instance.repository.js';
 import { prisma } from '../../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { canonicalRfidValue, sameRfidValue } from '../../../lib/rfid-canonical.js';
+import { lockIdentifierScope } from './identifier-locks.js';
 
-// pg_advisory_xact_lock(int4, int4) namespaces for create() / delete() (D-DB-2):
-// one lock per filter, one per tag value. Arbitrary, but must stay distinct.
-const IDENTIFIER_LOCK_ASSET = 74210001;
-const IDENTIFIER_LOCK_TAG = 74210002;
 
 export const identifierService = {
   async list(query: { assetId?: string; type?: string }) {
@@ -69,10 +66,9 @@ export const identifierService = {
       // Advisory, not a row lock on asset_instances: a row lock would also stall
       // every other write to the filter, and would deadlock against a
       // transaction that audited (global chain lock) before updating the filter.
-      // Always filter first, tag second — one order, no lock cycle. The two-int
-      // key space is separate from the audit chain's single-bigint lock.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_ASSET}::int4, hashtext(${data.assetId}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_TAG}::int4, hashtext(${data.identifierValue.toLowerCase()}))`;
+      // Lock order and key space: identifier-locks.ts, the one rule every
+      // asset_identifiers writer follows.
+      await lockIdentifierScope(tx, { assetIds: [data.assetId], tagValues: [data.identifierValue] });
 
       // Only one identifier per entity. 2026-10-05: re-tagging is a real field
       // operation (a damaged or lost tag, or a tag scanned onto the wrong filter
@@ -192,8 +188,7 @@ export const identifierService = {
     // the other instead of both deleting the row (the loser answered 404). The
     // row is re-read under the lock; the audit row commits with the delete.
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_ASSET}::int4, hashtext(${found.assetId}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_TAG}::int4, hashtext(${found.identifierValue.toLowerCase()}))`;
+      await lockIdentifierScope(tx, { assetIds: [found.assetId], tagValues: [found.identifierValue] });
       const existing = await tx.assetIdentifier.findUnique({ where: { id } });
       if (!existing) throw new NotFoundError('Identifier not found');
       await tx.assetIdentifier.delete({ where: { id } });
