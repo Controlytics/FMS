@@ -8,11 +8,18 @@ import {
   findDryerTempInstrument,
   projectDryerCountdown,
   equipmentGroupChoice,
+  groupHasStageInstruments,
+  planFinalStageBatch,
+  resolveChecklistForTargetStage,
+  type PendingChecklist,
 } from '@/lib/filter-ops';
-import { recomputeAndCacheFilterState } from '@/lib/offline-cache';
+import { isCompletingAdvance, isTerminalTargetWithChecklist } from '@/lib/filter-ops/ahu-completion-check';
+import { callCompletesStageWork } from '@digilog/shared';
+import { cacheServerStateResponse, recomputeAndCacheFilterState } from '@/lib/offline-cache';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { signOnce, withStageAction } from '@/lib/stage-reauth';
+import { ChecklistDialog } from './checklist-dialog';
 
 /**
  * "Currently Drying" panel — SHARED by the desktop DRY_IN stage card
@@ -39,6 +46,14 @@ import { signOnce, withStageAction } from '@/lib/stage-reauth';
  * Per-row data loading (SWR online / IndexedDB cache offline), the 1 Hz tick,
  * the countdown projection and the instrument lookup are unchanged from the
  * previous single-row implementation.
+ *
+ * 2026-10-22 (every pipeline shape must complete):
+ *   - the readings FINISH Dry In. At a FINAL Dry In they complete the cycle, so
+ *     a checklist after it rides on them: the panel asks it first and sends one
+ *     advance-with-checklist per filter (a bare SUBMIT_READINGS is refused 409
+ *     CHECKLIST_REQUIRED there). Decided per filter by the server's rule.
+ *   - a row with nothing to read (no group, or no Dry In instrument in it) is
+ *     submitted with no readings; it used to be stuck on "Enter a temperature".
  */
 
 export interface DryingFiltersPanelProps {
@@ -46,7 +61,7 @@ export interface DryingFiltersPanelProps {
   filters: any[];
   online: boolean;
   /** `useOffline().executeOrQueue` — same signature on both surfaces. */
-  executeOrQueue: (kind: 'advance', filterId: string, filterName: string, body: Record<string, any>, stageKey: string, password?: string) => Promise<{ executed: boolean; result?: any }>;
+  executeOrQueue: (kind: 'advance' | 'advance-with-checklist', filterId: string, filterName: string, body: Record<string, any>, stageKey: string, password?: string) => Promise<{ executed: boolean; result?: any }>;
   /** Cache reader (`useOffline().getCache` on the tablet, offline-store on desktop). */
   getCache: <T>(key: string) => Promise<T | null>;
   cacheData: (key: string, value: any, ttlMs?: number) => any;
@@ -54,6 +69,16 @@ export interface DryingFiltersPanelProps {
   onError: (msg: string) => void;
   /** Called after a submit so the parent refreshes its filter list. */
   onAfterSubmit?: () => void;
+  /**
+   * The page's AHU completion pre-flight (POPUP warns, INTERLOCK blocks), for
+   * readings that COMPLETE their cycle — a final Dry In (2026-10-22). Called ONCE
+   * per submit with every such filter, before anything is written; never for a
+   * Dry In with stages after it. `proceed: false` sends nothing. `filterSet` (the
+   * operator's A/B/All pick) rides on the completing calls, scoping the server's
+   * INTERLOCK gate to the roster the dialog showed. Without it the panel has no
+   * pre-flight (the server's INTERLOCK refusal stays the backstop).
+   */
+  ahuPreflight?: (filterIds: string[]) => Promise<{ proceed: boolean; filterSet?: string | null }>;
   variant: 'desktop' | 'mobile';
 }
 
@@ -69,6 +94,10 @@ interface RowState {
   group: any | null;
   /** The block has several groups and this unbound cycle's group is not picked yet. */
   needsGroup: boolean;
+  /** No group on offer has a Dry In instrument: the step is sent with no readings. */
+  noReading: boolean;
+  /** The row's current-state (server, or the cached row offline). */
+  state: any;
   instrument: any | null;
   uom: string;
   options: number[];
@@ -77,8 +106,19 @@ interface RowState {
   timedOut: boolean;
 }
 
+/**
+ * Do this row's readings COMPLETE its cycle? They finish Dry In's work
+ * (callCompletesStageWork), so they do at a FINAL Dry In — the last stage, with or
+ * without a checklist after it (the shared AHU predicates over its stageLookup).
+ */
+function completesCycle(state: any): boolean {
+  const lookup = state?.stageLookup;
+  return callCompletesStageWork('DRY_IN', 'SUBMIT_READINGS')
+    && (isCompletingAdvance('DRY_IN', lookup) || isTerminalTargetWithChecklist('DRY_IN', lookup));
+}
+
 export function DryingFiltersPanel({
-  filters, online, executeOrQueue, getCache, cacheData, onSuccess, onError, onAfterSubmit, variant,
+  filters, online, executeOrQueue, getCache, cacheData, onSuccess, onError, onAfterSubmit, ahuPreflight, variant,
 }: DryingFiltersPanelProps) {
   // Audit 2026-09-24 (web F1): the panel completed Dry In with no re-auth
   // signature — with ADVANCE_FILTER_STAGE / STAGE_DRY_IN enabled for the role
@@ -96,7 +136,7 @@ export function DryingFiltersPanel({
   const reportRow = useCallback((s: RowState) => {
     setRows(prev => {
       const p = prev[s.filterId];
-      if (p && p.ready === s.ready && p.submitted === s.submitted && p.temp === s.temp && p.source === s.source && p.isAuto === s.isAuto && p.fetching === s.fetching && p.timedOut === s.timedOut && p.instrument === s.instrument && p.group === s.group && p.needsGroup === s.needsGroup && p.fetched === s.fetched) return prev;
+      if (p && p.ready === s.ready && p.submitted === s.submitted && p.temp === s.temp && p.source === s.source && p.isAuto === s.isAuto && p.fetching === s.fetching && p.timedOut === s.timedOut && p.instrument === s.instrument && p.group === s.group && p.needsGroup === s.needsGroup && p.noReading === s.noReading && p.state === s.state && p.fetched === s.fetched) return prev;
       return { ...prev, [s.filterId]: s };
     });
   }, []);
@@ -138,49 +178,54 @@ export function DryingFiltersPanel({
     setApplyMap(prev => ({ ...prev, [id]: { value, seq: seqRef.current } }));
   };
 
-  const handleSubmit = async () => {
-    if (submitting || selected.size === 0) return;
-    const targets = readyRows.filter(r => selected.has(r.filterId));
-    // A missing GROUP is its own message: "Enter a temperature" is wrong when the
-    // operator has not chosen which equipment group the reading belongs to.
-    const noGroup = targets.filter(r => r.needsGroup);
-    if (noGroup.length > 0) { onError(`Choose the equipment group for: ${noGroup.map(m => m.filterName).join(', ')}`); return; }
-    const missing = targets.filter(r => r.temp === '' || !r.group || !r.instrument);
-    if (missing.length > 0) { onError(`Enter a temperature for: ${missing.map(m => m.filterName).join(', ')}`); return; }
-    setSubmitting(true);
-    let sig: { ok: true; password?: string } | { ok: false };
-    try {
-      sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], 'DRY_IN'));
-    } catch (e: any) {
-      setSubmitting(false);
-      onError(e?.message ?? 'Re-authentication failed');
-      return;
+  // A FINAL Dry In's checklist, asked before its readings are sent.
+  const [checklistFor, setChecklistFor] = useState<{
+    rows: RowState[];
+    dialog: { filterId: string; filterName: string; checklists: PendingChecklist[] };
+    /** Per filter: what the AHU pre-flight adds to its call (the A/B/All pick). */
+    extraFor: (r: RowState) => Record<string, any>;
+  } | null>(null);
+  const [checklistBusy, setChecklistBusy] = useState(false);
+  const [checklistError, setChecklistError] = useState('');
+
+  /** The readings call of one row: what it read, or nothing when there is nothing to read. */
+  const readingsBody = (r: RowState): Record<string, any> => {
+    if (r.noReading) {
+      return { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', remarks: `Dry In complete (no reading to take) - ${r.filterName}` };
     }
-    if (!sig.ok) { setSubmitting(false); return; }
-    const password = sig.password;
+    const dryIn = (r.group.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
+    const readings: Record<string, number> = {};
+    const readingSources: Record<string, ReadingSource> = {};
+    for (const inst of dryIn) {
+      if (inst.id === r.instrument.id) { readings[inst.id] = Number(r.temp); readingSources[inst.id] = r.source; continue; }
+      // Prefer a REAL fetched value for a sibling DRY_IN instrument; the
+      // operatingMin fallback is the pre-existing manual-mode behaviour.
+      const auto = r.fetched[inst.id];
+      readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
+      readingSources[inst.id] = typeof auto === 'number' ? 'AUTO' : 'MANUAL';
+    }
+    return {
+      targetState: 'DRY_IN',
+      dryerAction: 'SUBMIT_READINGS',
+      equipmentGroupId: r.group.id,
+      instrumentReadings: readings,
+      readingSources,
+      remarks: `Dryer temperature ${r.temp}${r.uom} - ${r.filterName}`,
+    };
+  };
+
+  /** Send each row's readings (with `extra`, e.g. the checklist answers) and keep this device's view. */
+  const sendRows = async (
+    targets: RowState[],
+    kind: 'advance' | 'advance-with-checklist',
+    extra: (r: RowState) => Record<string, any>,
+    password: string | undefined,
+  ) => {
     let ok = 0; let queued = 0; const failed: string[] = []; const notRefreshed: string[] = [];
     for (const r of targets) {
       let executed: boolean;
       try {
-        const dryIn = (r.group.instruments ?? []).filter((i: any) => i.stageKey === 'DRY_IN');
-        const readings: Record<string, number> = {};
-        const readingSources: Record<string, ReadingSource> = {};
-        for (const inst of dryIn) {
-          if (inst.id === r.instrument.id) { readings[inst.id] = Number(r.temp); readingSources[inst.id] = r.source; continue; }
-          // Prefer a REAL fetched value for a sibling DRY_IN instrument; the
-          // operatingMin fallback is the pre-existing manual-mode behaviour.
-          const auto = r.fetched[inst.id];
-          readings[inst.id] = typeof auto === 'number' ? auto : inst.operatingMin;
-          readingSources[inst.id] = typeof auto === 'number' ? 'AUTO' : 'MANUAL';
-        }
-        ({ executed } = await executeOrQueue('advance', r.filterId, r.filterName, {
-          targetState: 'DRY_IN',
-          dryerAction: 'SUBMIT_READINGS',
-          equipmentGroupId: r.group.id,
-          instrumentReadings: readings,
-          readingSources,
-          remarks: `Dryer temperature ${r.temp}${r.uom} - ${r.filterName}`,
-        }, 'DRY_IN', password));
+        ({ executed } = await executeOrQueue(kind, r.filterId, r.filterName, { ...readingsBody(r), ...extra(r) }, 'DRY_IN', password));
       } catch (e: any) {
         failed.push(`${r.filterName}: ${e?.message ?? 'failed'}`);
         continue;
@@ -213,19 +258,120 @@ export function DryingFiltersPanel({
       }
       setRows(prev => prev[r.filterId] ? { ...prev, [r.filterId]: { ...prev[r.filterId], submitted: true } } : prev);
     }
-    setSelected(new Set());
-    setSharedTemp('');
-    if (ok + queued > 0) onSuccess(`${ok + queued} filter(s) → Dry In complete${queued ? ` (${queued} queued)` : ''}`);
-    // ONE onError: both parents keep a single message, so a second call would
-    // overwrite the first.
-    const problems: string[] = [];
+    return { ok, queued, failed, notRefreshed };
+  };
+
+  /** The submit's outcome, as ONE success and ONE error message (both parents keep a single one). */
+  const report = (res: { ok: number; queued: number; failed: string[]; notRefreshed: string[] }, suffix: string, extraProblems: string[] = []) => {
+    const { ok, queued, failed, notRefreshed } = res;
+    if (ok + queued > 0) onSuccess(`${ok + queued} filter(s) → Dry In complete${suffix}${queued ? ` (${queued} queued)` : ''}`);
+    const problems: string[] = [...extraProblems];
     if (failed.length > 0) problems.push(`${failed.length} failed:\n${failed.join('\n')}`);
     if (notRefreshed.length > 0) {
       problems.push(`${notRefreshed.length} queued, but this device's offline view was not refreshed — do not submit it again; the reading will sync when online:\n${notRefreshed.join('\n')}`);
     }
     if (problems.length > 0) onError(problems.join('\n\n'));
-    onAfterSubmit?.();
-    setSubmitting(false);
+  };
+
+  const handleSubmit = async () => {
+    if (submitting || selected.size === 0) return;
+    const targets = readyRows.filter(r => selected.has(r.filterId));
+    // A missing GROUP is its own message: "Enter a temperature" is wrong when the
+    // operator has not chosen which equipment group the reading belongs to.
+    const noGroup = targets.filter(r => r.needsGroup);
+    if (noGroup.length > 0) { onError(`Choose the equipment group for: ${noGroup.map(m => m.filterName).join(', ')}`); return; }
+    const missing = targets.filter(r => !r.noReading && (r.temp === '' || !r.group || !r.instrument));
+    if (missing.length > 0) { onError(`Enter a temperature for: ${missing.map(m => m.filterName).join(', ')}`); return; }
+    setSubmitting(true);
+    try {
+      // At a FINAL Dry In these readings complete the cycle, so the checklist
+      // after it rides on them — decided per filter with the server's rule
+      // (planFinalStageBatch, call SUBMIT_READINGS). The resolver reads the
+      // cached row, so a live row is cached first.
+      const plan = await planFinalStageBatch(
+        targets, 'DRY_IN', (id) => rows[id]?.state ?? null,
+        async (id) => {
+          const st = rows[id]?.state;
+          if (online && st) await cacheServerStateResponse(id, st);
+          return resolveChecklistForTargetStage(id, 'DRY_IN', online);
+        },
+        { dryerAction: 'SUBMIT_READINGS' },
+      );
+      const leftNotes = plan.left.length > 0
+        ? [`Not submitted — submit separately:\n${plan.left.map(l => `${l.item.filterName}: ${l.note}`).join('\n')}`]
+        : [];
+      // Readings that COMPLETE their cycle (a final Dry In, with or without a
+      // checklist after it) pass the page's AHU pre-flight first — ONCE for all of
+      // them, before anything is written (2026-10-22; the panel had none).
+      const completing = new Set(
+        [...plan.plain, ...plan.carry].filter(r => completesCycle(r.state)).map(r => r.filterId),
+      );
+      let filterSet: string | null = null;
+      if (completing.size > 0 && ahuPreflight) {
+        const gate = await ahuPreflight([...completing]);
+        if (!gate.proceed) return;
+        filterSet = gate.filterSet ?? null;
+      }
+      const extraFor = (r: RowState): Record<string, any> =>
+        (filterSet && completing.has(r.filterId) ? { filterSet } : {});
+      if (plan.plain.length > 0) {
+        let sig: { ok: true; password?: string } | { ok: false };
+        try {
+          sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], 'DRY_IN'));
+        } catch (e: any) {
+          onError(e?.message ?? 'Re-authentication failed');
+          return;
+        }
+        if (!sig.ok) return;
+        report(await sendRows(plan.plain, 'advance', extraFor, sig.password), '', leftNotes);
+        onAfterSubmit?.();
+      } else if (leftNotes.length > 0) {
+        onError(leftNotes.join('\n\n'));
+      }
+      setSharedTemp('');
+      if (plan.carry.length > 0) {
+        // Nothing of these is written until the checklist is answered; Close drops it.
+        setSelected(new Set(plan.carry.map(r => r.filterId)));
+        setChecklistError('');
+        setChecklistFor({
+          rows: plan.carry,
+          dialog: { filterId: plan.carry[0].filterId, filterName: `${plan.carry.length} filter(s)`, checklists: plan.checklists },
+          extraFor,
+        });
+      } else {
+        setSelected(new Set());
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // The readings AND the answers in ONE call per filter, signed once for both.
+  const submitChecklist = async (answers: Record<string, any>) => {
+    if (!checklistFor || checklistBusy) return;
+    setChecklistBusy(true); setChecklistError('');
+    const expectedProfileVersions: Record<string, number> = {};
+    for (const cl of checklistFor.dialog.checklists) {
+      if (typeof cl.profileVersion === 'number') expectedProfileVersions[cl.checklistProfileId] = cl.profileVersion;
+    }
+    try {
+      let sig: { ok: true; password?: string } | { ok: false };
+      try {
+        sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], 'DRY_IN'));
+      } catch (e: any) {
+        setChecklistError(e?.message ?? 'Re-authentication failed');
+        return;
+      }
+      if (!sig.ok) return; // a dismissed prompt: the checklist stays for a retry
+      const { extraFor } = checklistFor;
+      const res = await sendRows(checklistFor.rows, 'advance-with-checklist', (r) => ({ ...extraFor(r), answers, expectedProfileVersions }), sig.password);
+      setChecklistFor(null);
+      setSelected(new Set());
+      report(res, ', checklist submitted');
+      onAfterSubmit?.();
+    } finally {
+      setChecklistBusy(false);
+    }
   };
 
   const isMobile = variant === 'mobile';
@@ -244,6 +390,13 @@ export function DryingFiltersPanel({
   return (
     <div className={isMobile ? 'bg-white border border-amber-200 rounded-2xl overflow-hidden' : 'bg-white border border-slate-200 rounded-2xl p-5 space-y-3'}>
       <ReauthPrompt reauth={reauth} />
+      <ChecklistDialog
+        dialog={checklistFor?.dialog ?? null}
+        onClose={() => { setChecklistFor(null); setChecklistError(''); }}
+        onSubmit={submitChecklist}
+        loading={checklistBusy}
+        error={checklistError}
+      />
       <div className={isMobile ? 'bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 flex items-center justify-between' : 'flex items-center justify-between'}>
         <h3 className={isMobile ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-500'}>
           Currently Drying ({visible.length})
@@ -372,7 +525,18 @@ function DryingRow({
   const group = groupChoice.needsChoice
     ? (groupChoice.groups.find((g: any) => g.id === pickedGroupId) ?? null)
     : groupChoice.group;
-  const needsGroup = groupChoice.needsChoice && !group;
+  // Nothing to read when no group on offer has a Dry In instrument (2026-10-22):
+  // the readings step is still sent — with no readings — and nothing is picked.
+  // Only when the groups are KNOWN: the server's state online, or offline a group
+  // on the cached row or the cached groups of the cycle's block. Offline with
+  // several cached groups and no block, an empty choice means "cannot tell", and
+  // sending no readings then would skip a temperature that is due.
+  const groupsKnown = !!state
+    || !!effectiveState?.equipmentGroup
+    || (effectiveState?.blockEquipmentGroups ?? []).length > 0
+    || (!!cyc?.cleaningAreaId && offlineEquipGroups.length > 0);
+  const noReading = groupsKnown && !groupChoice.groups.some((g: any) => groupHasStageInstruments(g, 'DRY_IN'));
+  const needsGroup = groupChoice.needsChoice && !group && !noReading;
   const instrument = findDryerTempInstrument(group);
   const options = instrument ? buildTempOptionsSnapped(instrument.operatingMin, instrument.operatingMax, instrument.leastCount) : [];
   const uom = instrument?.uom ?? '°C';
@@ -398,8 +562,8 @@ function DryingRow({
   const submitted = !!cyc?.dryerReadingsSubmitted;
   const ready = !!startedAt && !!durationMin && halfReached && !submitted;
   useEffect(() => {
-    report({ filterId, filterName, ready, submitted, temp, source: autoFetch.source, fetched: autoFetch.fetched, group, needsGroup, instrument, uom, options, isAuto: autoFetch.isAuto, fetching: autoFetch.fetching, timedOut: autoFetch.timedOut });
-  }, [report, filterId, filterName, ready, submitted, temp, autoFetch.source, autoFetch.fetched, group, needsGroup, instrument, uom, autoFetch.isAuto, autoFetch.fetching, autoFetch.timedOut]); // eslint-disable-line react-hooks/exhaustive-deps
+    report({ filterId, filterName, ready, submitted, temp, source: autoFetch.source, fetched: autoFetch.fetched, group, needsGroup, noReading, state: effectiveState, instrument, uom, options, isAuto: autoFetch.isAuto, fetching: autoFetch.fetching, timedOut: autoFetch.timedOut });
+  }, [report, filterId, filterName, ready, submitted, temp, autoFetch.source, autoFetch.fetched, group, needsGroup, noReading, effectiveState, instrument, uom, autoFetch.isAuto, autoFetch.fetching, autoFetch.timedOut]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A different pick: the value and any fetch belong to the previous group's
   // instrument, so they go; the new group's instrument is read afresh.
@@ -476,7 +640,8 @@ function DryingRow({
             {groupChoice.groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         )}
-        {ready && !needsGroup && !instrument && <span className="text-xs text-red-600">No dryer temperature instrument configured</span>}
+        {ready && noReading && <span className="text-xs text-slate-500">No reading to take — Submit finishes Dry In</span>}
+        {ready && !needsGroup && !noReading && !instrument && <span className="text-xs text-red-600">No dryer temperature instrument configured</span>}
         {ready && instrument && (
           <div className="flex items-center gap-2">
             {valueBox}

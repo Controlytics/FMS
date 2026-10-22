@@ -197,7 +197,7 @@ describe('a cycle START whose first stage is the last, with a checklist after it
     await scanAndSubmit(a, 'STORAGE_OUT');
     await pickReasonAndStart();
     await answerYes();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(within(screen.getByRole('button', { name: /Submit Checklist/ }).parentElement as HTMLElement).getByRole('button', { name: 'Cancel' }));
     await settle();
     expect(screen.queryByText('Checklist Required')).toBeNull();
     expect(a.requests.filter((r) => r.method === 'POST')).toEqual([]);
@@ -443,5 +443,202 @@ describe('a cycle whose profile or equipment group changed since its start', () 
     expect(screen.getByText('Equipment group changed')).toBeInTheDocument();
     expect(screen.getByText(/F-001: group updated v2 → v3/)).toBeInTheDocument();
     expect(screen.queryByText(/F-002:/)).toBeNull();
+  });
+});
+
+// ── the Dry In readings step (2026-10-22: every pipeline shape completes) ───
+// A FINAL Dry In completes on its readings (SUBMIT_READINGS), so the checklist
+// after it rides on them — one advance-with-checklist; a bare SUBMIT_READINGS
+// there is refused CHECKLIST_REQUIRED. A Dry In with no group, or a group with
+// no Dry In instrument, has nothing to read: the step is SUBMIT_READINGS with no
+// readings (the server accepts it); desktop sent a bare advance into Dry In.
+describe('the Dry In readings step', () => {
+  const temp = { id: 't1', instrumentId: 'TG-1', description: 'Dryer temp TG-1', stageKey: 'DRY_IN', uom: '°C', operatingMin: 60, operatingMax: 61, leastCount: 1 };
+  const DRYER = { id: 'gd', name: 'Dryer bay', blockId: 'b1', instruments: [temp] };
+  const atHalfTime = (o: { group?: any; final?: string | null } = {}) => ({
+    currentState: 'DRY_IN', tapeVersion: 7, blockChangeStatus: 'MATCH', actions: [],
+    currentCycle: { id: 'c1', status: 'IN_PROGRESS', cleaningAreaId: 'b1', equipmentGroupId: o.group?.id ?? null, dryerStartedAt: new Date(Date.now() - 60 * 60_000).toISOString(), dryerDurationMinutes: 10, dryerReadingsSubmitted: false },
+    equipmentGroup: o.group ?? null, blockEquipmentGroups: [],
+    ...(o.final !== undefined ? {
+      stageLookup: { DRY_IN: { nextStages: [], leadsToEnd: true, pendingChecklistProfileIds: o.final ? [o.final] : [], interlockGated: false } },
+      disabledChecklistProfileIds: [],
+    } : {}),
+  });
+  const one = (state: unknown, routes: any[]) => setup({ state, routes: [{ path: '/api/checklist-profiles', body: { data: [CL1] } }, ...routes] });
+
+  it('a FINAL Dry In with a checklist after it: readings, then the checklist, then ONE advance-with-checklist', async () => {
+    const a = one(atHalfTime({ group: DRYER, final: 'cl1' }), [{ method: 'POST', path: '/api/filters/f1/advance-with-checklist', body: DONE }]);
+    await scanAndSubmit(a, 'DRY_IN', 'North');
+    const d = (await screen.findByText('Dryer Temperature Reading')).closest('.bg-white') as HTMLElement;
+    await within(d).findByText('Dryer temp TG-1');
+    fireEvent.change(within(d).getByRole('combobox'), { target: { value: '60' } });
+    fireEvent.click(within(d).getByRole('button', { name: /Submit/ }));
+    await answerYes();
+    expect(posts(a, 'advance')).toEqual([]); // nothing written while the checklist is open
+    fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
+    await waitFor(() => expect(posts(a, 'advance-with-checklist')).toHaveLength(1));
+    expect(posts(a, 'advance-with-checklist')[0].json).toMatchObject({
+      targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', equipmentGroupId: 'gd', instrumentReadings: { t1: 60 }, answers: { q1: 'Yes' },
+    });
+    expect(posts(a, 'advance')).toEqual([]);
+  });
+
+  it('no equipment group: the readings step is sent with no readings (was a bare advance into Dry In)', async () => {
+    const a = one(atHalfTime(), [{ method: 'POST', path: '/api/filters/f1/advance', body: { currentState: 'DRY_IN', actions: [] } }]);
+    await scanAndSubmit(a, 'DRY_IN', 'North');
+    await waitFor(() => expect(posts(a, 'advance')).toHaveLength(1));
+    const body = posts(a, 'advance')[0].json;
+    expect(body).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' });
+    expect(body.instrumentReadings).toBeUndefined();
+    expect(body.equipmentGroupId).toBeUndefined();
+  });
+
+  it('a group with no Dry In instrument: no readings dialog, the step is sent with no readings', async () => {
+    const WASH_ONLY = { id: 'gw', name: 'Wash bay', blockId: 'b1', instruments: [{ ...temp, id: 'p1', stageKey: 'WASH_IN', description: 'RO pressure' }] };
+    const a = one(atHalfTime({ group: WASH_ONLY }), [{ method: 'POST', path: '/api/filters/f1/advance', body: { currentState: 'DRY_IN', actions: [] } }]);
+    await scanAndSubmit(a, 'DRY_IN', 'North');
+    await waitFor(() => expect(posts(a, 'advance')).toHaveLength(1));
+    expect(screen.queryByText('Dryer Temperature Reading')).toBeNull();
+    expect(posts(a, 'advance')[0].json).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' });
+    expect(posts(a, 'advance')[0].json.instrumentReadings).toBeUndefined();
+  });
+
+  it('nothing to read at a FINAL Dry In with a checklist: the checklist, then ONE advance-with-checklist with no readings', async () => {
+    const a = one(atHalfTime({ final: 'cl1' }), [{ method: 'POST', path: '/api/filters/f1/advance-with-checklist', body: DONE }]);
+    await scanAndSubmit(a, 'DRY_IN', 'North');
+    await answerYes();
+    fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
+    await waitFor(() => expect(posts(a, 'advance-with-checklist')).toHaveLength(1));
+    const body = posts(a, 'advance-with-checklist')[0].json;
+    expect(body).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', answers: { q1: 'Yes' } });
+    expect(body.instrumentReadings).toBeUndefined();
+    expect(posts(a, 'advance')).toEqual([]);
+  });
+});
+
+// ── a checklist BEFORE the first stage (2026-10-22) ─────────────────────────
+// START is a position: the checklists between START and the first stage are
+// answered after start-cycle and gate the first entry. Desktop started the
+// cycle, then sent the advance, which the server refused (CHECKLIST_PENDING) —
+// a cycle started at no stage. Now: the dialog FIRST, nothing written; then per
+// filter start-cycle → submit-checklist (at START) → advance. Never the compound
+// start-and-advance for such a filter (an offline replay would skip the START
+// checklist silently).
+describe('a checklist before the first stage', () => {
+  const startGraph = (startCl: string | null, stages: string[], afterLast: string | null = null) => {
+    const nodes: any[] = [{ id: 'n-start', nodeType: 'START' }];
+    const edges: any[] = [];
+    let prev = 'n-start';
+    const link = (n: any) => { nodes.push(n); edges.push({ fromStageId: prev, toStageId: n.id }); prev = n.id; };
+    if (startCl) link({ id: 'n-scl', nodeType: 'CHECKLIST', configuration: { checklistProfileId: startCl } });
+    stages.forEach((k) => link({ id: `n-${k}`, nodeType: 'STAGE', stateKey: k }));
+    if (afterLast) link({ id: 'n-acl', nodeType: 'CHECKLIST', configuration: { checklistProfileId: afterLast } });
+    link({ id: 'n-end', nodeType: 'END' });
+    const stageLookup = Object.fromEntries(stages.map((k, i) => [k, {
+      nextStages: i < stages.length - 1 ? [stages[i + 1]] : [], leadsToEnd: i === stages.length - 1,
+      pendingChecklistProfileIds: i === stages.length - 1 && afterLast ? [afterLast] : [], interlockGated: false,
+    }]));
+    return { currentState: null, currentCycle: null, actions: [], tapeVersion: 0, blockChangeStatus: 'MATCH', pipelineGraph: { stages: nodes, connections: edges }, stageLookup, disabledChecklistProfileIds: [] };
+  };
+  const order = (a: ReturnType<typeof setup>) => a.requests.filter((r) => r.method === 'POST' && r.path.startsWith('/api/filters/f')).map((r) => r.path.replace('/api/filters/', ''));
+  const submitChecklist = () => fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
+  const okRoutes = (id = 'f1') => [
+    { method: 'POST', path: `/api/filters/${id}/start-cycle`, status: 201, body: { id: `c-${id}` } },
+    { method: 'POST', path: `/api/filters/${id}/submit-checklist`, body: { currentState: null, actions: [] } },
+    { method: 'POST', path: `/api/filters/${id}/advance`, body: { currentState: 'STORAGE_IN', actions: [] } },
+  ];
+
+  it('asks it FIRST (nothing written), then start-cycle → submit-checklist → advance, in that order', async () => {
+    const a = setup({ state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']), routes: [{ path: '/api/checklist-profiles', body: { data: [CL1, CL2] } }, ...okRoutes()] });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart();
+    await answerYes();
+    expect(order(a)).toEqual([]);
+    submitChecklist();
+    await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
+    expect(posts(a, 'submit-checklist')[0].json).toMatchObject({ answers: { q1: 'Yes' }, expectedProfileVersions: { cl1: 3 } });
+    expect(posts(a, 'advance')[0].json).toMatchObject({ targetState: 'STORAGE_IN' });
+    expect(await screen.findByText(/1 filter\(s\) → Storage In/)).toBeInTheDocument();
+  });
+
+  it('cancelling it writes nothing', async () => {
+    const a = setup({ state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']), routes: [{ path: '/api/checklist-profiles', body: { data: [CL1] } }, ...okRoutes()] });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart();
+    await answerYes();
+    fireEvent.click(within(screen.getByRole('button', { name: /Submit Checklist/ }).parentElement as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    await settle();
+    expect(screen.queryByText('Checklist Required')).toBeNull();
+    expect(order(a)).toEqual([]);
+  });
+
+  it('a mixed batch: the filter without one starts and enters now; the other is asked, then started', async () => {
+    const a = two({ f1: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']), f2: startGraph(null, ['STORAGE_IN', 'STORAGE_OUT']) }, [...okRoutes('f1'), ...okRoutes('f2')]);
+    await scanAndSubmit(a, 'STORAGE_IN', undefined, ['F-001', 'F-002']);
+    await pickReasonAndStart();
+    await answerYes();
+    expect(order(a)).toEqual(['f2/start-cycle', 'f2/advance']);
+    submitChecklist();
+    await waitFor(() => expect(order(a)).toEqual(['f2/start-cycle', 'f2/advance', 'f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
+  });
+
+  it('the first stage is also the last, with a checklist after it: the START checklist, then the last one, never a compound start', async () => {
+    const a = setup({
+      state: startGraph('cl2', ['STORAGE_OUT'], 'cl1'),
+      routes: [
+        { path: '/api/checklist-profiles', body: { data: [CL1, CL2] } },
+        ...okRoutes(),
+        { method: 'POST', path: '/api/filters/f1/advance-with-checklist', body: DONE },
+      ],
+    });
+    await scanAndSubmit(a, 'STORAGE_OUT');
+    await pickReasonAndStart();
+    expect(await screen.findByText('Other check')).toBeInTheDocument();
+    await answerYes();
+    submitChecklist();
+    await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist']));
+    expect(await screen.findByText('Release check')).toBeInTheDocument();
+    await answerYes();
+    submitChecklist();
+    await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist', 'f1/advance-with-checklist']));
+    expect(posts(a, 'submit-checklist')[0].json.answers).toEqual({ q2: 'Yes' });
+    expect(posts(a, 'advance-with-checklist')[0].json).toMatchObject({ targetState: 'STORAGE_OUT', answers: { q1: 'Yes' } });
+  });
+
+  it('the start answers "an earlier PM is pending": asked once, the start retried with the reasons, then the checklist and the advance', async () => {
+    const PM_TASK = { entryId: 'pm1', ahuName: 'AHU-01', plannedDate: '2026-09-15', windowStart: '2026-09-10', windowEnd: '2026-09-20', overdueDays: 31 };
+    const a = setup({
+      state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']),
+      routes: [
+        { path: '/api/checklist-profiles', body: { data: [CL1] } },
+        { method: 'POST', path: '/api/filters/f1/start-cycle', status: 409, times: 1, body: { error: 'PM_PREVIOUS_TASK_PENDING', message: 'An earlier PM is pending', details: { pendingPmTasks: [PM_TASK], minReasonLength: 5 } } },
+        ...okRoutes(),
+      ],
+    });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart();
+    await answerYes();
+    submitChecklist();
+    fireEvent.change(await screen.findByPlaceholderText('Why was this scheduled cleaning not done?'), { target: { value: 'Plant shutdown in Sept' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save reasons & start cleaning' }));
+    await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
+    expect(posts(a, 'start-cycle')[1].json.pmSkips).toEqual([{ entryId: 'pm1', reason: 'Plant shutdown in Sept' }]);
+  });
+
+  it('ONE signature covers the start, the checklist and the entry', async () => {
+    const a = setup({
+      state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']),
+      reauthActions: ['START_CLEANING_CYCLE', 'ADVANCE_FILTER_STAGE'],
+      routes: [{ path: '/api/checklist-profiles', body: { data: [CL1] } }, { method: 'POST', path: '/api/auth/verify', body: { success: true } }, ...okRoutes()],
+    });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart(); // nothing is written here, so nothing is signed here
+    expect(screen.queryByPlaceholderText('Enter your password')).toBeNull();
+    await answerYes();
+    submitChecklist();
+    await passReauth();
+    await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
+    expect(screen.queryByPlaceholderText('Enter your password')).toBeNull(); // not asked a second time
+    for (const kind of ['start-cycle', 'submit-checklist', 'advance']) expectSigned(posts(a, kind)[0]);
   });
 });

@@ -9,6 +9,8 @@ import {
   splitNewCycleBatch,
   splitUnread,
   leftInQueueMessage,
+  startChecklistProfileIds,
+  planStartChecklistBatch,
 } from '../batch-plan';
 
 const GA = { id: 'ga', name: 'Bay A', instruments: [{ id: 'i1', stageKey: 'WASH_IN' }] };
@@ -166,5 +168,64 @@ describe('leftInQueueMessage', () => {
   it('names each filter and why', () => {
     expect(leftInQueueMessage([])).toBe('');
     expect(leftInQueueMessage([{ item: item(2), note: 'why' }])).toBe('Left in the queue — submit separately:\nF-002: why');
+  });
+});
+
+describe('planFinalStageBatch — a final Dry In (2026-10-22: its work ends with the readings)', () => {
+  const finalDryIn = {
+    stageLookup: { DRY_IN: { nextStages: [], leadsToEnd: true, pendingChecklistProfileIds: ['cl1'], interlockGated: false } },
+    disabledChecklistProfileIds: [],
+  };
+  const resolve = async () => [CL('cl1')];
+
+  it('the ENTRY (SET_DURATION) never carries the checklist: the dryer start finishes no stage', async () => {
+    const p = await planFinalStageBatch([item(1)], 'DRY_IN', of({ f1: finalDryIn }), resolve, { dryerAction: 'SET_DURATION' });
+    expect(p).toMatchObject({ plain: [item(1)], carry: [] });
+  });
+
+  it('the READINGS (SUBMIT_READINGS) carry it: they complete the cycle', async () => {
+    const p = await planFinalStageBatch([item(1)], 'DRY_IN', of({ f1: finalDryIn }), resolve, { dryerAction: 'SUBMIT_READINGS' });
+    expect(p).toMatchObject({ plain: [], carry: [item(1)], checklists: [CL('cl1')] });
+  });
+});
+
+// START → [CL…] → first stage: the checklists before the first stage (2026-10-22)
+const withStart = (ids: Array<string | null>, disabled: string[] = []) => {
+  const stages: any[] = [{ id: 'n-start', nodeType: 'START' }];
+  const connections: any[] = [];
+  let prev = 'n-start';
+  ids.forEach((id, i) => {
+    stages.push({ id: `n-cl${i}`, nodeType: 'CHECKLIST', configuration: id ? { checklistProfileId: id } : {} });
+    connections.push({ fromStageId: prev, toStageId: `n-cl${i}` });
+    prev = `n-cl${i}`;
+  });
+  stages.push({ id: 'n-a', nodeType: 'STAGE', stateKey: 'WASH_IN' }, { id: 'n-cl-after', nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'after' } }, { id: 'n-end', nodeType: 'END' });
+  connections.push({ fromStageId: prev, toStageId: 'n-a' }, { fromStageId: 'n-a', toStageId: 'n-cl-after' }, { fromStageId: 'n-cl-after', toStageId: 'n-end' });
+  return { pipelineGraph: { stages, connections }, disabledChecklistProfileIds: disabled };
+};
+
+describe('startChecklistProfileIds', () => {
+  it('the enabled checklists between START and the first stage — none after it', () => {
+    expect(startChecklistProfileIds(withStart(['s1', 's2']))).toEqual(['s1', 's2']);
+    expect(startChecklistProfileIds(withStart(['s1', 's2'], ['s1']))).toEqual(['s2']);
+    expect(startChecklistProfileIds(withStart([]))).toEqual([]);
+    expect(startChecklistProfileIds(withStart([null]))).toEqual([]);
+    expect(startChecklistProfileIds({})).toEqual([]);
+    expect(startChecklistProfileIds(null)).toEqual([]);
+  });
+});
+
+describe('planStartChecklistBatch', () => {
+  it('no START checklist / the largest group sharing one / a different one or an unloadable one stays out', async () => {
+    const states = { f1: withStart(['s1']), f2: withStart([]), f3: withStart(['s2']), f4: withStart(['s1']), f5: withStart(['s3']) };
+    const rows: Record<string, any[]> = { f1: [CL('s1')], f3: [CL('s2')], f4: [CL('s1')], f5: [] };
+    const p = await planStartChecklistBatch([item(1), item(2), item(3), item(4), item(5)], of(states), async (id) => rows[id] ?? []);
+    expect(p.none).toEqual([item(2)]);
+    expect(p.ask).toEqual([item(1), item(4)]);
+    expect(p.checklists).toEqual([CL('s1')]);
+    expect(p.left).toEqual([
+      { item: item(5), note: 'its first checklist could not be loaded — reconnect, then submit it again' },
+      { item: item(3), note: 'its profile asks a different first checklist' },
+    ]);
   });
 });

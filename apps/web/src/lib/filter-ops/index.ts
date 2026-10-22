@@ -53,5 +53,8 @@ export {
   splitNewCycleBatch,
   splitUnread,
   leftInQueueMessage,
+  startChecklistProfileIds,
+  planStartChecklistBatch,
 } from './batch-plan';
-export type { BatchItem, LeftItem, FinalStagePlan } from './batch-plan';
+export type { BatchItem, LeftItem, FinalStagePlan, StartChecklistPlan } from './batch-plan';
+export { resolveStartChecklists } from './start-checklist';

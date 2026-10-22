@@ -5,6 +5,7 @@ import { apiClient } from '../../lib/api-client';
 import { useReauth } from '../../hooks/use-reauth';
 import { withStageAction, signOnce } from '../../lib/stage-reauth';
 import { isReauthError } from '../../lib/report-export-log';
+import { callCompletesStageWork } from '@digilog/shared';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { StageScanDialog } from './components/stage-scan-dialog';
@@ -47,6 +48,8 @@ import {
   splitUnread,
   planFinalStageBatch,
   planPendingChecklistBatch,
+  planStartChecklistBatch,
+  resolveStartChecklists,
   leftInQueueMessage,
   type BatchItem,
   type FinalStagePlan,
@@ -67,6 +70,30 @@ import { AhuSetChooserDialog, type FilterSetChoice } from './components/ahu-set-
 import { PmPendingTasksDialog, type PendingPmTask } from '@/components/pm-pending-tasks-dialog';
 
 const CLEANING_STAGES = CLEANING_STAGES_OPS;
+
+/** What a START checklist's submit needs to start the cycles and enter the first stage. */
+interface StartChecklistContext {
+  stage: typeof CLEANING_STAGES_OPS[0];
+  startBody: Record<string, unknown>;
+  blockId: string | undefined;
+  washInGroups: any[];
+  typedRemarks: string;
+  startDryer: Record<string, any>;
+}
+
+/** An amber, non-blocking notice listing the filters it is about. */
+function CycleNotice({ title, lines, note }: { title: string; lines: string[]; note: string }) {
+  return (
+    <div role="status" className="mx-4 mb-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+      <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+      <div className="text-sm text-amber-800">
+        <div className="font-semibold">{title}</div>
+        {lines.map(l => <div key={l}>{l}</div>)}
+        <div className="text-amber-700 mt-0.5">{note}</div>
+      </div>
+    </div>
+  );
+}
 
 export function FilterOperationsPage() {
   const navigate = useNavigate();
@@ -175,16 +202,14 @@ export function FilterOperationsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [popupError, setPopupError] = useState('');
-  // B7.4 (2026-05-02): advisory shown when admin edited the cycle's pinned
-  // EquipmentGroup mid-cycle. Persistent (no auto-clear) — operator can keep
-  // working on the pinned ranges, but should know the live group has moved.
-  // Cleared on closeDialog / clearScanState / stage change.
-  const [equipmentGroupSyncWarning, setEquipmentGroupSyncWarning] = useState<{
-    groupId: string;
-    pinnedVersion: number;
-    liveVersion: number;
-    recommendation: 'CONTINUE_OR_TERMINATE_AND_RESTART';
-  } | null>(null);
+  // A running cycle finishes on the profile it started with, and its readings
+  // validate against the equipment-group version it started with (CLAUDE.md;
+  // B.10 / B7.4). When the admin has changed either since, the operator is TOLD,
+  // per filter — never stopped. Until 2026-10-22 a changed profile BLOCKED the
+  // desktop batch, and the group notice was cleared by the very submit that set
+  // it (clearScanState), so it was never seen. Shown until the next submit, a
+  // block change or leaving the stage.
+  const [cycleNotices, setCycleNotices] = useState<{ profile: string[]; group: string[] } | null>(null);
   // Stage interlock — when the current stage (Wash Out / Dry Out) is awaiting QA
   // approval, the server drops the advance action from the tape; this surfaces WHY.
   const [interlock, setInterlock] = useState<{
@@ -214,6 +239,10 @@ export function FilterOperationsPage() {
   // handlers read the cleared field and recorded the default remark instead of
   // the operator's.
   const batchRemarksRef = useRef('');
+  // A checklist BEFORE the first stage on the open checklist dialog (2026-10-22):
+  // nothing is written yet; its submit starts each cycle, answers it at START and
+  // enters the first stage. Cleared when that dialog closes or is submitted.
+  const startChecklistRef = useRef<StartChecklistContext | null>(null);
 
   // ─── Dialog state — owned by useFilterOperationsCore (D1/D2/D4 Day 4) ───
   // The six imperative useState hooks below are replaced by compat aliases
@@ -393,19 +422,18 @@ export function FilterOperationsPage() {
   };
 
   const handleBlockSelect = (block: any) => {
-    // B7.4 follow-up (Issue #1): clear stale advisory when switching blocks
-    // intra-stage. The equipmentGroupSyncWarning was bound to the previously
-    // scanned filter on the previously selected block; once the operator
-    // moves to a different block it no longer applies and would leak onto
-    // the next scan view until the next current-state response replaces it.
-    setEquipmentGroupSyncWarning(null);
+    // B7.4 follow-up (Issue #1): clear stale notices when switching blocks
+    // intra-stage. They were bound to the filters scanned on the previously
+    // selected block; once the operator moves to a different block they no
+    // longer apply and would leak onto the next scan view.
+    setCycleNotices(null);
     setSelectedBlock(block);
     setStep('scan');
   };
 
   // Clear scan state without navigating (used when handing off to sub-dialogs)
   const clearScanState = () => {
-    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setSelectedQueueIds(new Set()); setEquipmentGroupSyncWarning(null);
+    setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setSelectedQueueIds(new Set());
   };
   // Drop only the rows that were just submitted; unticked rows stay queued.
   const dropFromQueue = (ids: string[]) => {
@@ -466,7 +494,7 @@ export function FilterOperationsPage() {
   };
   // Close stage screen and go back to landing
   const closeDialog = () => {
-    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setEquipmentGroupSyncWarning(null);
+    setActiveStage(null); setSelectedBlock(null); setScanValue(''); setRemarks(''); setError(''); setScanQueue([]); setCycleNotices(null);
     core.dispatch({ type: 'close' });
     navigate('/filters');
   };
@@ -480,7 +508,7 @@ export function FilterOperationsPage() {
     const stage = CLEANING_STAGES.find(s => s.key === urlStageKey);
     if (!stage) { navigate('/filters'); return; }
     setActiveStage(stage);
-    setError(''); setScanValue(''); setRemarks(''); setEquipmentGroupSyncWarning(null);
+    setError(''); setScanValue(''); setRemarks(''); setCycleNotices(null);
     if (stage.needsBlock) { setStep('block'); setSelectedBlock(null); }
     else { setStep('scan'); setSelectedBlock(null); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -580,8 +608,9 @@ export function FilterOperationsPage() {
     batch: Array<{ filterId: string; filterName: string }>,
     extraBody: Record<string, any>,
     overrideTargetState?: string,
-    // The caller already ran ONE AHU pre-flight over this batch and more.
-    opts: { ahuGated?: boolean } = {},
+    // ahuGated: the caller already ran ONE AHU pre-flight over this batch and more.
+    // signed: the caller's signature already covers ADVANCE_FILTER_STAGE + the station.
+    opts: { ahuGated?: boolean; signed?: { password?: string } } = {},
   ): Promise<'done' | 'dialog' | 'stopped'> => {
     if (!activeStage) return 'stopped';
     const stageLabel = activeStage.label;
@@ -598,7 +627,9 @@ export function FilterOperationsPage() {
     ) return 'stopped';
     // Sign ONCE for the whole batch (2026-09-24): ADVANCE_FILTER_STAGE and the
     // station row can be switched on; the password is forwarded per filter.
-    const sig = await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], overrideTargetState ?? activeStage.key));
+    const sig = opts.signed
+      ? { ok: true as const, password: opts.signed.password }
+      : await signOnce(reauth, withStageAction(['ADVANCE_FILTER_STAGE'], overrideTargetState ?? activeStage.key));
     if (!sig.ok) return 'stopped';
     let dialogOpened = false;
     let success = 0;
@@ -704,6 +735,7 @@ export function FilterOperationsPage() {
     if (batchQueue.length === 0 || !activeStage || submitting) return;
     setLoading(true); setSubmitting(true); setError('');
     batchRemarksRef.current = remarks;
+    setCycleNotices(null);
     try {
       // Try to inspect first filter's state to decide which dialog to show.
       // When offline, skip state inspection and queue the advance directly.
@@ -767,10 +799,6 @@ export function FilterOperationsPage() {
         }
       }
 
-      // B7.4 (2026-05-02): surface the equipmentGroupSyncWarning advisory if
-      // the server reported one. Online responses include it; offline-built
-      // state does not, so this clears any stale value when offline.
-      setEquipmentGroupSyncWarning(state.equipmentGroupSyncWarning ?? null);
       // Stage interlock state (online responses only; offline state omits it).
       setInterlock(state.interlock ?? null);
 
@@ -851,18 +879,6 @@ export function FilterOperationsPage() {
         return;
       }
 
-      // B.10 — stale profile detection on desktop too. Cycle bound to a profile
-      // that no longer matches the live block-assignment → block advance and
-      // tell the operator to terminate-and-restart.
-      if (state.profileSyncWarning) {
-        const w = state.profileSyncWarning;
-        setPopupError(
-          `${first.filterName}: active cycle is on profile "${w.cycleProfileName ?? w.cycleProfileId}", but the live profile for this block is "${w.expectedProfileName ?? w.expectedProfileId}". Terminate the current cycle and rescan to start fresh.`
-        );
-        setLoading(false); setSubmitting(false);
-        return;
-      }
-
       // DRY_IN: if temperature already recorded, direct user to Dry Out stage
       // (runs BEFORE generic nextAllowed check so the user gets a clear instruction
       // instead of the confusing "is at DRY IN. Next allowed: Dry Out")
@@ -889,6 +905,21 @@ export function FilterOperationsPage() {
       // decided per filter (lib/filter-ops/batch-plan). The others stay queued.
       const states = await loadBatchStates(batchQueue, state, csQuery);
       const stateOf = (filterId: string) => states.get(filterId) ?? null;
+      {
+        // A cycle whose profile or equipment group changed since it started
+        // goes on as it started; say so, per filter (see cycleNotices).
+        const profile: string[] = [];
+        const group: string[] = [];
+        for (const q of batchQueue) {
+          const st = stateOf(q.filterId);
+          if (!st?.currentCycle) continue;
+          const ps = st.profileSyncWarning;
+          if (ps) profile.push(`${q.filterName}: running on "${ps.cycleProfileName ?? ps.cycleProfileId}"; this block now uses "${ps.expectedProfileName ?? ps.expectedProfileId}"`);
+          const eg = st.equipmentGroupSyncWarning;
+          if (eg) group.push(`${q.filterName}: group updated v${eg.pinnedVersion} → v${eg.liveVersion}`);
+        }
+        setCycleNotices(profile.length > 0 || group.length > 0 ? { profile, group } : null);
+      }
 
       // Phase 8.7 Wave-5: shared checklist-dialog resolver. Pass the resolved
       // tape from the offline-gate computation above so we don't recompute it.
@@ -985,11 +1016,11 @@ export function FilterOperationsPage() {
           return;
         }
 
-        if (groupChoice.groups.length > 0) {
+        if (groupChoice.groups.some((g: any) => groupHasStageInstruments(g, 'DRY_IN'))) {
           // Step 2: shared temperature/readings dialog — for the filters whose
           // readings go to the SAME group (2026-10-22): a cycle bound to another
           // group, or one that needs its own choice, is not sent this one.
-          const split = splitByReadings(batchQueue, stateOf, null);
+          const split = splitByReadings(batchQueue, stateOf, 'DRY_IN');
           const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
           setPendingBatch(batch);
           clearScanState();
@@ -999,6 +1030,26 @@ export function FilterOperationsPage() {
           setLoading(false); setSubmitting(false);
           return;
         }
+
+        // Step 2 with nothing to read — no group, or no Dry In instrument in it:
+        // the readings step is still the step that finishes Dry In, sent with no
+        // readings (the server accepts that). Desktop sent a bare advance into
+        // Dry In instead, which goes nowhere (2026-10-22). At a FINAL Dry In the
+        // checklist after it rides on this call (advanceIntoStage).
+        const split = splitByReadings(batchQueue, stateOf, 'DRY_IN');
+        const batch = split.ride.map(q => ({ filterId: q.filterId, filterName: q.filterName }));
+        const { outcome, left } = await advanceIntoStage(batch, 'DRY_IN', {
+          targetState: 'DRY_IN',
+          dryerAction: 'SUBMIT_READINGS',
+          cleaningAreaId: selectedBlock?.id,
+          ...(remarks ? { remarks } : {}),
+        }, stateOf, (plain, opts) => advanceBatch(plain, { dryerAction: 'SUBMIT_READINGS' }, 'DRY_IN', opts));
+        if (outcome !== 'stopped') {
+          clearScanState();
+          keepQueued([...split.left, ...left]);
+        }
+        setLoading(false); setSubmitting(false);
+        return;
       }
 
       // Check if the equipment group (or, when the operator must choose, any group
@@ -1116,35 +1167,55 @@ export function FilterOperationsPage() {
     // (A-01, CHECKLIST_REQUIRED) — a cycle started at no stage. Ask the checklist
     // FIRST and write start + advance + answers as ONE queued op
     // (start-and-advance-with-checklist), like the tablet. Per filter: a batch may
-    // mix profiles. Not for Dry In (a profile ending at Dry In is with the
-    // operator) nor a Wash In whose readings dialog follows the start.
-    let batch: BatchItem[] = pendingBatch;
+    // mix profiles. Not a Wash In whose readings dialog follows the start. A
+    // start INTO Dry In never carries it: the entry (the dryer start) finishes
+    // no stage — its readings do, later (the shared rule decides).
+    const startDryer = dryerFieldsForStart(stage.key);
+    const stateOf = await cachedStatesOf(pendingBatch);
+    // A checklist BEFORE the first stage (2026-10-22) is asked FIRST — nothing is
+    // written until it is answered — then each cycle is started, the checklist
+    // answered at START and the first stage entered (openStartChecklist). Never
+    // the compound start-and-advance for such a filter: an offline replay would
+    // skip the START checklist silently. One dialog per distinct START checklist.
+    const startPlan = await planStartChecklistBatch(pendingBatch, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
+    keepQueued(startPlan.left);
+    let askStart: { ask: BatchItem[]; checklists: PendingChecklist[] } | null =
+      startPlan.ask.length > 0 ? { ask: startPlan.ask, checklists: startPlan.checklists } : null;
+    let batch: BatchItem[] = startPlan.none;
     let parkAfter: { carry: BatchItem[]; checklists: PendingChecklist[] } | null = null;
-    if (stage.key !== 'DRY_IN' && washInGroups.length === 0) {
-      const stateOf = await cachedStatesOf(pendingBatch);
-      const plan = await planFinalStageBatch(pendingBatch, stage.key, stateOf, (id) => resolveChecklistForTargetStage(id, stage.key, online));
+    if (washInGroups.length === 0) {
+      const plan = await planFinalStageBatch(startPlan.none, stage.key, stateOf, (id) => resolveChecklistForTargetStage(id, stage.key, online), { dryerAction: startDryer.dryerAction ?? null });
       keepQueued(plan.left);
       batch = plan.plain;
       if (plan.carry.length > 0) {
-        if ((await gateAhuForFinalStage(plan, stage.key, stateOf)) === 'blocked') {
+        if ((await gateAhuForFinalStage(plan, stage.key, stateOf, startDryer.dryerAction ?? null)) === 'blocked') {
           setLoading(false); setSubmitting(false);
           return;
         }
         parkAfter = { carry: plan.carry, checklists: plan.checklists };
       }
     }
-    const parkedAdvance = { targetState: stage.key, cleaningAreaId: blockId, ...(typedRemarks ? { remarks: typedRemarks } : {}) };
+    const parkedAdvance = { targetState: stage.key, cleaningAreaId: blockId, ...(typedRemarks ? { remarks: typedRemarks } : {}), ...startDryer };
+    // One dialog after the plain starts: a START checklist group waits for its
+    // own submit when a final-stage checklist group already takes the dialog.
+    if (askStart && parkAfter) {
+      keepQueued(askStart.ask.map(item => ({ item, note: 'its first checklist is asked on its own — submit it again' })));
+      askStart = null;
+    }
+    const startCtx: StartChecklistContext = { stage, startBody, blockId, washInGroups, typedRemarks, startDryer };
     if (batch.length === 0) {
       // Nothing starts without its checklist: open it, nothing is written yet.
       if (parkAfter) openParkedChecklist(parkAfter.carry, parkAfter.checklists, stage.key, parkedAdvance, startBody);
+      else if (askStart) openStartChecklist(askStart.ask, askStart.checklists, startCtx);
       else { core.dispatch({ type: 'close' }); setPendingBatch(null); }
       setLoading(false); setSubmitting(false);
       return;
     }
     // The checklist group waits for the plain starts; if they stop part-way it
-    // stays queued, named, for its own submit.
+    // stays queued, named, for its own submit (nothing of it is written).
     const requeueParked = () => {
-      if (parkAfter) keepQueued(parkAfter.carry.map(item => ({ item, note: 'its checklist was not asked — submit it again' })));
+      const waiting = parkAfter?.carry ?? askStart?.ask ?? [];
+      keepQueued(waiting.map(item => ({ item, note: 'its checklist was not asked — submit it again' })));
     };
     // + the station row of the first stage (2026-09-24).
     await reauth.execute(withStageAction(['START_CLEANING_CYCLE'], stage.key), async (password?) => {
@@ -1285,6 +1356,7 @@ export function FilterOperationsPage() {
       else setToast({ type: 'success', message: `${success} filter(s) → ${stage.label}` });
       // Then the filters whose START waits on its checklist: nothing written yet.
       if (parkAfter) openParkedChecklist(parkAfter.carry, parkAfter.checklists, stage.key, parkedAdvance, startBody);
+      else if (askStart) openStartChecklist(askStart.ask, askStart.checklists, startCtx);
     }, {
       onError: (e: unknown) => { setReasonError((e as any)?.message ?? 'Failed'); setPopupError((e as any)?.message ?? 'Failed'); },
       // A dismissed password prompt is not a failure: the reason dialog stays for a retry, nothing is shown.
@@ -1462,11 +1534,11 @@ export function FilterOperationsPage() {
     // The readings as bare advances for `items`. 'dialog' = a block-change dialog
     // replaced this one; 'stopped' = nothing sent (AHU pre-flight or signature).
     const sendReadings = async (items: BatchItem[], opts: { ahuGated: boolean }): Promise<'done' | 'dialog' | 'stopped'> => {
-      // Readings that COMPLETE the cycle (the last stage, no checklist after it)
-      // had no AHU pre-flight on this path, so POPUP never warned there (2026-10-22).
-      // Dry In readings are an in-place dryer step, never a completion.
+      // Readings that COMPLETE the cycle (the last stage — a final Dry In's readings
+      // too — with no checklist after it) had no AHU pre-flight on this path, so
+      // POPUP never warned there (2026-10-22).
       if (
-        !isDryerReadings && !opts.ahuGated &&
+        !opts.ahuGated &&
         (await gateAhuBeforeCompletingAdvance(items.map(b => b.filterId), stage.key)) === 'blocked'
       ) return 'stopped';
       let success = 0; const failed: string[] = [];
@@ -1544,22 +1616,19 @@ export function FilterOperationsPage() {
       return blockChangePopped ? 'dialog' : 'done';
     };
 
-    if (isDryerReadings) {
-      await sendReadings(batch, { ahuGated: false });
-    } else {
-      // Readings INTO the last stage with a checklist after it (A-01): the
-      // readings ride on the parked advance and go with the checklist in one call,
-      // per filter (advanceIntoStage). (The Dry In readings are an in-place dryer
-      // step, not an entry into a stage.)
-      const { left } = await advanceIntoStage(batch, stage.key, {
-        targetState: stage.key,
-        cleaningAreaId: blockId,
-        equipmentGroupId: groupId,
-        instrumentReadings: readings,
-        ...(typedRemarks ? { remarks: typedRemarks } : {}),
-      }, await cachedStatesOf(batch), sendReadings);
-      keepQueued(left);
-    }
+    // Readings INTO the last stage with a checklist after it (A-01) — or the
+    // readings that finish a FINAL Dry In with one after it (2026-10-22) — ride on
+    // the parked call and go with the checklist in one advance-with-checklist, per
+    // filter (advanceIntoStage). The Dry In readings are an in-place step at Dry In.
+    const { left } = await advanceIntoStage(batch, isDryerReadings ? 'DRY_IN' : stage.key, {
+      targetState: isDryerReadings ? 'DRY_IN' : stage.key,
+      ...(isDryerReadings ? { dryerAction: 'SUBMIT_READINGS' } : {}),
+      cleaningAreaId: blockId,
+      equipmentGroupId: groupId,
+      instrumentReadings: readings,
+      ...(typedRemarks ? { remarks: typedRemarks } : {}),
+    }, await cachedStatesOf(batch), sendReadings);
+    keepQueued(left);
     setEquipmentLoading(false);
   };
 
@@ -1709,12 +1778,13 @@ export function FilterOperationsPage() {
     stateOf: (filterId: string) => any,
     sendPlain: (plain: BatchItem[], opts: { ahuGated: boolean }) => Promise<'done' | 'dialog' | 'stopped'>,
   ): Promise<{ outcome: 'done' | 'parked' | 'dialog' | 'stopped'; left: LeftItem[] }> => {
-    const plan = await planFinalStageBatch(batch, targetState, stateOf, (id) => resolveChecklistForTargetStage(id, targetState, online));
+    const dryerAction = (payload.dryerAction as string | undefined) ?? null;
+    const plan = await planFinalStageBatch(batch, targetState, stateOf, (id) => resolveChecklistForTargetStage(id, targetState, online), { dryerAction });
     if (plan.carry.length === 0) {
       const sent = plan.plain.length > 0 ? await sendPlain(plan.plain, { ahuGated: false }) : 'done';
       return { outcome: sent, left: plan.left };
     }
-    if ((await gateAhuForFinalStage(plan, targetState, stateOf)) === 'blocked') return { outcome: 'stopped', left: [] };
+    if ((await gateAhuForFinalStage(plan, targetState, stateOf, dryerAction)) === 'blocked') return { outcome: 'stopped', left: [] };
     if (plan.plain.length > 0) {
       const sent = await sendPlain(plan.plain, { ahuGated: true });
       if (sent === 'stopped') return { outcome: 'stopped', left: [] };
@@ -1731,10 +1801,14 @@ export function FilterOperationsPage() {
     plan: Pick<FinalStagePlan<BatchItem>, 'plain' | 'carry'>,
     targetState: string,
     stateOf: (filterId: string) => any,
+    dryerAction: string | null = null,
   ): Promise<'proceed' | 'blocked'> => {
     ahuSetChoiceRef.current = null;
     if (ahuMode === 'NONE') return 'proceed';
-    const completing = plan.plain.filter(p => isCompletingAdvance(targetState, stateOf(p.filterId)?.stageLookup));
+    // Entering a final Dry In (the dryer start) completes nothing; its readings do.
+    const completing = callCompletesStageWork(targetState, dryerAction)
+      ? plan.plain.filter(p => isCompletingAdvance(targetState, stateOf(p.filterId)?.stageLookup))
+      : [];
     const ids = [...plan.carry, ...completing].map(b => b.filterId);
     return ids.length > 0 ? runAhuGate(ids) : 'proceed';
   };
@@ -1765,6 +1839,45 @@ export function FilterOperationsPage() {
       },
     });
     setChecklistError('');
+  };
+
+  /** Open a START checklist for `ask`: nothing written until it is submitted. */
+  const openStartChecklist = (ask: BatchItem[], checklists: PendingChecklist[], ctx: StartChecklistContext) => {
+    const batch = ask.map(c => ({ filterId: c.filterId, filterName: c.filterName }));
+    startChecklistRef.current = ctx;
+    setPendingBatch(batch);
+    core.dispatch({ type: 'open_checklist', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, checklists });
+    setChecklistError('');
+  };
+
+  /**
+   * After a START checklist: enter the first stage, as a start without one does
+   * (readings dialog at a Wash In with groups; the final-stage checklist carried
+   * when it is also the last stage). Already signed by the START checklist submit.
+   */
+  const enterFirstStage = async (ready: BatchItem[], ctx: StartChecklistContext, password: string | undefined) => {
+    if (ctx.washInGroups.length > 0) {
+      setPendingBatch(ready.map(r => ({ filterId: r.filterId, filterName: r.filterName })));
+      core.dispatch({ type: 'open_equipment', filterId: ready[0].filterId, filterName: `${ready.length} filter(s)`, stage: ctx.stage.key, groups: ctx.washInGroups });
+      setEquipmentError('');
+      return;
+    }
+    const remarkBody = ctx.typedRemarks ? { remarks: ctx.typedRemarks } : {};
+    const { left } = await advanceIntoStage(ready, ctx.stage.key, {
+      targetState: ctx.stage.key,
+      cleaningAreaId: ctx.blockId,
+      ...remarkBody,
+      ...ctx.startDryer,
+    }, await cachedStatesOf(ready), (plain, opts) => advanceBatch(plain, { ...ctx.startDryer, ...remarkBody }, ctx.stage.key, { ...opts, signed: { password } }));
+    keepQueued(left);
+    // A Dry In START: the dryer runs from this moment (as the plain start path).
+    if (ctx.stage.key === 'DRY_IN') await primeDryerCacheForBatch(ready, dryerBatchDuration, ctx.blockId);
+  };
+
+  /** Closing the checklist discards what waits on it (nothing of it was written). */
+  const closeChecklistDialog = () => {
+    startChecklistRef.current = null;
+    core.dispatch({ type: 'close' });
   };
 
   /** The cached state rows of a dialog's batch (loadBatchStates cached them at submit). */
@@ -1815,11 +1928,56 @@ export function FilterOperationsPage() {
       ? core.dialogState.deferredAdvance ?? null
       : null;
     const parkedLabel = parked ? (CLEANING_STAGES.find(s => s.key === parked.targetState)?.label ?? parked.targetState) : '';
+    // A START checklist: start + the answers + the first entry, signed once for all.
+    const startCl = !parked && pendingBatch && pendingBatch.length > 0 ? startChecklistRef.current : null;
     const signature = parked
       ? withStageAction([...(parked.cyclePayload ? ['START_CLEANING_CYCLE'] : []), 'ADVANCE_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'], parked.targetState)
+      : startCl
+      ? withStageAction(['START_CLEANING_CYCLE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE', 'ADVANCE_FILTER_STAGE'], startCl.stage.key)
       : 'SUBMIT_CHECKLIST_WITH_SIGNATURE';
 
     await reauth.execute(signature, async (password?: string) => {
+      // A START checklist: per filter start-cycle (held through the missed-PM
+      // question), the answers at START, then the first stage (enterFirstStage).
+      if (startCl && pendingBatch && pendingBatch.length > 0) {
+        const batch = pendingBatch;
+        const failed: string[] = [];
+        const ready: BatchItem[] = [];
+        pmSkipsForBatch.current = [];
+        for (const item of batch) {
+          try {
+            const startPayload = {
+              ...startCl.startBody,
+              acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId),
+              ...(pmSkipsForBatch.current.length > 0 ? { pmSkips: pmSkipsForBatch.current } : {}),
+            };
+            try {
+              await executeOrQueue('start-cycle', item.filterId, item.filterName, startPayload, undefined, password);
+            } catch (startErr: any) {
+              const code = startErr?.error ?? startErr?.code;
+              const pendingPm = startErr?.connectionInfo?.pendingPmTasks;
+              if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pendingPm) || pendingPm.length === 0) throw startErr;
+              const pmAnswers = await askPmSkipReasons(pendingPm, startErr?.connectionInfo?.minReasonLength ?? 5);
+              if (!pmAnswers) throw startErr; // cancelled — this filter does not start
+              pmSkipsForBatch.current = pmAnswers;
+              await executeOrQueue('start-cycle', item.filterId, item.filterName, { ...startPayload, pmSkips: pmAnswers }, undefined, password);
+            }
+            await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload, undefined, password);
+            ready.push(item);
+          } catch (e: any) {
+            if (isReauthError(e)) throw e;
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+          }
+        }
+        startChecklistRef.current = null;
+        core.dispatch({ type: 'close' });
+        setPendingBatch(null);
+        refreshFilters();
+        if (failed.length > 0) setPopupError(`${ready.length} started, ${failed.length} failed:\n${failed.join('\n')}`);
+        if (ready.length > 0) await enterFirstStage(ready, startCl, password);
+        return;
+      }
+
       // BATCH MODE: submit same answers for every filter in the snapshot
       if (pendingBatch && pendingBatch.length > 0) {
         const batch = pendingBatch;
@@ -2096,18 +2254,16 @@ export function FilterOperationsPage() {
             </div>
           </div>
         )}
-        {/* B7.4 (2026-05-02): equipmentGroupSyncWarning advisory — admin edited
-            the cycle's pinned EquipmentGroup mid-cycle. Persistent (no
-            auto-clear); operator may continue on the pinned ranges or
-            terminate-and-restart. */}
-        {equipmentGroupSyncWarning && (
-          <div className="mx-4 mb-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
-            <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            <span className="text-sm text-amber-800">
-              Equipment group has been updated by admin (you started on v{equipmentGroupSyncWarning.pinnedVersion}, current is v{equipmentGroupSyncWarning.liveVersion}). Your readings will continue to validate against the version you started with — terminate-and-restart only if you need the new ranges.
-            </span>
-          </div>
-        )}
+        {/* A cycle's profile / equipment group changed since it started: it goes
+            on as it started (cycleNotices). Information, never a stop. */}
+        {cycleNotices?.profile.length ? (
+          <CycleNotice title="Cleaning profile changed" lines={cycleNotices.profile}
+            note="A running cycle finishes on the profile it started with. Terminate and restart it only if it must follow the new profile." />
+        ) : null}
+        {cycleNotices?.group.length ? (
+          <CycleNotice title="Equipment group changed" lines={cycleNotices.group}
+            note="Readings keep validating against the version the cycle started with. Terminate and restart it only if it needs the new ranges." />
+        ) : null}
         <button onClick={closeDialog} className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
           <span>←</span> Back to Stages
         </button>
@@ -2128,10 +2284,10 @@ export function FilterOperationsPage() {
           onClearError={() => setError('')}
           onBlockSelect={handleBlockSelect}
           onChangeBlock={() => {
-            // B7.4 follow-up (Issue #1): clear stale advisory before
-            // returning to block-picker; otherwise the warning lingers
+            // B7.4 follow-up (Issue #1): clear stale notices before
+            // returning to block-picker; otherwise they linger
             // visually while operator selects a new block.
-            setEquipmentGroupSyncWarning(null);
+            setCycleNotices(null);
             setStep('block');
           }}
           onAddToQueue={handleAddToQueue}
@@ -2165,7 +2321,7 @@ export function FilterOperationsPage() {
         <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} defaultReasonKey={pmReasonCtx.defaultReasonKey} pmDue={pmReasonCtx.pmDue} />
         <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} online={online} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
-        <ChecklistDialog dialog={checklistDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
+        <ChecklistDialog dialog={checklistDialog} onClose={closeChecklistDialog} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
         <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel={reauth.pendingActionLabel ?? 'Filter Operation'} />
         <BlockChangeRequestDialog
           dialog={blockChangeDialog}
@@ -2320,10 +2476,10 @@ export function FilterOperationsPage() {
         onClearError={() => setError('')}
         onBlockSelect={handleBlockSelect}
         onChangeBlock={() => {
-          // B7.4 follow-up (Issue #1): clear stale advisory before
+          // B7.4 follow-up (Issue #1): clear stale notices before
           // returning to block-picker; mirror of the fullPage variant
           // above so both render paths behave identically.
-          setEquipmentGroupSyncWarning(null);
+          setCycleNotices(null);
           setStep('block');
         }}
         onAddToQueue={handleAddToQueue}
@@ -2373,7 +2529,7 @@ export function FilterOperationsPage() {
       {/* Checklist Dialog */}
       <ChecklistDialog
         dialog={checklistDialog}
-        onClose={() => core.dispatch({ type: 'close' })}
+        onClose={closeChecklistDialog}
         onSubmit={handleChecklistSubmit}
         loading={checklistLoading}
         error={checklistError}

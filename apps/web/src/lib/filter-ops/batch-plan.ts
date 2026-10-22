@@ -22,7 +22,12 @@
  *
  * Pure: the page fetches and caches the states, these decide.
  */
-import { advanceMustCarryChecklist } from '@digilog/shared';
+import {
+  advanceMustCarryChecklist,
+  checklistNodeProfileId,
+  collectChecklistsAfterStage,
+  enabledChecklistNodes,
+} from '@digilog/shared';
 import { equipmentGroupChoice, groupHasStageInstruments } from './equipment-group-choice';
 import type { PendingChecklist } from './types';
 
@@ -134,12 +139,17 @@ export interface FinalStagePlan<T extends BatchItem> {
  * A filter that must carry a checklist whose questions cannot be resolved goes
  * PLAIN: the server refuses that bare advance and the refusal is shown — never
  * a silent skip, never another filter's checklist.
+ *
+ * `dryerAction` is the call's: the checklist after a FINAL Dry In rides on the
+ * readings (SUBMIT_READINGS) that finish its work, never on the entry
+ * (SET_DURATION) — the server's rule, callCompletesStageWork (2026-10-22).
  */
 export async function planFinalStageBatch<T extends BatchItem>(
   batch: T[],
   targetState: string,
   stateOf: StateOf,
   resolveChecklists: (filterId: string) => Promise<PendingChecklist[]>,
+  call: { dryerAction?: string | null } = {},
 ): Promise<FinalStagePlan<T>> {
   const plain: T[] = [];
   const left: LeftItem<T>[] = [];
@@ -147,7 +157,10 @@ export async function planFinalStageBatch<T extends BatchItem>(
   for (const b of batch) {
     const st = stateOf(b.filterId);
     if (!st) { left.push({ item: b, note: UNKNOWN }); continue; }
-    if (!advanceMustCarryChecklist(st.stageLookup?.[targetState], st.disabledChecklistProfileIds)) { plain.push(b); continue; }
+    if (!advanceMustCarryChecklist(st.stageLookup?.[targetState], st.disabledChecklistProfileIds, { targetState, dryerAction: call.dryerAction ?? null })) {
+      plain.push(b);
+      continue;
+    }
     const checklists = await resolveChecklists(b.filterId);
     if (checklists.length === 0) { plain.push(b); continue; }
     carrying.push({ key: checklistSignature(checklists), item: { b, checklists } });
@@ -214,6 +227,59 @@ export function splitNewCycleBatch<T extends BatchItem>(
     ride.push(b);
   }
   return { ride, left };
+}
+
+/**
+ * The ENABLED checklists between START and the first stage (2026-10-22: START is a
+ * position; they are answered after start-cycle and gate the first entry). Read
+ * from the pipeline graph, which current-state carries before a cycle starts too.
+ */
+export function startChecklistProfileIds(state: any): string[] {
+  const g = state?.pipelineGraph;
+  if (!g?.stages || !g?.connections) return [];
+  const start = g.stages.find((s: any) => s.nodeType === 'START');
+  if (!start) return [];
+  const nodes = enabledChecklistNodes(collectChecklistsAfterStage(start, g.stages, g.connections), state?.disabledChecklistProfileIds);
+  return [...new Set(nodes.map(checklistNodeProfileId).filter((id): id is string => !!id))];
+}
+
+export interface StartChecklistPlan<T extends BatchItem> {
+  /** No checklist before the first stage: started and advanced as before. */
+  none: T[];
+  /** The largest group sharing ONE START checklist: asked first, nothing written until answered. */
+  ask: T[];
+  checklists: PendingChecklist[];
+  left: LeftItem<T>[];
+}
+
+/**
+ * A cycle START for profiles with a checklist before the first stage (2026-10-22).
+ * Dialog first, nothing written: one dialog per distinct START checklist (the
+ * largest group now; another stays queued). A filter whose START checklist cannot
+ * be loaded stays queued too — started without it, its first entry is refused and
+ * the cycle sits started at no stage.
+ */
+export async function planStartChecklistBatch<T extends BatchItem>(
+  batch: T[],
+  stateOf: StateOf,
+  resolveStart: (filterId: string) => Promise<PendingChecklist[]>,
+): Promise<StartChecklistPlan<T>> {
+  const none: T[] = [];
+  const left: LeftItem<T>[] = [];
+  const asking: Array<{ key: string; item: { b: T; checklists: PendingChecklist[] } }> = [];
+  for (const b of batch) {
+    const st = stateOf(b.filterId);
+    if (!st) { left.push({ item: b, note: UNKNOWN }); continue; }
+    if (startChecklistProfileIds(st).length === 0) { none.push(b); continue; }
+    const checklists = await resolveStart(b.filterId);
+    if (checklists.length === 0) { left.push({ item: b, note: 'its first checklist could not be loaded — reconnect, then submit it again' }); continue; }
+    asking.push({ key: checklistSignature(checklists), item: { b, checklists } });
+  }
+  const chosen = largestGroup(asking);
+  for (const a of asking) {
+    if (chosen && a.key !== chosen.key) left.push({ item: a.item.b, note: 'its profile asks a different first checklist' });
+  }
+  return { none, ask: chosen ? chosen.items.map((x) => x.b) : [], checklists: chosen ? chosen.items[0].checklists : [], left };
 }
 
 /** Where nothing else differs per filter: only a filter whose state could not be read stays out. */
