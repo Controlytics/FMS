@@ -673,4 +673,23 @@ describe('a checklist before the first stage', () => {
     await waitFor(() => expect(order(a)).toEqual(['f1/submit-checklist']));
     expect(posts(a, 'submit-checklist')[0].json).toMatchObject({ answers: { q1: 'Yes' } });
   });
+  it('the missed-PM question closed: the filter is not started, no checklist sent; said so', async () => {
+    const PM_TASK = { entryId: 'pm1', ahuName: 'AHU-01', plannedDate: '2026-09-15', windowStart: '2026-09-10', windowEnd: '2026-09-20', overdueDays: 31 };
+    const a = setup({
+      state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']),
+      routes: [
+        { path: '/api/checklist-profiles', body: { data: [CL1] } },
+        { method: 'POST', path: '/api/filters/f1/start-cycle', status: 409, body: { error: 'PM_PREVIOUS_TASK_PENDING', message: 'An earlier PM is pending', details: { pendingPmTasks: [PM_TASK], minReasonLength: 5 } } },
+      ],
+    });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart();
+    await answerYes();
+    submitChecklist();
+    await screen.findByPlaceholderText('Why was this scheduled cleaning not done?');
+    await settle();
+    fireEvent.click(within(screen.getByRole('button', { name: 'Save reasons & start cleaning' }).parentElement as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByText(/F-001: not started — the missed-PM question was closed/)).toBeInTheDocument();
+    expect(order(a)).toEqual(['f1/start-cycle']); // the refused start only
+  });
 });

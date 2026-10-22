@@ -1979,43 +1979,55 @@ export function FilterOperationsPage() {
 
     await reauth.execute(signature, async (password?: string) => {
       // A START checklist: per filter start-cycle (held through the missed-PM
-      // question), the answers at START, then the first stage (enterFirstStage).
+      // question), the answers at START — ONE implementation with the tablet,
+      // core.startWithStartChecklist (the answer only after a successful start;
+      // offline, the cached row gets the cycle at START and the answer logged) —
+      // then the first stage (enterFirstStage).
       if (startCl && pendingBatch && pendingBatch.length > 0) {
         const batch = pendingBatch;
         const failed: string[] = [];
         const ready: BatchItem[] = [];
+        const checklistProfileIds = (checklistDialog.checklists ?? []).map(c => c.checklistProfileId);
         pmSkipsForBatch.current = [];
         for (const item of batch) {
-          let started = false;
           try {
-            const startPayload = {
-              ...startCl.startBody,
-              acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId),
-              ...(pmSkipsForBatch.current.length > 0 ? { pmSkips: pmSkipsForBatch.current } : {}),
-            };
-            try {
-              await executeOrQueue('start-cycle', item.filterId, item.filterName, startPayload, undefined, password);
-            } catch (startErr: any) {
-              const code = startErr?.error ?? startErr?.code;
-              const pendingPm = startErr?.connectionInfo?.pendingPmTasks;
-              if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pendingPm) || pendingPm.length === 0) throw startErr;
-              const pmAnswers = await askPmSkipReasons(pendingPm, startErr?.connectionInfo?.minReasonLength ?? 5);
-              if (!pmAnswers) throw startErr; // cancelled — this filter does not start
-              pmSkipsForBatch.current = pmAnswers;
-              await executeOrQueue('start-cycle', item.filterId, item.filterName, { ...startPayload, pmSkips: pmAnswers }, undefined, password);
+            const out = await core.startWithStartChecklist({
+              filterId: item.filterId,
+              filterName: item.filterName,
+              cyclePayload: { ...startCl.startBody, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(item.filterId) },
+              checklistPayload: submitPayload,
+              checklistProfileIds,
+              cleaningAreaId: startCl.blockId ?? null,
+              password,
+              // The missed-PM question, asked at most once per batch: the answers
+              // ride on every later start.
+              runStart: async (start) => {
+                const carried = pmSkipsForBatch.current.length > 0 ? { pmSkips: pmSkipsForBatch.current } : {};
+                try {
+                  return await start(carried);
+                } catch (startErr: any) {
+                  const code = startErr?.error ?? startErr?.code;
+                  const pendingPm = startErr?.connectionInfo?.pendingPmTasks;
+                  if (code !== 'PM_PREVIOUS_TASK_PENDING' || !Array.isArray(pendingPm) || pendingPm.length === 0) throw startErr;
+                  const pmAnswers = await askPmSkipReasons(pendingPm, startErr?.connectionInfo?.minReasonLength ?? 5);
+                  if (!pmAnswers) return null; // closed — this filter does not start
+                  pmSkipsForBatch.current = pmAnswers;
+                  return await start({ pmSkips: pmAnswers });
+                }
+              },
+            });
+            if (out.status === 'cancelled') {
+              failed.push(`${item.filterName}: not started — the missed-PM question was closed`);
+            } else if (out.status === 'checklist_refused') {
+              // The cycle waits at START with its checklist pending — the next scan
+              // asks it again (from the tape), never a 2nd start.
+              failed.push(`${item.filterName}: the cycle started, but its first checklist was not recorded (${(out.error as { message?: string } | null)?.message ?? 'refused'}). Scan it again to answer it.`);
+            } else {
+              ready.push(item);
             }
-            started = true;
-            // Only after a successful start: a checklist answer must never stand
-            // for a cycle that did not begin.
-            await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload, undefined, password);
-            ready.push(item);
           } catch (e: any) {
             if (isReauthError(e)) throw e;
-            // Started, checklist refused: the cycle waits at START with its checklist
-            // pending — the next scan asks it again (from the tape), never a 2nd start.
-            failed.push(started
-              ? `${item.filterName}: the cycle started, but its first checklist was not recorded (${e.message ?? 'failed'}). Scan it again to answer it.`
-              : `${item.filterName}: ${e.message ?? 'failed'}`);
+            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
           }
         }
         startChecklistRef.current = null;
