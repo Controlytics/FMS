@@ -5,6 +5,7 @@ import type { RequestContext } from '../../types/context.js';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { findInChunks } from '../../lib/in-chunks.js';
+import { createCountCache } from '../../lib/count-cache.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { assertFilterOperable } from '../assets/filter-workflow.js';
@@ -38,6 +39,14 @@ import { bulkOperate, type BulkOpItem } from './cycle-write/bulk-operate.js';
 // methods + getCurrentState + getBatchStates were extracted into
 // ./cycle-write/*.ts and ./current-state.ts. This file is now the
 // orchestrator class — public surface preserved for routes + tests.
+
+// P-3 (2026-10-22): the events and cycles lists count their rows on every page.
+// Unscoped (the Filter Data Management console's whole-table tabs), that COUNT
+// covers every row ever written — 6.2 M events at one year, 0.5-2.7 s warm and
+// 18 s cold for a page that loads in milliseconds. A list scoped to one filter or
+// cycle counts through an index and is cheap, so it is counted fresh every time.
+const listCount = createCountCache(60_000);
+const isUnscoped = (where: Record<string, unknown>) => !('filterId' in where) && !('cycleId' in where) && !('id' in where);
 
 export class FilterOperationsService {
   // Public surface preserved: routes call service.getFilterHomeBlock(),
@@ -151,7 +160,9 @@ export class FilterOperationsService {
         where, skip: (page - 1) * limit, take: limit,
         orderBy: { performedAt: 'desc' },
       }),
-      prisma.filterEvent.count({ where }),
+      isUnscoped(where)
+        ? listCount(['events', where], () => prisma.filterEvent.count({ where }))
+        : prisma.filterEvent.count({ where }),
     ]);
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -474,6 +485,12 @@ export class FilterOperationsService {
     const where: any = {};
     if (ids) where.id = { in: ids };
     if (query.filterId) where.filterId = query.filterId;
+    else if (query.ahuId) {
+      // The cycles of the AHU's filters — the same rule as the events list (M89):
+      // an AHU with no filters lists nothing, never everything.
+      const kids = await prisma.assetInstance.findMany({ where: { parentId: query.ahuId, isActive: true }, select: { id: true } });
+      where.filterId = { in: kids.map(k => k.id) };
+    }
     else if (Array.isArray(query.filterIds)) where.filterId = { in: query.filterIds };
     // Effective-status mapping: RETIRED/REPLACED are TERMINATED cycles carrying a
     // terminationReason of that value; plain TERMINATED excludes those (the pills
@@ -515,7 +532,9 @@ export class FilterOperationsService {
             orderBy: { startedAt: 'desc' },
             ...eventsInclude,
           }),
-          prisma.cleaningCycle.count({ where }),
+          isUnscoped(where)
+            ? listCount(['cycles', where], () => prisma.cleaningCycle.count({ where }))
+            : prisma.cleaningCycle.count({ where }),
         ]);
 
     // Enrich with filter + cleaning area names in a single query
@@ -545,24 +564,30 @@ export class FilterOperationsService {
     // is that admin rather than the operator who did the work (2026-09-03
     // operator request: the report's "By" should name the latter).
     //
-    // One query for both — STATE_TRANSITION rows are the bulk of filter_events,
-    // but this is already bounded to the requested page's cycle ids. In chunks:
-    // this IN list plus the three event types overflowed the bind limit at
-    // ~32k cycles (D-DB-9). A cycle's events all fall in its own chunk, so the
-    // ascending order per cycle — which the "last write wins" below needs — holds.
+    // ONE row per cycle, the two latest performers picked in the database (P-5,
+    // 2026-10-22). This used to be `cycle_id IN (<every id of the page>)` with
+    // three event types, returning every stage event of every cycle. The planner
+    // estimates ~63 events per cycle id, so a long IN list made it scan the whole
+    // (filter_id, cycle_id, event_type) index or all 6.2 M filter_events: the
+    // equipment-groups page's 2,928 in-progress cycles took 16 s, 5,000 recent
+    // cycles 22-35 s. Driven from the id array instead, each cycle is two index
+    // probes on filter_events_cycle_id_idx (0.3 s and 0.6 s on the same data) —
+    // and the whole page is ONE bind parameter, so no bind limit (D-DB-9) either.
     const cycleIds = data.map((c: any) => c.id);
-    const performerEvents = await findInChunks(cycleIds, (chunk) => prisma.filterEvent.findMany({
-      where: { cycleId: { in: chunk }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED', 'STATE_TRANSITION'] } },
-      select: { cycleId: true, performedBy: true, performedAt: true, eventType: true },
-      orderBy: { performedAt: 'asc' },
-    }));
+    const performerRows = cycleIds.length === 0 ? [] : await prisma.$queryRaw<Array<{ cycle_id: string; last_stage_by: string | null; terminal_by: string | null }>>`
+      SELECT c.id::text AS cycle_id,
+        (SELECT fe.performed_by::text FROM filter_events fe
+          WHERE fe.cycle_id = c.id AND fe.event_type = 'STATE_TRANSITION'
+          ORDER BY fe.performed_at DESC, fe.created_at DESC LIMIT 1) AS last_stage_by,
+        (SELECT fe.performed_by::text FROM filter_events fe
+          WHERE fe.cycle_id = c.id AND fe.event_type IN ('CYCLE_COMPLETED', 'CYCLE_TERMINATED')
+          ORDER BY fe.performed_at DESC, fe.created_at DESC LIMIT 1) AS terminal_by
+      FROM unnest(${cycleIds}::uuid[]) AS c(id)`;
     const terminalPerformerByCycle = new Map<string, string>();
     const lastStagePerformerByCycle = new Map<string, string>();
-    for (const ev of performerEvents) {
-      if (!ev.cycleId || !ev.performedBy) continue;
-      // ascending order, so the last write wins for each map
-      if (ev.eventType === 'STATE_TRANSITION') lastStagePerformerByCycle.set(ev.cycleId, ev.performedBy);
-      else terminalPerformerByCycle.set(ev.cycleId, ev.performedBy);
+    for (const r of performerRows) {
+      if (r.last_stage_by) lastStagePerformerByCycle.set(r.cycle_id, r.last_stage_by);
+      if (r.terminal_by) terminalPerformerByCycle.set(r.cycle_id, r.terminal_by);
     }
 
     // Resolve performedBy UUIDs to user display names (event performers when

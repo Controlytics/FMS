@@ -147,6 +147,22 @@ describe('GET /api/filters/events', () => {
   });
 });
 
+describe('GET /api/filters/cycles?ahuId — the cycles of the filters under one AHU (2026-10-22)', () => {
+  it('lists and counts only the filters of that AHU; an AHU with no filters lists nothing', async () => {
+    const mine = [await fx.rawCycle(F1, CP, { status: 'COMPLETED' }), await fx.rawCycle(F2, CP, { status: 'COMPLETED' })];
+    const other = await fx.rawCycle(F3, CP, { status: 'COMPLETED' });
+    const res = await get(`/api/filters/cycles?ahuId=${AHU1}&limit=1000`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const ids = body.data.map((c: any) => c.id);
+    for (const c of mine) expect(ids).toContain(c.id);
+    expect(ids).not.toContain(other.id);
+    expect(body.data.every((c: any) => c.filterId === F1 || c.filterId === F2)).toBe(true);
+    expect(body.total).toBe(body.data.length);
+    expect((await get(`/api/filters/cycles?ahuId=${AHU3}`)).json()).toMatchObject({ data: [], total: 0 });
+  });
+});
+
 describe('GET /api/filters/cycles — effective-status mapping and enrichment', () => {
   let FC = '';
   const ids: Record<string, string> = {};
