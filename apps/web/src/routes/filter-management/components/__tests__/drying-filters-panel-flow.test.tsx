@@ -415,7 +415,7 @@ describe('DryingFiltersPanel — edge cases', () => {
     await waitFor(() => expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('61'));
   });
 
-  it('message-less failures fall back to generic text; cached state without a cycle is still marked; non-Error cache faults are logged', async () => {
+  it('message-less failures fall back to generic text; a cached state without a cycle gets none written onto it; non-Error cache faults are logged', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const getCache = vi.fn(async (k: string) => {
       if (k === 'filter-state-f1') return { other: 1 };
@@ -434,7 +434,10 @@ describe('DryingFiltersPanel — edge cases', () => {
     fireEvent.click(submit());
     await waitFor(() => expect(s.onError).toHaveBeenCalledWith('1 failed:\nFLT-3: failed'));
     expect(s.onSuccess).toHaveBeenCalledWith('2 filter(s) → Dry In complete');
-    expect(s.cacheData).toHaveBeenCalledWith('filter-state-f1', { other: 1, currentCycle: { dryerReadingsSubmitted: true } });
+    // 2026-10-22: no cycle is written onto a row that holds none (a closed cycle
+    // would be re-opened on this device); the temperature is still cleared.
+    expect(s.cacheData.mock.calls.some(([k]: any[]) => k === 'filter-state-f1')).toBe(false);
+    expect(s.cacheData).toHaveBeenCalledWith('dryer-temp-f1', null, 0);
     expect(warn).toHaveBeenCalledWith('[drying-panel] cache update failed —', 'idb gone');
   });
 

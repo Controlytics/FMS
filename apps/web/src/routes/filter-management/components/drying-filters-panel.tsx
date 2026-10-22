@@ -15,7 +15,8 @@ import {
 } from '@/lib/filter-ops';
 import { isCompletingAdvance, isTerminalTargetWithChecklist } from '@/lib/filter-ops/ahu-completion-check';
 import { callCompletesStageWork } from '@digilog/shared';
-import { cacheServerStateResponse, recomputeAndCacheFilterState } from '@/lib/offline-cache';
+import { cacheServerStateResponse } from '@/lib/offline-cache';
+import { rememberQueuedDryerReadings } from '@/lib/filter-ops/use-core';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
 import { signOnce, withStageAction } from '@/lib/stage-reauth';
@@ -214,12 +215,32 @@ export function DryingFiltersPanel({
     };
   };
 
-  /** Send each row's readings (with `extra`, e.g. the checklist answers) and keep this device's view. */
+  /**
+   * Mark the readings recorded on a row that still holds an OPEN cycle. Never
+   * onto a closed one: writing `currentCycle: {...}` back after the cycle
+   * completed re-opened it on this device (2026-10-22).
+   */
+  const markReadingsOnRow = async (filterId: string) => {
+    try {
+      const cs = await getCache<any>(`filter-state-${filterId}`);
+      if (cs?.currentCycle) cacheData(`filter-state-${filterId}`, { ...cs, currentCycle: { ...cs.currentCycle, dryerReadingsSubmitted: true } });
+    } catch (err) {
+      // eslint-disable-next-line no-console -- intentional structured log
+      console.warn('[drying-panel] cache update failed —', err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Send each row's readings (with `extra`, e.g. the checklist answers) and keep
+   * this device's view. `answeredChecklistIds`: the checklist after Dry In
+   * answered in the same call (advance-with-checklist).
+   */
   const sendRows = async (
     targets: RowState[],
     kind: 'advance' | 'advance-with-checklist',
     extra: (r: RowState) => Record<string, any>,
     password: string | undefined,
+    answeredChecklistIds: string[] = [],
   ) => {
     let ok = 0; let queued = 0; const failed: string[] = []; const notRefreshed: string[] = [];
     for (const r of targets) {
@@ -236,21 +257,26 @@ export function DryingFiltersPanel({
       // same filter, and the row stayed selectable, so a second Submit queued a
       // duplicate reading (2026-10-21, D8).
       if (executed) ok++; else queued++;
-      // Queued offline: rewrite the cached action tape / reachable-target
-      // mirrors (the pre-2026-09-04 tablet card did this; without it a second
-      // offline scan of the same filter still sees "readings pending"). It
-      // re-throws by design (fail-loud); report it as what it is.
-      if (!executed) {
+      if (executed) {
+        // Online the server's snapshot is on the row already (executeOrQueue
+        // cached it); mark the readings only on a cycle it still shows open.
+        await markReadingsOnRow(r.filterId);
+      } else {
+        // Queued offline: the row says the readings are in BEFORE the tape and
+        // reachable-target mirrors are recomputed, so a final Dry In closes its
+        // cycle here and now (and its answered checklist is logged with it);
+        // without it a second offline scan still saw "readings pending". It
+        // re-throws by design (fail-loud); report it as what it is, and keep
+        // the readings marked so the row is not offered again.
         try {
-          await recomputeAndCacheFilterState(r.filterId, 'DRY_IN', false, null);
+          await rememberQueuedDryerReadings(r.filterId, kind === 'advance-with-checklist' ? answeredChecklistIds : []);
         } catch (err: any) {
           notRefreshed.push(`${r.filterName}: ${err?.message ?? String(err)}`);
+          await markReadingsOnRow(r.filterId);
         }
       }
-      // Mirror the server's view of the cycle in the offline cache + clear the persisted temp.
+      // Clear the persisted temp.
       try {
-        const cs = await getCache<any>(`filter-state-${r.filterId}`);
-        if (cs) cacheData(`filter-state-${r.filterId}`, { ...cs, currentCycle: { ...(cs.currentCycle ?? {}), dryerReadingsSubmitted: true } });
         cacheData(`dryer-temp-${r.filterId}`, null, 0);
       } catch (err) {
         // eslint-disable-next-line no-console -- intentional structured log
@@ -364,7 +390,10 @@ export function DryingFiltersPanel({
       }
       if (!sig.ok) return; // a dismissed prompt: the checklist stays for a retry
       const { extraFor } = checklistFor;
-      const res = await sendRows(checklistFor.rows, 'advance-with-checklist', (r) => ({ ...extraFor(r), answers, expectedProfileVersions }), sig.password);
+      const res = await sendRows(
+        checklistFor.rows, 'advance-with-checklist', (r) => ({ ...extraFor(r), answers, expectedProfileVersions }), sig.password,
+        checklistFor.dialog.checklists.map((cl) => cl.checklistProfileId),
+      );
       setChecklistFor(null);
       setSelected(new Set());
       report(res, ', checklist submitted');
