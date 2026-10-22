@@ -87,9 +87,11 @@ describe('CSV (ZIP) importer', () => {
     await restore(zip({
       'help_articles.csv': 'id,content,title\r\n1,"line one\nline two",T\r\n2,"a\r\nb, ""c""",U\n',
     }), saCtx);
+    // help_articles.id is a uuid column, so its cells stay text (D-DB-3, 2026-10-22:
+    // cells are typed by the live column, not guessed from the text).
     expect(parsed().data.help_articles).toEqual([
-      { id: 1, content: 'line one\nline two', title: 'T' },
-      { id: 2, content: 'a\r\nb, "c"', title: 'U' },
+      { id: '1', content: 'line one\nline two', title: 'T' },
+      { id: '2', content: 'a\r\nb, "c"', title: 'U' },
     ]);
   });
 
@@ -101,7 +103,8 @@ describe('CSV (ZIP) importer', () => {
     await restore(zip({ 'help_articles.csv': generateCsv(rows) }), saCtx);
     expect(parsed().data.help_articles).toEqual([
       { id: 'r1', content: 'para one\n\npara two', note: 'has, comma', quote: 'say "hi"', blank: null },
-      { id: 'r2', content: 'single', note: null, quote: 'x', blank: null },
+      // An empty string comes back as an empty string, not NULL (D-DB-4, 2026-10-22).
+      { id: 'r2', content: 'single', note: '', quote: 'x', blank: null },
     ]);
   });
 

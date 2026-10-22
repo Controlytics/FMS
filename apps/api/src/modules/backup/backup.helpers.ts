@@ -118,6 +118,9 @@ export function escapeCsvValue(value: any): string {
   // The REVERSIBLE form (2026-10-22): this file is read back by restore, which
   // removes the quote again (parseCsvContent), so the restore is exact.
   const str = typeof value === 'string' ? neutralizeFormulaReversibly(value) : String(value);
+  // NULL is an unquoted empty cell (above); an EMPTY STRING is a quoted one, so a
+  // restore can tell them apart (D-DB-4, 2026-10-22 — PostgreSQL's CSV convention).
+  if (str === '') return '""';
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;
   }

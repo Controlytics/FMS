@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { type FastifyInstance } from 'fastify';
-import { buildApp, loginAs } from './test-helper.js';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { loginAs } from './test-helper.js';
+import authPlugin from '../plugins/auth.js';
+import rbacPlugin from '../plugins/rbac.js';
+import authRoutes from '../modules/auth/routes.js';
+import auditRoutes from '../modules/audit/routes.js';
+import { buildErrorHandler } from '../lib/error-handler.js';
 import { prisma } from '../lib/prisma.js';
 import { auditLog } from '../lib/audit.js';
 import { verifyAuditChain } from '../lib/audit-verify.js';
@@ -41,12 +46,31 @@ async function ensureUser() {
   });
 }
 
+/**
+ * Only what this file exercises: login, and GET /api/audit/verify-chain. The full
+ * harness (buildApp) registers eleven route modules; measured 2026-10-22 it took
+ * 1.6–8 s to build depending on machine load and was nearly all of this hook's
+ * time, which crossed the 10 s hook timeout in a multi-file run (deliverable 05,
+ * D-DB-8) — the file then failed without running a test. This app builds in
+ * ~0.2 s with the same plugins and the production error handler.
+ */
+async function buildChainApp(): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false, ajv: { customOptions: { keywords: ['example'] } } });
+  await app.register(authPlugin);
+  await app.register(rbacPlugin);
+  app.setErrorHandler(buildErrorHandler({ log: app.log }));
+  await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(auditRoutes, { prefix: '/api/audit' });
+  await app.ready();
+  return app;
+}
+
 describe('Audit hash chain — C3', () => {
   let app: FastifyInstance;
   let token: string;
 
   beforeAll(async () => {
-    app = await buildApp();
+    app = await buildChainApp();
     await ensureUser();
     token = await loginAs(app, TEST_USERNAME, TEST_PASSWORD);
   });

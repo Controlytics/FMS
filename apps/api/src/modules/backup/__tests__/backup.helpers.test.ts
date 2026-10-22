@@ -88,6 +88,11 @@ describe('backup.helpers', () => {
       expect(escapeCsvValue(42)).toBe('42');
     });
 
+    it('writes an empty string as a quoted empty cell, so it is not read back as NULL (D-DB-4)', () => {
+      expect(escapeCsvValue('')).toBe('""');
+      expect(escapeCsvValue(null)).toBe('');
+    });
+
     it('quotes values containing commas', () => {
       const result = escapeCsvValue('a,b');
       expect(result).toBe('"a,b"');

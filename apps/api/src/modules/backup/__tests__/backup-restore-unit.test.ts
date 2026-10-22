@@ -358,7 +358,8 @@ describe('restoreDump (pg_dump archive restore)', () => {
     const err = await restoreDump(archive, sa).catch(e => e);
     expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
     expect(err.message).toBe('pg_restore: error: could not execute query The database was rolled back to its pre-restore state.');
-    expect(order.slice(-3)).toEqual(['DROP SCHEMA public CASCADE', 'CREATE SCHEMA public', 'pg_restore safety']);
+    // ...then the parked audit trail is dropped (D-DB-10).
+    expect(order.slice(-4, -1)).toEqual(['DROP SCHEMA public CASCADE', 'CREATE SCHEMA public', 'pg_restore safety']);
     expect(m.auditLog).not.toHaveBeenCalled();
     expect(existsSync(dirname(m.runPgRestore.mock.calls[0][0] as string))).toBe(false);
   });
@@ -369,7 +370,7 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
     expect(err.message).toBe('An internal error stopped the restore (details are in the server log). The database was rolled back to its pre-restore state.');
     expect(err.message).not.toMatch(/Invalid `|backup\.repository\.ts/);
-    expect(order.at(-1)).toBe('pg_restore safety');
+    expect(order.slice(-2)).toEqual(['pg_restore safety', 'DROP SCHEMA IF EXISTS digilog_keep CASCADE']);
   });
 
   // D1 (2026-10-21): the parked audit rows come back ABOVE the archive's
@@ -403,10 +404,50 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(err.code).toBe('RESTORE_FAILED_NO_ROLLBACK');
     const safety = m.runPgDump.mock.calls[0][0] as string;
     expect(err.message).toBe(
-      `pg_restore: error: could not execute query CRITICAL: the rollback ALSO failed (pg_restore: error: connection lost). The database may be empty. A safety copy was written to ${safety} — do not delete it.`,
+      `pg_restore: error: could not execute query CRITICAL: the rollback ALSO failed (pg_restore: error: connection lost). The database may be empty. A safety copy was written to ${safety} — do not delete it. The audit trail as it was before the restore is also kept in schema digilog_keep.`,
     );
     expect(err.keepDir).toBe(dirname(safety));
     expect(existsSync(err.keepDir)).toBe(true);
+    await rm(err.keepDir, { recursive: true, force: true });
+  });
+
+  // D-DB-10 (2026-10-22): the parked copy of the audit trail (schema digilog_keep)
+  // was dropped only on success. After a failed restore it stayed in the database:
+  // a full, mutable, unchained copy of audit_trail that every later backup carried.
+  it('a failed load drops the parked audit trail (digilog_keep) after the rollback', async () => {
+    wireDump({ restoreFails: 1 });
+    const err = await restoreDump(archive, sa).catch(e => e);
+    expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
+    expect(order.slice(-4)).toEqual([
+      'DROP SCHEMA public CASCADE', 'CREATE SCHEMA public', 'pg_restore safety',
+      'DROP SCHEMA IF EXISTS digilog_keep CASCADE',
+    ]);
+  });
+
+  it('a failure while parking the audit trail drops the half-built digilog_keep and touches nothing else', async () => {
+    wireDump();
+    m.prisma.$executeRawUnsafe.mockImplementation(async (sql: string) => {
+      order.push(sql);
+      if (sql.startsWith('CREATE TABLE digilog_keep.audit_trail')) throw new Error('could not extend file: No space left on device');
+      return 0;
+    });
+    await expect(restoreDump(archive, sa)).rejects.toThrow('No space left on device');
+    expect(order).toEqual([
+      'pg_dump safety',
+      'DROP SCHEMA IF EXISTS digilog_keep CASCADE',
+      'CREATE SCHEMA digilog_keep',
+      'CREATE TABLE digilog_keep.audit_trail AS SELECT * FROM public.audit_trail',
+      'DROP SCHEMA IF EXISTS digilog_keep CASCADE',
+    ]);
+    expect(m.runPgRestore).not.toHaveBeenCalled();
+  });
+
+  it('when the rollback fails too, the parked audit trail is KEPT with the safety dump (it may be the only other copy)', async () => {
+    wireDump({ restoreFails: 1, rollbackFails: true });
+    const err = await restoreDump(archive, sa).catch(e => e);
+    expect(err.code).toBe('RESTORE_FAILED_NO_ROLLBACK');
+    expect(order.at(-1)).toBe('pg_restore safety');
+    expect(err.message).toMatch(/The audit trail as it was before the restore is also kept in schema digilog_keep\.$/);
     await rm(err.keepDir, { recursive: true, force: true });
   });
 

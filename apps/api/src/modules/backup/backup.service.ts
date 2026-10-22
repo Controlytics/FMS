@@ -64,53 +64,109 @@ function dateStamp(): string {
     .replace(/\..+/, '');
 }
 
+/** A column's type as the live schema states it (information_schema.columns). */
+interface ColumnType { dataType: string; udtName: string }
+/** table -> column -> type, for the public schema. */
+type SchemaColumnTypes = Map<string, Map<string, ColumnType>>;
+
 /**
- * Parse a raw backup file buffer into a BackupData object.
- * Handles gzip detection (.bak) and JSON parsing.
- * Throws with structured { code, message } on failure.
+ * The live schema's column types, which decide how a CSV cell is read back
+ * (D-DB-3, 2026-10-22). A CSV cell is only text; guessing its type from that
+ * text turned a numeric username in a varchar column into a number, and the
+ * audit-chain check then hashed a value the row was never written with.
  */
+async function loadSchemaColumnTypes(): Promise<SchemaColumnTypes> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ table_name: string; column_name: string; data_type: string; udt_name: string }>>(
+    `SELECT table_name, column_name, data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public'`,
+  );
+  const types: SchemaColumnTypes = new Map();
+  for (const r of rows) {
+    if (!types.has(r.table_name)) types.set(r.table_name, new Map());
+    types.get(r.table_name)!.set(r.column_name, { dataType: r.data_type, udtName: r.udt_name });
+  }
+  return types;
+}
+
+const isCanonicalNumber = (v: string) => v !== '' && Number.isFinite(Number(v)) && String(Number(v)) === v;
+
+/** JSON-shaped text parsed; anything that is not valid JSON stays the text it is. */
+function parseJsonCell(val: string): unknown {
+  if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
+    try {
+      return JSON.parse(val);
+    } catch {
+      // Cell looks JSON-shaped but isn't valid JSON — kept as a plain string on
+      // purpose (a hand-edited cell); Postgres decides on reinsert.
+    }
+  }
+  return val;
+}
+
 /**
- * Parse a CSV string into an array of objects using the header row as keys.
+ * How a cell read before 2026-10-22, for a column the live schema does not have
+ * (an old backup's dropped column): JSON-shaped text parsed, true/false as
+ * booleans, and a number only when the text is its canonical form (#backup-csv:
+ * "0055", "+9198…", "1.0", "1e5" stay text). Postgres casts on reinsert.
  */
-function parseCsvContent(csvString: string): Record<string, any>[] {
+function guessCellType(val: string): unknown {
+  const json = parseJsonCell(val);
+  if (json !== val) return json;
+  if (val === 'true') return true;
+  if (val === 'false') return false;
+  if (val.length < 15 && isCanonicalNumber(val)) return Number(val);
+  return val;
+}
+
+/**
+ * One CSV cell back to the value the export read from the database.
+ *
+ * - An UNQUOTED empty cell is NULL; a QUOTED empty cell ("") is the empty string
+ *   (D-DB-4, 2026-10-22 — PostgreSQL's own CSV convention). Files written before
+ *   the change wrote '' unquoted too, so they read as NULL, as they always did.
+ * - The export's formula neutralisation is undone (2026-10-22).
+ * - The type is the COLUMN's (D-DB-3): text, uuid, enums, timestamps, numeric
+ *   and bigint stay the exact text written (the export writes bigint as text too,
+ *   and numeric must not round); integer and floating columns become numbers,
+ *   booleans booleans, json/jsonb and arrays parsed values.
+ */
+function decodeCsvCell(raw: string, quoted: boolean, type: ColumnType | undefined): unknown {
+  if (raw === '') return quoted ? '' : null;
+  const val = restoreNeutralizedFormula(raw);
+  if (!type) return guessCellType(val);
+  switch (type.dataType) {
+    case 'boolean':
+      return val === 'true' ? true : val === 'false' ? false : val;
+    case 'smallint':
+    case 'integer':
+    case 'real':
+    case 'double precision':
+      return isCanonicalNumber(val) ? Number(val) : val;
+    case 'json':
+    case 'jsonb':
+    case 'ARRAY':
+      return parseJsonCell(val);
+    default:
+      return val;
+  }
+}
+
+/**
+ * Parse a CSV string into an array of objects using the header row as keys,
+ * each cell typed by its column in `columnTypes` (the table's live columns).
+ */
+function parseCsvContent(csvString: string, columnTypes?: Map<string, ColumnType>): Record<string, any>[] {
   const records = parseCsvRecords(csvString);
   if (records.length < 2) return [];
 
-  // Parse header
-  const headers = records[0];
+  const headers = records[0].map(f => f.value);
   const rows: Record<string, any>[] = [];
 
   for (let i = 1; i < records.length; i++) {
     const values = records[i];
     const row: Record<string, any> = {};
     for (let j = 0; j < headers.length; j++) {
-      // Undo the export's formula neutralisation first (escapeCsvValue), so the
-      // value is restored exactly as it was stored (2026-10-22).
-      let val: any = restoreNeutralizedFormula(values[j] ?? '');
-      // Try to parse JSON objects/arrays
-      if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
-        try {
-          val = JSON.parse(val);
-        } catch {
-          // Cell looks JSON-shaped but isn't valid JSON — treat as a plain
-          // string. This is intentional, not an error: CSV exports of JSON
-          // columns sometimes contain manually-edited cells that lose strict
-          // JSON validity.
-        }
-      }
-      // Convert "true"/"false" to boolean
-      else if (val === 'true') val = true;
-      else if (val === 'false') val = false;
-      // Convert numeric strings — ONLY when the string is the canonical form of the
-      // number (#backup-csv fix). The old check coerced any numeric-looking cell,
-      // corrupting text columns: "0055"→55, "+919876543210"→919876543210, "1.0"→1,
-      // "1e5"→100000 (serials / phone numbers / zero-padded codes lost their form).
-      // `String(Number(val)) === val` coerces genuine numbers (e.g. "55") and leaves
-      // everything else as text; Postgres casts per column type on reinsert either way.
-      else if (val !== '' && val.length < 15 && Number.isFinite(Number(val)) && String(Number(val)) === val) val = Number(val);
-      // Convert empty to null
-      else if (val === '') val = null;
-      row[headers[j]] = val;
+      const cell = values[j];
+      row[headers[j]] = decodeCsvCell(cell?.value ?? '', cell?.quoted ?? false, columnTypes?.get(headers[j]));
     }
     rows.push(row);
   }
@@ -128,15 +184,23 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
  * only at a line break OUTSIDE quotes; CRLF and a bare CR end a record too. A
  * line break inside quotes is kept verbatim. Blank lines are skipped, as before.
  */
-function parseCsvRecords(csv: string): string[][] {
-  const records: string[][] = [];
-  let record: string[] = [];
+/** One CSV field: its text, and whether it was written in quotes ("" = empty string, D-DB-4). */
+interface CsvField { value: string; quoted: boolean }
+
+function parseCsvRecords(csv: string): CsvField[][] {
+  const records: CsvField[][] = [];
+  let record: CsvField[] = [];
   let field = '';
+  let quoted = false;
   let inQuotes = false;
-  const endRecord = () => {
-    record.push(field);
+  const endField = () => {
+    record.push({ value: field, quoted });
     field = '';
-    if (!(record.length === 1 && record[0].trim() === '')) records.push(record);
+    quoted = false;
+  };
+  const endRecord = () => {
+    endField();
+    if (!(record.length === 1 && !record[0].quoted && record[0].value.trim() === '')) records.push(record);
     record = [];
   };
   for (let i = 0; i < csv.length; i++) {
@@ -146,10 +210,10 @@ function parseCsvRecords(csv: string): string[][] {
       else if (ch === '"') { inQuotes = false; }
       else { field += ch; }
     } else if (ch === '"') {
+      if (field === '') quoted = true;
       inQuotes = true;
     } else if (ch === ',') {
-      record.push(field);
-      field = '';
+      endField();
     } else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && csv[i + 1] === '\n') i++;
       endRecord();
@@ -157,7 +221,7 @@ function parseCsvRecords(csv: string): string[][] {
       field += ch;
     }
   }
-  if (field !== '' || record.length > 0) endRecord();
+  if (field !== '' || quoted || record.length > 0) endRecord();
   return records;
 }
 
@@ -398,9 +462,11 @@ function findValuesClose(sql: string, start: number): number {
 
 
 /**
- * Parse a CSV ZIP backup into BackupData.
+ * Parse a CSV ZIP backup into BackupData, each table's cells typed by that
+ * table's live columns. The archive is checked first, so a bad upload is refused
+ * before the schema is read.
  */
-function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
+async function parseCsvZipBackup(rawBuffer: Buffer): Promise<BackupData> {
   // D9 (2026-10-21): a file with the ZIP signature but no readable archive made
   // AdmZip throw an UNCODED error, which both routes reported as a 500 (and
   // /restore echoed AdmZip's text). It is a bad upload: a coded INVALID_ZIP.
@@ -452,13 +518,12 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
     }
   }
 
+  const csvEntries = entries.filter(e => e.entryName !== '_metadata.json' && e.entryName.endsWith('.csv'));
+  const schemaTypes = csvEntries.length > 0 ? await loadSchemaColumnTypes() : new Map() as SchemaColumnTypes;
   const data: Record<string, any[]> = {};
-  for (const entry of entries) {
-    if (entry.entryName === '_metadata.json') continue;
-    if (!entry.entryName.endsWith('.csv')) continue;
-
+  for (const entry of csvEntries) {
     const tableName = entry.entryName.replace('.csv', '');
-    data[tableName] = parseCsvContent(readEntry(entry));
+    data[tableName] = parseCsvContent(readEntry(entry), schemaTypes.get(tableName));
   }
 
   return {
@@ -474,7 +539,13 @@ function parseCsvZipBackup(rawBuffer: Buffer): BackupData {
   };
 }
 
-function parseBackupFile(rawBuffer: Buffer): BackupData {
+/**
+ * Parse a raw backup file buffer into a BackupData object: ZIP (CSV), gzip
+ * (.bak), the app's SQL script, or JSON. Throws with structured { code, message }
+ * on failure. restore() and validate() both read files through here, so the two
+ * always see the same rows (D-DB-3).
+ */
+async function parseBackupFile(rawBuffer: Buffer): Promise<BackupData> {
   // Detect ZIP (.csv backup) — ZIP magic bytes: 0x50 0x4b
   if (rawBuffer[0] === 0x50 && rawBuffer[1] === 0x4b) {
     return parseCsvZipBackup(rawBuffer);
@@ -733,6 +804,12 @@ export async function restoreDump(
   // Set when a failed rollback leaves the safety dump as the ONLY copy of the
   // operator's data — the cleanup below must not delete it.
   let preserveDir = false;
+  // D-DB-10 (2026-10-22): digilog_keep must not outlive this call. It was dropped
+  // only on success, so a failed restore left a full, mutable, unchained copy of
+  // audit_trail in the database, carried by every later backup. Dropped on every
+  // exit below — except after a failed rollback, where it may be the only other
+  // copy of the trail and is kept next to the safety dump.
+  let keepParked = false;
 
   let auditRowsPreserved = 0;
   try {
@@ -745,6 +822,7 @@ export async function restoreDump(
     // audit trail in a schema the public reset does not touch, so rows the
     // archive does not carry come back after the load instead of being
     // destroyed (the trail is the one table retained permanently).
+    keepParked = true;
     await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
     await prisma.$executeRawUnsafe(`CREATE SCHEMA digilog_keep`);
     await prisma.$executeRawUnsafe(`CREATE TABLE digilog_keep.audit_trail AS SELECT * FROM public.audit_trail`);
@@ -769,6 +847,7 @@ export async function restoreDump(
         { timeout: 300_000, maxWait: 30_000 },
       );
       await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
+      keepParked = false;
     } catch (restoreErr: unknown) {
       backupLog.error({ err: restoreErr }, 'pg_dump restore failed — rolling back from the safety dump');
       // 4. Put the database back the way we found it.
@@ -781,9 +860,11 @@ export async function restoreDump(
         backupLog.error({ err: rollbackErr, safetyPath }, 'Rollback from the safety dump ALSO failed');
         rollbackNote =
           ` CRITICAL: the rollback ALSO failed (${restoreFailureReason(rollbackErr)}). The database may be empty.`
-          + ` A safety copy was written to ${safetyPath} — do not delete it.`;
-        // Keep the safety dump on disk for manual recovery.
+          + ` A safety copy was written to ${safetyPath} — do not delete it.`
+          + ' The audit trail as it was before the restore is also kept in schema digilog_keep.';
+        // Keep the safety dump on disk, and the parked trail in the database, for manual recovery.
         preserveDir = true;
+        keepParked = false;
         throw Object.assign(new Error(`${restoreFailureReason(restoreErr)}${rollbackNote}`), {
           code: 'RESTORE_FAILED_NO_ROLLBACK',
           keepDir: dir,
@@ -813,6 +894,13 @@ export async function restoreDump(
       backupVersion: 'pg_dump',
     };
   } finally {
+    if (keepParked) {
+      // The restore failed (and the database was rolled back) or stopped while
+      // parking. The caller sees that error; a failed drop is logged, not thrown
+      // over it, and the next .dump restore drops the schema first anyway.
+      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`)
+        .catch((err: unknown) => backupLog.error({ err }, 'Could not drop schema digilog_keep after a failed restore; drop it by hand'));
+    }
     // Leave the directory behind only when a failed rollback needs it.
     if (!preserveDir) await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -1077,7 +1165,7 @@ export async function restore(
   backupTimestamp: string;
   backupVersion: string;
 }> {
-  const backup = parseBackupFile(fileBuffer);
+  const backup = await parseBackupFile(fileBuffer);
 
   if (!backup.metadata.version) {
     throw Object.assign(new Error('Backup metadata is incomplete'), {
@@ -1183,7 +1271,7 @@ export async function validate(
     };
   }
 
-  const backup = parseBackupFile(fileBuffer);
+  const backup = await parseBackupFile(fileBuffer);
 
   // #low-batch: the checksum is only an INDEPENDENT integrity check for json/bak,
   // whose digest is stored in the file. SQL/CSV synthesize the checksum FROM the
