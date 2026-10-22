@@ -13,6 +13,10 @@ import { renderFdm, baseRoutes, modal, field, setField, typeReason, click, row, 
 
 afterEach(resetEnv);
 
+// First test of the file pays the page's cold render; under full-suite load the
+// heaviest flow measured 2.7-5.6 s (CPU, no missing wait; 2026-10-22). Same limit as FDM cycles.
+vi.setConfig({ testTimeout: 20_000 });
+
 const SA_CYCLES = '/api/super-admin/data/cleaning-cycles';
 const SA_EVENTS = '/api/super-admin/data/filter-events';
 const HIER = { path: '/api/hierarchy/filters', body: { data: [{ id: 'f1', name: 'FLT-1' }] } };

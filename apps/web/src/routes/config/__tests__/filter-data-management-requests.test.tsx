@@ -1,9 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { resetEnv, signReauth, ackMessage } from './config-test-helpers';
 import { renderFdm, modal, field, setField, typeReason, click, row, waitForCalls, openTab } from './fdm-helpers';
 
 afterEach(resetEnv);
+
+// First test of the file pays the page's cold render; under full-suite load the
+// heaviest flow measured 2.7-5.6 s (CPU, no missing wait; 2026-10-22). Same limit as FDM cycles.
+vi.setConfig({ testTimeout: 20_000 });
 
 const NOTIF = '/api/super-admin/data/notifications';
 const ADMIN_REQ = '/api/admin-requests';
