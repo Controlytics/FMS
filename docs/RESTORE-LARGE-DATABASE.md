@@ -204,17 +204,29 @@ Measured on the development PC (PostgreSQL 18, other work running at the same ti
 | Database | Backup file | Checks before the app stops (§4 steps 3–5) | App stopped (steps 6–8) |
 |---|---|---|---|
 | Go-live day 1 (35 k audit records, 60 MB) | 7 MB `.dump` / 35 MB `.sql` | under 1 min | about 1 min |
-| One year (7.4 M audit records, 10 GB) | 1.6 GB `.dump` / 7.7 GB `.sql` | reading the file + about 22 min chain check | about 15 min safety backup + the load (see below) + about 22 min chain check |
+| One year (7.4 M audit records, 15.2 M rows, 10 GB) | 7.7 GB nightly `.sql` | 6 min reading the file + about 22 min chain check | 10.5 min safety backup + 35 min load + 3 min row counts + about 22 min chain check |
 
-Measured parts of the one-year row:
-- The safety backup (`pg_dump`) of the 10 GB database took **14.7 minutes**.
-- The chain check ran at **5,700 records per second** (200,000 records in 35 s). That gives
-  about 22 minutes for 7.4 M records. This is extrapolated, not timed end to end.
-- The load itself was not timed end to end by this tool. An earlier measurement (2026-10-17)
-  replayed a 7.7 GB `.sql` in 10.4 minutes. Inside one transaction, expect at least that.
+The one-year row was measured with this tool on 2026-10-22, on a busy PC, using a 7.7 GB
+nightly `.sql`:
+- reading and fingerprinting the file took **6 min**;
+- the safety backup took **10.5 min**;
+- the load, as one transaction, took **35 min**;
+- reconciling the row counts (all 62 tables, 15,247,989 rows) took **under 3 min**;
+- moving the 10 GB back after a refused check took **12 s**.
 
-`-ChainCheck Tail` skips both full chain checks. At one year, plan for **about an hour of
-downtime** with the default settings.
+That run was refused at step 7 on purpose: the test copy came from an older program version.
+So the last steps were timed only at day-1 volume, where they take seconds:
+- carrying the audit rows over;
+- writing the `BACKUP_RESTORED` record;
+- deleting the old data.
+
+The chain check runs at about **5,700 records per second** (measured on 200,000 records).
+For 7.4 M records that is about 22 minutes; this figure is extrapolated, not timed end to
+end. `-ChainCheck Tail` skips both full chain checks.
+
+At one year, plan for about **50 minutes of downtime with `-ChainCheck Tail`**, or **about
+75 minutes with the default `Full`**. The database also needs room for two copies while the
+restore runs: it measured 18 GB during the load.
 
 **Disk space:** the tool estimates what it needs and stops if the disk is too full. Roughly, the
 database drive needs free space for **one more copy of the database**, and the backups folder
