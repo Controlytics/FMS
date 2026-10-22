@@ -42,7 +42,7 @@ describe('stage approvals — segregation of duties is always on', () => {
   });
 
   it('the performer cannot approve their own stage', async () => {
-    await expect(stageApprovalService.approve(ctxOf('sub-performer'), 'a1', 'ok'))
+    await expect(stageApprovalService.approve(ctxOf('sub-performer'), 'a1', 'looks fine'))
       .rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 
@@ -52,7 +52,7 @@ describe('stage approvals — segregation of duties is always on', () => {
   });
 
   it('a caller with no id is refused (fail closed), not treated as a different person', async () => {
-    await expect(stageApprovalService.approve(ctxOf(undefined), 'a1', 'ok'))
+    await expect(stageApprovalService.approve(ctxOf(undefined), 'a1', 'looks fine'))
       .rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 

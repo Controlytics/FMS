@@ -107,8 +107,8 @@ beforeEach(() => {
 
 describe('re-auth gates on every workflow write', () => {
   it.each([
-    ['POST', '/entries/review', { entryIds: ['00000000-0000-4000-8000-000000000001'], action: 'approve' }, 'REVIEW_PM_SCHEDULE'],
-    ['POST', '/entries/approve', { entryIds: ['00000000-0000-4000-8000-000000000001'] }, 'APPROVE_PM_SCHEDULE'],
+    ['POST', '/entries/review', { entryIds: ['00000000-0000-4000-8000-000000000001'], action: 'approve', remarks: 'dates checked' }, 'REVIEW_PM_SCHEDULE'],
+    ['POST', '/entries/approve', { entryIds: ['00000000-0000-4000-8000-000000000001'], comment: 'approved' }, 'APPROVE_PM_SCHEDULE'],
     ['POST', '/entries/reject', { entryIds: ['00000000-0000-4000-8000-000000000001'], remarks: 'no good' }, 'REJECT_PM_SCHEDULE'],
     ['POST', '/entries/00000000-0000-4000-8000-000000000001/resubmit', { plannedDate: `${YEAR}-01-01` }, 'RESUBMIT_PM_ENTRY'],
     ['PUT', '/entries/00000000-0000-4000-8000-000000000001/edit', { plannedDate: `${YEAR}-01-01` }, 'EDIT_PM_SCHEDULE'],
@@ -130,10 +130,10 @@ describe('re-auth gates on every workflow write', () => {
 
 describe('review → approve (workflow ON)', () => {
   it('route permission gates first: PM_REVIEW for review, PM_APPROVE for approve/reject', async () => {
-    const r1 = await call('POST', '/entries/review', 'apr', { entryIds: ['00000000-0000-4000-8000-000000000001'], action: 'approve' });
+    const r1 = await call('POST', '/entries/review', 'apr', { entryIds: ['00000000-0000-4000-8000-000000000001'], action: 'approve', remarks: 'dates checked' });
     expect(r1.statusCode).toBe(403);
     expect(r1.json().requiredPermission).toBe('PM_REVIEW');
-    const r2 = await call('POST', '/entries/approve', 'rev', { entryIds: ['00000000-0000-4000-8000-000000000001'] });
+    const r2 = await call('POST', '/entries/approve', 'rev', { entryIds: ['00000000-0000-4000-8000-000000000001'], comment: 'approved' });
     expect(r2.json().requiredPermission).toBe('PM_APPROVE');
     const r3 = await call('POST', '/entries/reject', 'rev', { entryIds: ['00000000-0000-4000-8000-000000000001'], remarks: 'nope' });
     expect(r3.json().requiredPermission).toBe('PM_APPROVE');
@@ -141,11 +141,11 @@ describe('review → approve (workflow ON)', () => {
 
   it('then the configured workflow role: holding the permission under another role is 403 FORBIDDEN_ROLE', async () => {
     const e = await entry(s1, 'PENDING_REVIEW', { submittedBy: u.edt.id });
-    const review = await call('POST', '/entries/review', 'mix', { entryIds: [e.id], action: 'approve' });
+    const review = await call('POST', '/entries/review', 'mix', { entryIds: [e.id], action: 'approve', remarks: 'dates checked' });
     expect(review.statusCode).toBe(403);
     expect(review.json()).toMatchObject({ error: 'FORBIDDEN_ROLE' });
     expect(review.json().message).toBe(`Only users with role "${REV}" can review PM schedules`);
-    const approve = await call('POST', '/entries/approve', 'mix', { entryIds: [e.id] });
+    const approve = await call('POST', '/entries/approve', 'mix', { entryIds: [e.id], comment: 'approved' });
     expect(approve.json()).toMatchObject({ error: 'FORBIDDEN_ROLE' });
     const reject = await call('POST', '/entries/reject', 'mix', { entryIds: [e.id], remarks: 'not mine' });
     expect(reject.json()).toMatchObject({ error: 'FORBIDDEN_ROLE' });
@@ -156,8 +156,8 @@ describe('review → approve (workflow ON)', () => {
 
   it('404 when none of the ids exist', async () => {
     for (const [url, body] of [
-      ['/entries/review', { entryIds: ['00000000-0000-4000-8000-000000000002'], action: 'approve' }],
-      ['/entries/approve', { entryIds: ['00000000-0000-4000-8000-000000000002'] }],
+      ['/entries/review', { entryIds: ['00000000-0000-4000-8000-000000000002'], action: 'approve', remarks: 'dates checked' }],
+      ['/entries/approve', { entryIds: ['00000000-0000-4000-8000-000000000002'], comment: 'approved' }],
       ['/entries/reject', { entryIds: ['00000000-0000-4000-8000-000000000002'], remarks: 'missing' }],
     ] as const) {
       const res = await call('POST', url, url.includes('review') ? 'rev' : 'apr', body);
@@ -204,7 +204,7 @@ describe('review → approve (workflow ON)', () => {
   it('approve reports entries that are not awaiting approval instead of touching them', async () => {
     const approved = await entry(s2, 'APPROVED');
     const reviewOnly = await entry(s2, 'PENDING_REVIEW', { submittedBy: u.edt.id });
-    const res = await call('POST', '/entries/approve', 'apr', { entryIds: [approved.id, reviewOnly.id] });
+    const res = await call('POST', '/entries/approve', 'apr', { entryIds: [approved.id, reviewOnly.id], comment: 'approved' });
     expect(res.statusCode).toBe(200);
     expect(res.json().results).toEqual(expect.arrayContaining([
       `${approved.id}: not awaiting approval (APPROVED)`,
@@ -218,15 +218,15 @@ describe('review → approve (workflow ON)', () => {
 describe('segregation of duties by user', () => {
   it('the uploader cannot review, the reviewer cannot approve, the uploader cannot approve — even as SUPER_ADMIN', async () => {
     const e = await entry(s1, 'PENDING_REVIEW', { submittedBy: u.sa.id, submittedByName: u.sa.username });
-    const own = await call('POST', '/entries/review', 'sa', { entryIds: [e.id], action: 'approve' });
+    const own = await call('POST', '/entries/review', 'sa', { entryIds: [e.id], action: 'approve', remarks: 'dates checked' });
     expect(own.statusCode).toBe(403);
     expect(own.json()).toMatchObject({ error: 'SELF_APPROVAL_FORBIDDEN' });
     expect(own.json().message).toMatch(/^You cannot review/);
 
-    expect((await call('POST', '/entries/review', 'sa2', { entryIds: [e.id], action: 'approve' })).statusCode).toBe(200);
-    const reviewerApproves = await call('POST', '/entries/approve', 'sa2', { entryIds: [e.id] });
+    expect((await call('POST', '/entries/review', 'sa2', { entryIds: [e.id], action: 'approve', remarks: 'dates checked' })).statusCode).toBe(200);
+    const reviewerApproves = await call('POST', '/entries/approve', 'sa2', { entryIds: [e.id], comment: 'approved' });
     expect(reviewerApproves.json()).toMatchObject({ error: 'SELF_APPROVAL_FORBIDDEN' });
-    const uploaderApproves = await call('POST', '/entries/approve', 'sa', { entryIds: [e.id] });
+    const uploaderApproves = await call('POST', '/entries/approve', 'sa', { entryIds: [e.id], comment: 'approved' });
     expect(uploaderApproves.json()).toMatchObject({ error: 'SELF_APPROVAL_FORBIDDEN' });
     const uploaderRejects = await call('POST', '/entries/reject', 'sa', { entryIds: [e.id], remarks: 'my own' });
     expect(uploaderRejects.json().message).toMatch(/^You cannot reject/);
@@ -234,11 +234,11 @@ describe('segregation of duties by user', () => {
 
     // One own entry refuses the whole batch before anything is written.
     const other = await entry(s1, 'PENDING_APPROVAL', { submittedBy: u.edt.id, reviewedBy: u.rev.id });
-    const batch = await call('POST', '/entries/approve', 'sa2', { entryIds: [other.id, e.id] });
+    const batch = await call('POST', '/entries/approve', 'sa2', { entryIds: [other.id, e.id], comment: 'approved' });
     expect(batch.statusCode).toBe(403);
     expect((await get(other.id)).approvalStatus).toBe('PENDING_APPROVAL');
 
-    expect((await call('POST', '/entries/approve', 'apr', { entryIds: [e.id] })).statusCode).toBe(200);
+    expect((await call('POST', '/entries/approve', 'apr', { entryIds: [e.id], comment: 'approved' })).statusCode).toBe(200);
     expect((await get(e.id)).approvalStatus).toBe('APPROVED');
   });
 });
@@ -249,7 +249,7 @@ describe('rejecting', () => {
     for (const remarks of [undefined, '   x  ']) {
       const res = await call('POST', '/entries/review', 'rev', { entryIds: [e.id], action: 'reject', ...(remarks !== undefined ? { remarks } : {}) });
       expect(res.statusCode).toBe(400);
-      expect(res.json().error).toBe('REMARKS_REQUIRED');
+      expect(res.json().error).toBe('VALIDATION'); // refused before the signature (D03-13)
     }
     const res = await call('POST', '/entries/review', 'rev', { entryIds: [e.id], action: 'reject', remarks: '  wrong week  ' });
     expect(res.json()).toMatchObject({ processed: 1 });
@@ -262,11 +262,11 @@ describe('rejecting', () => {
   // A plain approval-stage reject. (Rejecting a STAGED EDIT of an approved visit
   // is deliberately not pinned here — the visit then ends REJECTED with its
   // approved original gone; reported as a defect.)
-  it('at approval: the schema accepts "   x" but the service still refuses it; a real reason rejects with stage APPROVAL', async () => {
+  it('at approval: "   x" passes the schema but is refused before the signature; a real reason rejects with stage APPROVAL', async () => {
     const e = await entry(s1, 'PENDING_APPROVAL', { submittedBy: u.edt.id, reviewedBy: u.rev.id });
     const weak = await call('POST', '/entries/reject', 'apr', { entryIds: [e.id], remarks: '   x' });
     expect(weak.statusCode).toBe(400);
-    expect(weak.json().error).toBe('REMARKS_REQUIRED');
+    expect(weak.json().error).toBe('VALIDATION'); // D03-13
     const short = await call('POST', '/entries/reject', 'apr', { entryIds: [e.id], remarks: 'no' });
     expect(short.statusCode).toBe(400); // schema minLength
 
@@ -288,11 +288,11 @@ describe('workflow OFF (legacy single step)', () => {
     const p1 = await entry(s2, 'PENDING', { submittedBy: u.edt.id });
     const p2 = await entry(s2, 'PENDING', { submittedBy: u.edt.id });
 
-    const review = await call('POST', '/entries/review', 'rev', { entryIds: [p1.id], action: 'approve' });
+    const review = await call('POST', '/entries/review', 'rev', { entryIds: [p1.id], action: 'approve', remarks: 'dates checked' });
     expect(review.json()).toEqual({ processed: 0, qnns: [] });
     expect((await get(p1.id)).approvalStatus).toBe('PENDING');
 
-    const appr = await call('POST', '/entries/approve', 'apr', { entryIds: [p1.id] });
+    const appr = await call('POST', '/entries/approve', 'apr', { entryIds: [p1.id], comment: 'approved' });
     expect(appr.json().results).toEqual([`${p1.id}: approved`]);
     // A single-entry action carries no batch tag.
     expect((await qnnsFor(p1.id)).find((q) => q.action === 'APPROVE')?.message).toBe(`Approved — ${W2} (month ${p1.month})`);
@@ -393,8 +393,8 @@ describe('editing an APPROVED entry (staged change → approval applies it)', ()
     expect(editAudit.afterValue).toEqual({ pendingPlannedDate: iso(target), pendingToleranceDays: 2 });
     expect((await qnnsFor(e.id))[0]).toMatchObject({ action: 'EDIT' });
 
-    await call('POST', '/entries/review', 'rev', { entryIds: [e.id], action: 'approve' });
-    await call('POST', '/entries/approve', 'apr', { entryIds: [e.id] });
+    await call('POST', '/entries/review', 'rev', { entryIds: [e.id], action: 'approve', remarks: 'dates checked' });
+    await call('POST', '/entries/approve', 'apr', { entryIds: [e.id], comment: 'approved' });
     row = await get(e.id);
     expect(row).toMatchObject({ approvalStatus: 'APPROVED', toleranceDays: 2, pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null });
     expect(iso(row.plannedDate)).toBe(iso(target));
@@ -422,9 +422,9 @@ describe('editing an APPROVED entry (staged change → approval applies it)', ()
     expect((await call('PUT', `/entries/${a.id}/edit`, 'edt', { plannedDate: iso(aTarget) })).statusCode).toBe(200);
     expect((await call('PUT', `/entries/${b.id}/edit`, 'edt', { plannedDate: iso(bTarget) })).statusCode).toBe(200);
     // …approving A moves it; approving B would now overlap A's new live window.
-    expect((await call('POST', '/entries/approve', 'apr', { entryIds: [a.id] })).statusCode).toBe(200);
+    expect((await call('POST', '/entries/approve', 'apr', { entryIds: [a.id], comment: 'approved' })).statusCode).toBe(200);
     expect(iso((await get(a.id)).plannedDate)).toBe(iso(aTarget));
-    const res = await call('POST', '/entries/approve', 'apr', { entryIds: [b.id] });
+    const res = await call('POST', '/entries/approve', 'apr', { entryIds: [b.id], comment: 'approved' });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('PM_VISIT_OVERLAP');
     expect(res.json().message).toMatch(/^This approved change cannot be scheduled here\./);

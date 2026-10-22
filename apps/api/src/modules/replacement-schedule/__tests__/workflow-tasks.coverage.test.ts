@@ -144,10 +144,13 @@ describe('review step', () => {
     expect(a!.afterValue).toMatchObject({ name: `AHU: cvoW${S}-AHU · Size: 610x610x150 · Micron: 10µ · Qty: 2`, filterMicron: '10', qty: 2 });
   });
 
-  it('approve without remarks stores null remarks; labels omit absent size / micron', async () => {
+  it('a review needs remarks, refused before the signature (D03-13); labels omit absent size / micron', async () => {
     const id = await entry(hier!.ahuId, { filterSize: null, filterMicron: null });
-    await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'approve' }, PW);
-    expect((await get(id))!.reviewRemarks).toBeNull();
+    const bare = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'approve' }, PW);
+    expect([bare.statusCode, bare.json().error]).toEqual([400, 'VALIDATION']);
+    expect((await get(id))!.approvalStatus).toBe('PENDING_REVIEW');
+    await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'approve', remarks: ' sizes checked ' }, PW);
+    expect((await get(id))!.reviewRemarks).toBe('sizes checked');
     const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetId: id } });
     expect((a!.afterValue as any).name).toBe(`AHU: cvoW${S}-AHU · Qty: 2`);
     const q = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: id } });
@@ -158,7 +161,7 @@ describe('review step', () => {
     const id = await entry(hier!.ahuId);
     const bad = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'reject', remarks: ' x ' }, PW);
     expect(bad.statusCode).toBe(400);
-    expect(bad.json().error).toBe('REMARKS_REQUIRED');
+    expect(bad.json().error).toBe('VALIDATION'); // refused before the signature (D03-13)
     expect((await get(id))!.approvalStatus).toBe('PENDING_REVIEW');
     const res = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'reject', remarks: 'wrong micron' }, PW);
     expect(res.statusCode).toBe(200);
@@ -169,17 +172,17 @@ describe('review step', () => {
   });
 
   it('unknown ids → 404; entries not awaiting review are skipped (processed 0)', async () => {
-    const res = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [randomUUID()], action: 'approve' }, PW);
+    const res = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [randomUUID()], action: 'approve', remarks: 'checked' }, PW);
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toBe('NOT_FOUND');
     const done = await entry(hier!.ahuId, { approvalStatus: 'APPROVED' });
-    const skip = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [done], action: 'approve' }, PW);
+    const skip = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [done], action: 'approve', remarks: 'checked' }, PW);
     expect(skip.json()).toEqual({ processed: 0, qnns: [] });
   });
 
   it('a role that holds the permission but is not the configured review role is refused (FORBIDDEN_ROLE)', async () => {
     const id = await entry(hier!.ahuId);
-    const res = await authPost(app, `${R}/entries/review`, tok.badrev, { entryIds: [id], action: 'approve' }, PW);
+    const res = await authPost(app, `${R}/entries/review`, tok.badrev, { entryIds: [id], action: 'approve', remarks: 'checked' }, PW);
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('FORBIDDEN_ROLE');
     expect((await get(id))!.approvalStatus).toBe('PENDING_REVIEW');
@@ -187,7 +190,7 @@ describe('review step', () => {
 
   it('the review route takes its e-signature first: no password → REAUTH_REQUIRED', async () => {
     const id = await entry(hier!.ahuId);
-    const res = await authPost(app, `${R}/entries/review`, tok.badrev, { entryIds: [id], action: 'approve' });
+    const res = await authPost(app, `${R}/entries/review`, tok.badrev, { entryIds: [id], action: 'approve', remarks: 'checked' });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'REVIEW_REPLACEMENT_SCHEDULE' });
   });
@@ -197,7 +200,7 @@ describe('review step', () => {
     const rj = await entry(hier!.ahuId, { approvalStatus: 'REJECTED' });
     const pr = await entry(hier!.ahuId);
     const calls: Array<[string, () => Promise<any>]> = [
-      ['APPROVE_REPLACEMENT_SCHEDULE', () => authPost(app, `${R}/entries/approve`, tok.badrev, { entryIds: [pa] })],
+      ['APPROVE_REPLACEMENT_SCHEDULE', () => authPost(app, `${R}/entries/approve`, tok.badrev, { entryIds: [pa], comment: 'released' })],
       ['REJECT_REPLACEMENT_SCHEDULE', () => authPost(app, `${R}/entries/reject`, tok.badrev, { entryIds: [pa], remarks: 'not now' })],
       ['REVIEW_REPLACEMENT_SCHEDULE', () => authPost(app, `${R}/entries/${rj}/resubmit`, tok.badrev, { scheduleDate: iso(day(5)) })],
       ['REVIEW_REPLACEMENT_SCHEDULE', () => authPut(app, `${R}/entries/${pr}/review-edit`, tok.badrev, { scheduleDate: iso(day(5)) })],
@@ -214,7 +217,7 @@ describe('review step', () => {
 
   it('a caller that cannot be identified is refused — separation of duties fails closed', async () => {
     const id = await entry(hier!.ahuId);
-    await expect(reviewEntries({ userId: 'x', userRole: 'SUPER_ADMIN' } as any, [id], 'approve'))
+    await expect(reviewEntries({ userId: 'x', userRole: 'SUPER_ADMIN' } as any, [id], 'approve', 'checked'))
       .rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN', message: expect.stringContaining('could not be identified') });
   });
 
@@ -239,24 +242,27 @@ describe('approval step', () => {
     expect(qnns.every((m) => /\[batch B-[0-9A-F]{6}, [12] of 2/.test(m ?? ''))).toBe(true);
   });
 
-  it('approval with no comment stores null', async () => {
+  it('an approval needs remarks, refused before the signature (D03-13); they are stored trimmed', async () => {
     const a = await entry(hier!.ahuId, { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ids.rev });
-    await authPost(app, `${R}/entries/approve`, tok.appr, { entryIds: [a] }, PW);
-    expect((await get(a))!.approvalRemarks).toBeNull();
+    const bare = await authPost(app, `${R}/entries/approve`, tok.appr, { entryIds: [a] }, PW);
+    expect([bare.statusCode, bare.json().error]).toEqual([400, 'VALIDATION']);
+    expect((await get(a))!.approvalStatus).toBe('PENDING_APPROVAL');
+    await authPost(app, `${R}/entries/approve`, tok.appr, { entryIds: [a], comment: '  released  ' }, PW);
+    expect((await get(a))!.approvalRemarks).toBe('released');
   });
 
   it('the reviewer of an entry may not approve it', async () => {
     const a = await entry(hier!.ahuId, { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ids.rev });
-    const res = await authPost(app, `${R}/entries/approve`, tok.rev, { entryIds: [a] }, PW);
+    const res = await authPost(app, `${R}/entries/approve`, tok.rev, { entryIds: [a], comment: 'released' }, PW);
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('SELF_APPROVAL_FORBIDDEN');
     expect((await get(a))!.approvalStatus).toBe('PENDING_APPROVAL');
   });
 
   it('unknown ids → 404; non-approval role → FORBIDDEN_ROLE', async () => {
-    expect((await authPost(app, `${R}/entries/approve`, tok.appr, { entryIds: [randomUUID()] }, PW)).statusCode).toBe(404);
+    expect((await authPost(app, `${R}/entries/approve`, tok.appr, { entryIds: [randomUUID()], comment: 'released' }, PW)).statusCode).toBe(404);
     const a = await entry(hier!.ahuId, { approvalStatus: 'PENDING_APPROVAL' });
-    const res = await authPost(app, `${R}/entries/approve`, tok.badrev, { entryIds: [a] }, PW);
+    const res = await authPost(app, `${R}/entries/approve`, tok.badrev, { entryIds: [a], comment: 'released' }, PW);
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('FORBIDDEN_ROLE');
   });
@@ -266,7 +272,7 @@ describe('approval step', () => {
     const a = await entry(hier!.ahuId, { approvalStatus: 'PENDING_APPROVAL' });
     const bad = await authPost(app, `${R}/entries/reject`, tok.appr, { entryIds: [a], remarks: '   x  ' }, PW);
     expect(bad.statusCode).toBe(400);
-    expect(bad.json().error).toBe('REMARKS_REQUIRED');
+    expect(bad.json().error).toBe('VALIDATION'); // refused before the signature (D03-13)
     const res = await authPost(app, `${R}/entries/reject`, tok.appr, { entryIds: [a, legacy], remarks: ' dates clash ' }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json().processed).toBe(2);

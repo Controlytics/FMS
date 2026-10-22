@@ -94,6 +94,8 @@ const call = (method: 'GET' | 'POST', url: string, h: Record<string, string>, pa
   app.inject({ method, url, headers: h, ...(payload ? { payload } : {}) });
 const signed = (url: string, h: Record<string, string>, payload: Record<string, unknown> = {}) =>
   call('POST', url, h, { _currentPassword: fx.password, ...payload });
+// Every decision carries remarks (D03-13, 2026-10-22).
+const APPROVE = { remarks: 'released' };
 const state = async (id: string, h = opH) => {
   const res = await call('GET', `/api/filters/${id}/current-state`, h);
   expect(res.statusCode).toBe(200);
@@ -249,7 +251,7 @@ describe('the approver side: queue, list, detail', () => {
 
   it('the operator cannot open the approver detail or decide (403)', async () => {
     expect((await call('GET', `/api/stage-approvals/${ctx.approvalId}`, opH)).statusCode).toBe(403);
-    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, opH)).statusCode).toBe(403);
+    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, opH, APPROVE)).statusCode).toBe(403);
   });
 });
 
@@ -258,17 +260,17 @@ describe('approve: guards and the decision record', () => {
   beforeAll(async () => { ctx = await atWashOut('APV'); }, 60_000);
 
   it('needs the password every time (REAUTH_REQUIRED)', async () => {
-    const res = await call('POST', `/api/stage-approvals/${ctx.approvalId}/approve`, apr1H, { remarks: 'ok' });
+    const res = await call('POST', `/api/stage-approvals/${ctx.approvalId}/approve`, apr1H, APPROVE);
     expect([res.statusCode, res.json().error]).toEqual([401, 'REAUTH_REQUIRED']);
   });
 
   it('a decider outside the approval role is refused (WRONG_APPROVER_ROLE)', async () => {
-    const res = await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, otherH);
+    const res = await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, otherH, APPROVE);
     expect([res.statusCode, res.json().error]).toEqual([403, 'WRONG_APPROVER_ROLE']);
   });
 
   it('an unknown approval is 404', async () => {
-    expect((await signed(`/api/stage-approvals/${randomUUID()}/approve`, apr1H)).statusCode).toBe(404);
+    expect((await signed(`/api/stage-approvals/${randomUUID()}/approve`, apr1H, APPROVE)).statusCode).toBe(404);
     expect((await signed(`/api/stage-approvals/${randomUUID()}/reject`, apr1H, { remarks: 'not found' })).statusCode).toBe(404);
   });
 
@@ -289,7 +291,7 @@ describe('approve: guards and the decision record', () => {
   });
 
   it('a decided approval cannot be decided again (INVALID_STATUS)', async () => {
-    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H)).json().error).toBe('INVALID_STATUS');
+    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H, APPROVE)).json().error).toBe('INVALID_STATUS');
     expect((await signed(`/api/stage-approvals/${ctx.approvalId}/reject`, apr1H, { remarks: 'too late' })).json().error).toBe('INVALID_STATUS');
   });
 
@@ -297,10 +299,10 @@ describe('approve: guards and the decision record', () => {
     const own = await atWashOut('SELF', apr1H);
     const q = (await call('GET', '/api/stage-approvals/queue', apr1H)).json().data.find((r: any) => r.id === own.approvalId);
     expect(q.selfRequested).toBe(true);
-    const res = await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr1H);
+    const res = await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr1H, APPROVE);
     expect([res.statusCode, res.json().error]).toEqual([403, 'SELF_APPROVAL_FORBIDDEN']);
     expect(res.json().message).toContain('cannot approve it');
-    expect((await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr2H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr2H, APPROVE)).statusCode).toBe(200);
   });
 
   // P5R-02 (2026-10-22): a self-REJECT was answered "cannot approve it".
@@ -316,7 +318,7 @@ describe('approve: guards and the decision record', () => {
   it('a notification outage never undoes a decision', async () => {
     const c = await atWashOut('NOTIFY');
     notify.fail = true;
-    const res = await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H);
+    const res = await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, APPROVE);
     expect(res.statusCode).toBe(200);
     expect((await prisma.cleaningStageApproval.findUnique({ where: { id: c.approvalId } }))!.status).toBe('APPROVED');
     expect(internalErrors).toEqual([]);
@@ -328,7 +330,7 @@ describe('reject: sends the filter back; a Dry Out reject clears the dryer', () 
   let dryOutApproval = '';
   beforeAll(async () => {
     ctx = await atWashOut('REJ');
-    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     await dry(ctx.f, ctx.cycleId);
     expect((await advance(ctx.f, { targetState: 'DRY_OUT' })).statusCode).toBe(200);
     dryOutApproval = (await approvals(ctx.f)).find((a) => a.stageKey === 'DRY_OUT')!.id;
@@ -387,7 +389,7 @@ describe('orphans: a filter that moved past the gate offline', () => {
   }, 60_000);
 
   it('approve and reject both refuse a stale approval (APPROVAL_STALE)', async () => {
-    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H)).json().error).toBe('APPROVAL_STALE');
+    expect((await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, apr1H, APPROVE)).json().error).toBe('APPROVAL_STALE');
     expect((await signed(`/api/stage-approvals/${ctx.approvalId}/reject`, apr1H, { remarks: 'stale one' })).json().error).toBe('APPROVAL_STALE');
     expect((await prisma.filterDetails.findUnique({ where: { assetInstanceId: ctx.f } }))!.currentLifecycleState).toBe('DRY_IN');
   });
@@ -412,7 +414,7 @@ describe('bulk-decide', () => {
     const a = await atWashOut('BLK1');
     const b = await atWashOut('BLK2');
     const ghost = randomUUID();
-    const res = await signed('/api/stage-approvals/bulk-decide', apr1H, { ids: [a.approvalId, ghost], action: 'approve' });
+    const res = await signed('/api/stage-approvals/bulk-decide', apr1H, { ids: [a.approvalId, ghost], action: 'approve', remarks: 'released' });
     expect(res.statusCode).toBe(200);
     expect(res.json().results).toEqual([
       { id: a.approvalId, status: 'ok' },
@@ -531,7 +533,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
 
     // Once the AHU is ready the same approval goes through and completes.
     ahuGate.refuse = false;
-    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
   });
 
@@ -546,7 +548,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
     const chose = await atFinalWashOut('SETB', { ahu, ownSet: 'SET_A', chosenSet: 'SET_B' });
     const row = await prisma.cleaningStageApproval.findUnique({ where: { id: chose.approvalId } });
     expect((row!.detailsSnapshot as any).completionFilterSet).toBe('SET_B');
-    const ok = await signed(`/api/stage-approvals/${chose.approvalId}/approve`, apr1H);
+    const ok = await signed(`/api/stage-approvals/${chose.approvalId}/approve`, apr1H, APPROVE);
     expect(ok.statusCode).toBe(200);
     expect(ahuGate.calls).toEqual([{ filterId: chose.f, set: 'SET_B' }]);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: chose.cycleId } })).toMatchObject({ status: 'COMPLETED' });
@@ -554,7 +556,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
     // Control: no choice on the advance → the whole roster → the SET_A sibling blocks.
     ahuGate.calls.length = 0;
     const none = await atFinalWashOut('SETNONE', { ahu, ownSet: 'SET_A' });
-    const refused = await signed(`/api/stage-approvals/${none.approvalId}/approve`, apr1H);
+    const refused = await signed(`/api/stage-approvals/${none.approvalId}/approve`, apr1H, APPROVE);
     expect([refused.statusCode, refused.json().error]).toEqual([422, 'AHU_INTERLOCK_PENDING']);
     expect(ahuGate.calls).toEqual([{ filterId: none.f, set: undefined }]);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: none.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
@@ -574,7 +576,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
     // Raised by the bypass itself (a self-healed one could not know the operator's choice).
     expect(row).toMatchObject({ status: 'PENDING', stageKey: 'WASH_OUT', requestedBy: op.id });
     expect((row.detailsSnapshot as any).completionFilterSet).toBe('SET_B');
-    expect((await signed(`/api/stage-approvals/${row.id}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${row.id}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     expect(ahuGate.calls).toEqual([{ filterId: f, set: 'SET_B' }]);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: cycleId } })).toMatchObject({ status: 'COMPLETED' });
     expect(await prisma.filterEvent.count({ where: { cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
@@ -582,7 +584,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
 
   it('bulk-decide (the page\'s select-all) completes it the same way', async () => {
     const c = await atFinalWashOut('FINBULK');
-    const res = await signed('/api/stage-approvals/bulk-decide', apr1H, { ids: [c.approvalId], action: 'approve' });
+    const res = await signed('/api/stage-approvals/bulk-decide', apr1H, { ids: [c.approvalId], action: 'approve', remarks: 'released' });
     expect(res.json().results).toEqual([{ id: c.approvalId, status: 'ok' }]);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
     expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
@@ -590,7 +592,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
 
   it('a gated stage with more stages after it is NOT completed by its approval (the operator is released, as before)', async () => {
     const c = await atWashOut('MIDFIN');
-    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     expect(ahuGate.calls).toEqual([]);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
     expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(0);
@@ -630,7 +632,7 @@ describe('interlock exemptions recorded on offline work', () => {
     const [row] = await approvals(f);
     const pending = await signed(`/api/filters/${f}/submit-checklist`, opH, { answers: { [CLQ]: 'YES' }, tapeVersion: (await state(f)).tapeVersion });
     expect([pending.statusCode, pending.json().error]).toEqual([423, 'STAGE_APPROVAL_PENDING']);
-    expect((await signed(`/api/stage-approvals/${row.id}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${row.id}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     const done = await signed(`/api/filters/${f}/submit-checklist`, opH, { answers: { [CLQ]: 'YES' }, tapeVersion: (await state(f)).tapeVersion });
     expect(done.statusCode).toBe(200);
     expect((await prisma.filterDetails.findUnique({ where: { assetInstanceId: f } }))!.currentLifecycleState).toBe('CLEANING_CYCLE_COMPLETED');
@@ -674,19 +676,20 @@ describe('approvals without a frozen filter snapshot (legacy rows), and SUPER_AD
     return { f, cycleId, id: row.id };
   }
 
-  it('SUPER_ADMIN may decide any role\'s approval; no remarks and blank remarks are both stored as none', async () => {
+  it('SUPER_ADMIN may decide any role\'s approval; blank remarks are refused before the signature (D03-13)', async () => {
     const a = await parked('LEGA');
-    const res = await signed(`/api/stage-approvals/${a.id}/approve`, saH);
+    const res = await signed(`/api/stage-approvals/${a.id}/approve`, saH, APPROVE);
     expect(res.statusCode).toBe(200);
-    expect((await prisma.cleaningStageApproval.findUnique({ where: { id: a.id } }))!.decisionRemarks).toBeNull();
+    expect((await prisma.cleaningStageApproval.findUnique({ where: { id: a.id } }))!.decisionRemarks).toBe('released');
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'STAGE_APPROVAL_APPROVED', targetId: a.id } });
     // No frozen name → the signature names the filter by id.
     expect(audit!.signatureMeaning).toContain(a.f);
-    expect(audit!.afterValue).toMatchObject({ filterName: null, remarks: null });
+    expect(audit!.afterValue).toMatchObject({ filterName: null, remarks: 'released' });
 
     const b = await parked('LEGB');
-    expect((await signed(`/api/stage-approvals/${b.id}/approve`, apr1H, { remarks: '   ' })).statusCode).toBe(200);
-    expect((await prisma.cleaningStageApproval.findUnique({ where: { id: b.id } }))!.decisionRemarks).toBeNull();
+    const blank = await signed(`/api/stage-approvals/${b.id}/approve`, apr1H, { remarks: '   ' });
+    expect([blank.statusCode, blank.json().error]).toEqual([400, 'VALIDATION']);
+    expect((await prisma.cleaningStageApproval.findUnique({ where: { id: b.id } }))!.status).toBe('PENDING');
   });
 
   it('a reject of a legacy row names the filter by id in the signature', async () => {
@@ -721,7 +724,7 @@ describe('re-entering a gated stage and notification outages on the operator sid
     expect(all.map((a) => a.id)).toEqual([first.id]);
     expect(all[0].status).toBe('PENDING');
     // …and that request is actionable again (the filter is back at the gate).
-    expect((await signed(`/api/stage-approvals/${first.id}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${first.id}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
   });
 
   it('an approver-notification outage never blocks entering the gated stage', async () => {
@@ -750,7 +753,7 @@ describe('re-entering a gated stage and notification outages on the operator sid
 
   it('the Dry Out approval detail carries the dryer facts the approver signs against', async () => {
     const c = await atWashOut('DRYDET');
-    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, APPROVE)).statusCode).toBe(200);
     await dry(c.f, c.cycleId);
     expect((await advance(c.f, { targetState: 'DRY_OUT' })).statusCode).toBe(200);
     const dryOut = (await approvals(c.f)).find((a) => a.stageKey === 'DRY_OUT')!;

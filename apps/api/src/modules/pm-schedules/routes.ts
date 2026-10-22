@@ -12,6 +12,7 @@ import { readPmSettings, isPmEnabled, PM_YEAR_MIN, PM_YEAR_MAX } from './pm-shar
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
+import { refuseWithoutDecisionRemarks } from '../../lib/decision-remarks.js';
 import { prisma } from '../../lib/prisma.js';
 import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
 
@@ -422,6 +423,8 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    // Remarks first, on every decision (D03-13): no signature for a refused one.
+    if (refuseWithoutDecisionRemarks((req.body as { remarks?: unknown }).remarks, reply)) return;
     const { ok } = await enforceReauth('REVIEW_PM_SCHEDULE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
@@ -445,6 +448,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (refuseWithoutDecisionRemarks((req.body as { comment?: unknown }).comment, reply)) return;
     const { ok } = await enforceReauth('APPROVE_PM_SCHEDULE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
@@ -468,6 +472,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (refuseWithoutDecisionRemarks((req.body as { remarks?: unknown }).remarks, reply)) return;
     const { ok } = await enforceReauth('REJECT_PM_SCHEDULE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);

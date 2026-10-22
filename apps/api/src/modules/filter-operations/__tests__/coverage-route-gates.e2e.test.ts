@@ -111,7 +111,10 @@ describe('every cycle write demands the signature when the role\'s policy says s
   it('stage-approval decisions always need the signature; a bulk reject with no remarks is refused first', async () => {
     const id = randomUUID();
     expect((await call('POST', `/api/stage-approvals/${id}/reject`, gateH, { remarks: 'not signed' })).json().error).toBe('REAUTH_REQUIRED');
-    expect((await call('POST', '/api/stage-approvals/bulk-decide', gateH, { ids: [id], action: 'approve' })).json().error).toBe('REAUTH_REQUIRED');
+    expect((await call('POST', '/api/stage-approvals/bulk-decide', gateH, { ids: [id], action: 'approve', remarks: 'released' })).json().error).toBe('REAUTH_REQUIRED');
+    // an approval needs remarks too, refused before the signature (D03-13)
+    const bareApprove = await call('POST', '/api/stage-approvals/bulk-decide', gateH, { ids: [id], action: 'approve' });
+    expect([bareApprove.statusCode, bareApprove.json().error]).toEqual([400, 'VALIDATION']);
     const noRemarks = await call('POST', '/api/stage-approvals/bulk-decide', gateH, { ids: [id], action: 'reject' });
     expect([noRemarks.statusCode, noRemarks.json().error]).toEqual([400, 'REMARKS_REQUIRED']);
   });

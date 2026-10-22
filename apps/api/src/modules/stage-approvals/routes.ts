@@ -1,6 +1,7 @@
 import { type FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
+import { refuseWithoutDecisionRemarks } from '../../lib/decision-remarks.js';
 import { stageApprovalService as svc } from './service.js';
 
 // An approval id is a uuid (2026-10-22): a malformed one answers 400
@@ -54,6 +55,8 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // An approval says why too, checked before the signature (D03-13).
+    if (refuseWithoutDecisionRemarks((req.body as { remarks?: unknown } | undefined)?.remarks, reply)) return;
     const { ok } = await enforceReauthAlways('APPROVE_CLEANING_STAGE', req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
@@ -107,6 +110,8 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
     if (b.action === 'reject' && (b.remarks?.trim().length ?? 0) < 3) {
       return reply.code(400).send({ error: 'REMARKS_REQUIRED', message: 'Rejection remarks are required (min 3 characters).' });
     }
+    // ...and an approval needs them too (D03-13).
+    if (b.action === 'approve' && refuseWithoutDecisionRemarks(b.remarks, reply)) return;
     const { ok } = await enforceReauthAlways(
       b.action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE', req, reply);
     if (!ok) return;

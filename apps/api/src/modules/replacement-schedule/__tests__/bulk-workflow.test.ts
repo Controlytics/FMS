@@ -70,9 +70,9 @@ afterAll(async () => {
 describe('bulk review / approve', () => {
   it('reviews and approves several entries in one call, each QNN tagged as one batch', async () => {
     const ids = [await entry(), await entry(), await entry()];
-    const r = await reviewEntries(ctxOf(REVIEWER, 'reviewer'), ids, 'approve');
+    const r = await reviewEntries(ctxOf(REVIEWER, 'reviewer'), ids, 'approve', 'sizes checked');
     expect(r.processed).toBe(3);
-    const a = await approveEntries(ctxOf(APPROVER, 'approver'), ids);
+    const a = await approveEntries(ctxOf(APPROVER, 'approver'), ids, 'released');
     expect(a.processed).toBe(3);
     const rows = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: ids } } });
     expect(rows.every((e) => e.approvalStatus === 'APPROVED')).toBe(true);
@@ -84,7 +84,7 @@ describe('bulk review / approve', () => {
   it('skips entries that are not at the step (partial success)', async () => {
     const pending = await entry();
     const done = await entry({ approvalStatus: 'APPROVED' });
-    const r = await reviewEntries(ctxOf(REVIEWER, 'reviewer'), [pending, done], 'approve');
+    const r = await reviewEntries(ctxOf(REVIEWER, 'reviewer'), [pending, done], 'approve', 'sizes checked');
     expect(r.processed).toBe(1);
   });
 });
@@ -93,7 +93,7 @@ describe('segregation of duties', () => {
   it('the uploader cannot review their own entry — the whole batch is refused, nothing written', async () => {
     const other = await entry({ submittedBy: randomUUID(), submittedByName: 'someone' });
     const own = await entry();
-    await expect(reviewEntries(ctxOf(UPLOADER, 'uploader'), [other, own], 'approve'))
+    await expect(reviewEntries(ctxOf(UPLOADER, 'uploader'), [other, own], 'approve', 'sizes checked'))
       .rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
     const rows = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: [other, own] } } });
     expect(rows.every((e) => e.approvalStatus === 'PENDING_REVIEW')).toBe(true);
@@ -101,7 +101,7 @@ describe('segregation of duties', () => {
 
   it('the reviewer cannot also approve', async () => {
     const id = await entry({ approvalStatus: 'PENDING_APPROVAL', reviewedBy: REVIEWER, reviewedByName: 'reviewer' });
-    await expect(approveEntries(ctxOf(REVIEWER, 'reviewer'), [id])).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
+    await expect(approveEntries(ctxOf(REVIEWER, 'reviewer'), [id], 'released')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 });
 

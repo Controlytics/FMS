@@ -13,6 +13,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from './pm-workflow.js';
 import { assertSeparation, assertBatchSeparation } from './pm-separation-guard.js';
@@ -186,9 +187,8 @@ export async function reviewEntries(
   await checkPmEnabled();
   const cfg = await getPmWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.reviewRole, 'review');
-  if (action === 'reject' && (!remarks || remarks.trim().length < 3)) {
-    throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
-  }
+  // A review that sends an entry on needs a reason too, not only a rejection (D03-13).
+  remarks = requireDecisionRemarks(remarks);
 
   const entries = await prisma.pmScheduleEntry.findMany({ where: { id: { in: entryIds } }, include: { schedule: true } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
@@ -218,7 +218,7 @@ export async function reviewEntries(
         data: {
           approvalStatus: 'PENDING_APPROVAL',
           reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(),
-          reviewRemarks: remarks?.trim() || null,
+          reviewRemarks: remarks,
         },
       });
       qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, 'Reviewed (sent for approval)',
@@ -243,6 +243,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   await checkPmEnabled();
   const cfg = await getPmWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.approvalRole, 'approve');
+  comment = requireDecisionRemarks(comment); // an approval says why too (D03-13)
 
   const entries = await prisma.pmScheduleEntry.findMany({ where: { id: { in: entryIds } }, include: { schedule: true } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
@@ -301,7 +302,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
       where: { id: entry.id },
       data: {
         approvalStatus: 'APPROVED',
-        approvalRemarks: comment ?? null,
+        approvalRemarks: comment,
         approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
         rejectionStage: null, rejectedBy: null, rejectedByName: null, rejectedAt: null,
         ...(hasPendingEdit ? {

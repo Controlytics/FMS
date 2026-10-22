@@ -10,6 +10,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from '../pm-schedules/pm-workflow.js';
 
 const MS_DAY = 86400000;
@@ -80,9 +81,8 @@ function batchFor(rows: Array<{ ahuName: string }>) {
 export async function reviewEntries(ctx: RequestContext, entryIds: string[], action: 'approve' | 'reject', remarks?: string) {
   const cfg = await getReplacementWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'replacement schedules');
-  if (action === 'reject' && (!remarks || remarks.trim().length < 3)) {
-    throw new AppError(400, 'REMARKS_REQUIRED', 'Remarks are required when rejecting (min 3 characters)');
-  }
+  // A review that sends an entry on needs a reason too, not only a rejection (D03-13).
+  remarks = requireDecisionRemarks(remarks);
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
   const actionable = entries.filter((e) => e.approvalStatus === 'PENDING_REVIEW');
@@ -93,7 +93,7 @@ export async function reviewEntries(ctx: RequestContext, entryIds: string[], act
     if (action === 'approve') {
       await prisma.replacementScheduleEntry.update({
         where: { id: entry.id },
-        data: { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(), reviewRemarks: remarks?.trim() || null },
+        data: { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(), reviewRemarks: remarks },
       });
       qnns.push(await mintQnn('REVIEW', entry, ctx, 'Reviewed (sent for approval)', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), remarks }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
@@ -113,6 +113,7 @@ export async function reviewEntries(ctx: RequestContext, entryIds: string[], act
 export async function approveEntries(ctx: RequestContext, entryIds: string[], comment?: string) {
   const cfg = await getReplacementWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'replacement schedules');
+  comment = requireDecisionRemarks(comment); // an approval says why too (D03-13)
   const entries = await prisma.replacementScheduleEntry.findMany({ where: { id: { in: entryIds } } });
   if (entries.length === 0) throw new AppError(404, 'NOT_FOUND', 'No entries found');
   const actionable = entries.filter((e) => e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING');
@@ -122,7 +123,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
   for (const entry of actionable) {
     await prisma.replacementScheduleEntry.update({
       where: { id: entry.id },
-      data: { approvalStatus: 'APPROVED', approvalRemarks: comment ?? null, approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(), rejectionStage: null, rejectedBy: null, rejectedByName: null, rejectedAt: null },
+      data: { approvalStatus: 'APPROVED', approvalRemarks: comment, approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(), rejectionStage: null, rejectedBy: null, rejectedByName: null, rejectedAt: null },
     });
     qnns.push(await mintQnn('APPROVE', entry, ctx, 'Approved', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_APPROVED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), comment }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });

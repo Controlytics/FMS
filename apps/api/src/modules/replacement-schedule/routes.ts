@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { refuseWithoutDecisionRemarks } from '../../lib/decision-remarks.js';
 import { AppError } from '../../lib/errors.js';
 import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
@@ -124,6 +125,8 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_REVIEW')],
     schema: { tags: ['Replacement Schedule'], summary: 'Review entries (approve→approval or reject)', body: { type: 'object', required: ['entryIds', 'action'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, action: { type: 'string', enum: ['approve', 'reject'] }, remarks: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    // Remarks first, on every decision (D03-13): no signature for a refused one.
+    if (refuseWithoutDecisionRemarks((req.body as { remarks?: unknown }).remarks, reply)) return;
     const { ok } = await enforceReauth('REVIEW_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
     const { entryIds, action, remarks } = req.body as { entryIds: string[]; action: 'approve' | 'reject'; remarks?: string };
     return wf.reviewEntries(buildContext(req), entryIds, action, remarks);
@@ -133,6 +136,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_APPROVE')],
     schema: { tags: ['Replacement Schedule'], summary: 'Approve entries', body: { type: 'object', required: ['entryIds'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, comment: { type: 'string' } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    if (refuseWithoutDecisionRemarks((req.body as { comment?: unknown }).comment, reply)) return;
     const { ok } = await enforceReauth('APPROVE_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
     const { entryIds, comment } = req.body as { entryIds: string[]; comment?: string };
     return wf.approveEntries(buildContext(req), entryIds, comment);
@@ -142,6 +146,7 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     preHandler: [app.requirePermission('REPLACEMENT_SCHEDULE_APPROVE')],
     schema: { tags: ['Replacement Schedule'], summary: 'Reject entries at approval', body: { type: 'object', required: ['entryIds', 'remarks'], properties: { entryIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 }, remarks: { type: 'string', minLength: 3 } } }, response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses } },
   }, async (req, reply) => {
+    if (refuseWithoutDecisionRemarks((req.body as { remarks?: unknown }).remarks, reply)) return;
     const { ok } = await enforceReauth('REJECT_REPLACEMENT_SCHEDULE', req, reply); if (!ok) return;
     const { entryIds, remarks } = req.body as { entryIds: string[]; remarks: string };
     return wf.rejectEntries(buildContext(req), entryIds, remarks);

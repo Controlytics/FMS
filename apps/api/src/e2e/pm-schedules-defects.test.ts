@@ -273,7 +273,7 @@ describe('D3 - bulk approve is all-or-nothing on a separation refusal', () => {
     expect((await as('sa', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 9 * DAY)) })).statusCode).toBe(200);
     expect((await as('sa', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 5 * DAY)) })).statusCode).toBe(200);
 
-    const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b] });
+    const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b], comment: 'approved' });
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('PM_VISIT_OVERLAP');
     for (const [id, live] of [[a, base], [b, bDate]] as const) {
@@ -296,7 +296,7 @@ describe('D3 - bulk approve is all-or-nothing on a separation refusal', () => {
     const [a, b] = s.entryIds;
     await as('sa', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(base.getTime() + 3 * DAY)) });
     await as('sa', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(base.getTime() + 40 * DAY)) });
-    const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b] });
+    const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b], comment: 'approved' });
     expect(res.statusCode).toBe(200);
     const rows = await prisma.pmScheduleEntry.findMany({ where: { id: { in: [a, b] } } });
     expect(rows.every((r) => r.approvalStatus === 'APPROVED' && r.pendingPlannedDate === null)).toBe(true);
@@ -317,8 +317,8 @@ describe('D10 / D11 - a pending edit of an approved visit', () => {
     expect(iso(row.plannedDate)).toBe(iso(live));
     expect(row.pendingPlannedDate && iso(row.pendingPlannedDate)).toBe('2096-03-12');
 
-    expect((await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve' })).statusCode).toBe(200);
-    expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id] })).statusCode).toBe(200);
+    expect((await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve', remarks: 'dates checked' })).statusCode).toBe(200);
+    expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id], comment: 'approved' })).statusCode).toBe(200);
     row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
     expect(row.approvalStatus).toBe('APPROVED');
     expect(iso(row.plannedDate)).toBe('2096-03-12');
@@ -337,8 +337,8 @@ describe('D10 / D11 - a pending edit of an approved visit', () => {
     const id = s.entryIds[0];
     expect((await as('sa', 'POST', `/entries/${id}/resubmit`, { plannedDate: '2096-06-20' })).statusCode).toBe(200);
     expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).pendingPlannedDate).toBeNull();
-    await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve' });
-    expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id] })).statusCode).toBe(200);
+    await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve', remarks: 'dates checked' });
+    expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id], comment: 'approved' })).statusCode).toBe(200);
     const row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
     expect(iso(row.plannedDate)).toBe('2096-06-20');
   });
