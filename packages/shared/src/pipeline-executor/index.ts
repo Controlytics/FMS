@@ -68,6 +68,7 @@ export {
   collectChecklistsAfterStage,
   checklistNodeProfileId,
   enabledChecklistNodes,
+  advanceMustCarryChecklist,
   findReachable,
   buildStageLookup,
   prettyStageLabel,

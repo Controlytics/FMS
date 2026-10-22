@@ -449,6 +449,7 @@ export async function prepareAdvance(
   // never letting them answer the post-stage checklist. submitChecklist
   // performs the completion in that case instead.
   let hasPendingChecklistAfterTarget = false;
+  let activePostChecklistIds: string[] = [];
   if (leadsToEnd && !hasMoreStages) {
     const postNodes = collectChecklistsAfterStage(targetStage, cp.stages, cp.connections)
       .filter(n => (n.configuration as any)?.checklistProfileId);
@@ -458,7 +459,8 @@ export async function prepareAdvance(
         where: { id: { in: postProfileIds }, isActive: true },
         select: { id: true },
       });
-      hasPendingChecklistAfterTarget = active.length > 0;
+      activePostChecklistIds = active.map(a => a.id);
+      hasPendingChecklistAfterTarget = activePostChecklistIds.length > 0;
     }
   }
 
@@ -478,7 +480,15 @@ export async function prepareAdvance(
   // until QA approves, and the approved checklist completes the cycle. The bare
   // advance is the only correct call in that flow (session 2026-10-08).
   const finalStageAwaitsQa = interlockConfig.enabled && isInterlockStage(targetState);
-  if (hasPendingChecklistAfterTarget && opts.composedWithChecklist !== true && !finalStageAwaitsQa) {
+  // The ONE rule, shared with the web batch path, which asks the checklist first
+  // by the same predicate (packages/shared advanceMustCarryChecklist, 2026-10-22).
+  const mustCarryChecklist = executor.advanceMustCarryChecklist({
+    leadsToEnd,
+    nextStages: reachFromTarget.reachableStages,
+    pendingChecklistProfileIds: activePostChecklistIds,
+    interlockGated: finalStageAwaitsQa,
+  });
+  if (mustCarryChecklist && opts.composedWithChecklist !== true) {
     if (!ctx.isOfflineReplay) {
       throw new AppError(
         409,

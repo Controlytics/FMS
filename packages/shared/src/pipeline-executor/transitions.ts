@@ -303,6 +303,31 @@ export function enabledChecklistNodes(
   });
 }
 
+/**
+ * A-01 (operator decision 2026-10-21): must an advance INTO a stage carry the
+ * checklist that follows it in the SAME call (`advance-with-checklist`)?
+ *
+ * Yes when the stage is the LAST one (END follows, no further stage) and an
+ * ENABLED checklist follows it — unless the stage is QA-interlock gated, where
+ * the design is two-step: the bare advance enters the stage and raises the
+ * PENDING approval, and the checklist is answered after approval.
+ *
+ * ONE rule: the server's advance() refuses a bare advance exactly when this is
+ * true (409 CHECKLIST_REQUIRED), and the web batch path asks the checklist first
+ * by it — so the two cannot disagree. Input is a `stageLookup` entry (the
+ * server builds those with the same walkers and enabled-checklist filter);
+ * `disabledChecklistProfileIds` re-applies the disabled filter to a cached entry.
+ */
+export function advanceMustCarryChecklist(
+  entry: (Partial<StageInfo> & { interlockGated?: boolean }) | null | undefined,
+  disabledChecklistProfileIds?: readonly string[] | null,
+): boolean {
+  if (!entry || entry.leadsToEnd !== true || (entry.nextStages?.length ?? 0) > 0) return false;
+  if (entry.interlockGated === true) return false;
+  const disabled = new Set(disabledChecklistProfileIds ?? []);
+  return (entry.pendingChecklistProfileIds ?? []).some((id) => !!id && !disabled.has(id));
+}
+
 function collectChecklistsAfterStageInternal(
   stage: ProfileNode,
   allStages: ProfileNode[],

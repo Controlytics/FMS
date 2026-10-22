@@ -31,3 +31,8 @@ export {
 } from './use-dryer-countdown';
 
 export type { PendingChecklist } from './types';
+
+// Which equipment group a cycle's readings use, and whether the operator must
+// pick it (operator decision 2026-10-22). Web dialog, Dry In panel and tablet.
+export { equipmentGroupChoice, groupHasStageInstruments } from './equipment-group-choice';
+export type { EquipmentGroupChoice, EquipmentGroupSource } from './equipment-group-choice';

@@ -19,8 +19,8 @@
  * apiClient and SWR — only fetch is stubbed.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within, act, configure } from '@testing-library/react';
-import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
+import { screen, fireEvent, waitFor, configure } from '@testing-library/react';
+import { renderPage } from '@/test-utils/page-harness';
 import { usePageTestLifecycle, passReauth, expectSigned, allowConsoleError } from './fm-test-kit';
 import { installFakeIndexedDB, openAppDb, cacheRow } from '../hooks/__tests__/fake-indexeddb';
 
@@ -41,6 +41,9 @@ vi.mock('@/lib/sync-engine', () => ({
 vi.mock('../components/drying-filters-panel', () => ({ DryingFiltersPanel: () => null }));
 
 import { FilterOperationsPage } from '../filter-operations';
+import {
+  OPERATOR, F1, Q_YES, NEW_FILTER_STATE, AWAITING_CHECKLIST, REAUTH_FAILED, setup, openWashOut, cancelPrompt, settle, pickReasonAndStart,
+} from './filter-operations-kit';
 
 // Whole-page renders (SWR + IndexedDB + many reads): under a loaded run the
 // default 1 s findBy / 5 s test budgets flake. Upper bounds, not delays.
@@ -53,72 +56,11 @@ beforeEach(async () => {
   await openAppDb();
 });
 
-const OPERATOR: TestUser = { id: 'u-op', username: 'op1', fullName: 'Ravi Kumar', role: 'OPERATOR', permissions: ['FILTER_OPERATE', 'ASSET_READ'] };
-const F1 = { id: 'f1', name: 'F-001', ahuId: 'h1', approvalStatus: 'APPROVED', currentLifecycleState: null, isActive: true };
-const Q_YES = { id: 'q1', question: 'Filter intact?', questionType: 'YES_NO', required: true };
-const SUBMIT_CL = {
-  type: 'SUBMIT_CHECKLIST', label: 'Submit Checklist: Post-wash check', blocking: true,
-  params: { checklistProfileId: 'cl1', checklistProfileName: 'Post-wash check', versionPin: 3, afterStage: 'WASH_IN', questions: [Q_YES] },
-};
-const NEW_FILTER_STATE = { currentState: null, currentCycle: null, actions: [], tapeVersion: 0, blockChangeStatus: 'MATCH' };
-const AWAITING_CHECKLIST = {
-  currentState: 'WASH_IN', currentCycle: { id: 'c1', status: 'IN_PROGRESS' }, actions: [SUBMIT_CL], tapeVersion: 7, blockChangeStatus: 'MATCH',
-};
-const REAUTH_FAILED: MockRoute['body'] = { error: 'REAUTH_FAILED', message: 'Invalid password' };
-
-function setup(o: { reauthActions?: string[]; state: unknown; routes?: MockRoute[] }) {
-  return mockApi([
-    ...(o.routes ?? []),
-    { path: '/api/filters/f1/current-state', body: o.state },
-    { path: /^\/api\/assets\/identifiers\/lookup\//, body: { asset: null } },
-    { path: '/api/hierarchy/filters', body: { data: [F1] } },
-    { path: '/api/hierarchy/blocks', body: { data: [{ id: 'b1', name: 'North', isActive: true }] } },
-    { path: '/api/hierarchy/ahus', body: { data: [{ id: 'h1', name: 'AHU-01', areaId: null, blockId: 'b1' }] } },
-    { path: '/api/hierarchy/areas', body: { data: [] } },
-    { path: '/api/assets/instances', body: { data: [] } },
-    { path: '/api/assets/templates', body: { data: [] } },
-    { path: '/api/assets/identifiers', body: [] },
-    { path: '/api/filters/reasons', body: { reasons: [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }] } },
-    { path: '/api/equipment-groups', body: [] },
-    { path: '/api/checklist-profiles', body: { data: [] } },
-    { path: '/api/filter-cleaning-profiles', body: { data: [] } },
-    { path: '/api/config/action-reauth/my-actions', body: { actions: o.reauthActions ?? [] } },
-    { path: '/api/config/ahu-completion-process/current', body: { mode: 'NONE' } },
-    { path: '/api/config/block-change-approval/current', body: { mode: 'CONFIRM' } },
-    { path: '/api/config/datetime/current', body: {} },
-    { path: '/api/config/field-ids/current', body: [] },
-    { path: '/api/config/cleaning-profile-assignment/current', body: { mode: 'BY_AHU', rules: [] } },
-    { path: '/api/filters/batch-states', body: { states: {}, cachedAt: '2026-10-22T00:00:00.000Z' } },
-    { path: '/api/pm-schedules/pending-tasks-map', body: {} },
-    { path: '/api/replacement-schedules/blocked-filters', body: { filterIds: [] } },
-    { path: '/api/health', body: { status: 'ok' } },
-  ]);
-}
-
-async function openWashOut(api: ReturnType<typeof setup>) {
-  renderPage(<FilterOperationsPage />, { route: '/filters/stage/WASH_OUT', path: '/filters/stage/:stageKey', user: OPERATOR, api });
-  await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
-  await waitFor(() => expect(api.calls('GET', '/api/hierarchy/filters').length).toBeGreaterThan(0));
-  const input = await screen.findByPlaceholderText('Scan tag or type filter name');
-  fireEvent.change(input, { target: { value: 'F-001' } });
-  fireEvent.click(screen.getByRole('button', { name: /Add to Queue/ }));
-  await screen.findByRole('button', { name: /Submit Selected \(1\)/ });
-  fireEvent.click(screen.getByRole('button', { name: /Submit Selected \(1\)/ }));
-}
-
-const cancelPrompt = async () => {
-  const pw = await screen.findByPlaceholderText('Enter your password');
-  fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
-  await waitFor(() => expect(screen.queryByPlaceholderText('Enter your password')).toBeNull());
-};
-const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
 describe('Filter Operations — starting cycles under re-auth (START_CLEANING_CYCLE)', () => {
   async function toReasonSubmit(api: ReturnType<typeof setup>) {
     await openWashOut(api);
-    fireEvent.click(await screen.findByRole('button', { name: /Preventive Maintenance/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Start & Submit' }));
-    await settle();
+    await pickReasonAndStart();
   }
 
   it('a dismissed prompt is silent: no error, the reason dialog stays with its choice, nothing is sent; the retry is signed', async () => {
@@ -244,6 +186,65 @@ describe('Filter Operations — a checklist submitted under re-auth (SUBMIT_CHEC
     expect(submitted(api)).toEqual([]);
     expect(screen.getByText('Checklist Required')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Submit Checklist/ })).toBeEnabled();
+  });
+});
+
+/**
+ * A lockout (403 ACCOUNT_LOCKED) refuses the SIGNATURE, not one filter. Counted as
+ * a per-filter failure, the batch re-sent the same wrong password for every
+ * remaining filter — one more failed signature (audit row) each — and listed
+ * every filter as failed (2026-10-22).
+ */
+describe('Filter Operations — a lockout stops a signed batch', () => {
+  const LOCKED = { error: 'ACCOUNT_LOCKED', message: 'Account locked due to multiple failed attempts. Contact administrator.' };
+  const F2 = { ...F1, id: 'f2', name: 'F-002' };
+  async function queueTwo(api: ReturnType<typeof setup>) {
+    renderPage(<FilterOperationsPage />, { route: '/filters/stage/WASH_OUT', path: '/filters/stage/:stageKey', user: OPERATOR, api });
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    await waitFor(() => expect(api.calls('GET', '/api/hierarchy/filters').length).toBeGreaterThan(0));
+    for (const name of ['F-001', 'F-002']) {
+      fireEvent.change(await screen.findByPlaceholderText('Scan tag or type filter name'), { target: { value: name } });
+      fireEvent.click(screen.getByRole('button', { name: /Add to Queue/ }));
+      await screen.findByText(name);
+    }
+    fireEvent.click(await screen.findByRole('button', { name: /Submit Selected \(2\)/ }));
+  }
+  const both = (o: Parameters<typeof setup>[0]) => {
+    const api = setup(o);
+    api.routes.unshift({ path: '/api/hierarchy/filters', body: { data: [F1, F2] } });
+    return api;
+  };
+
+  it('starting cycles: one start-cycle sent, the lockout shown, the reason dialog kept', async () => {
+    const api = both({
+      reauthActions: ['START_CLEANING_CYCLE'],
+      state: NEW_FILTER_STATE,
+      routes: [{ method: 'POST', path: /\/api\/filters\/f\d\/start-cycle/, status: 403, body: LOCKED }],
+    });
+    await queueTwo(api);
+    await pickReasonAndStart();
+    await passReauth('Wrong@1');
+    expect((await screen.findAllByText(LOCKED.message)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/cycle\(s\) started/)).toBeNull();
+    expect(api.requests.filter((r) => r.method === 'POST' && /start-cycle$/.test(r.path)).map((r) => r.path)).toEqual(['/api/filters/f1/start-cycle']);
+    expect(screen.getByRole('button', { name: 'Start & Submit' })).toBeInTheDocument();
+  });
+
+  it('a checklist for a batch: one submit sent, the lockout shown once', async () => {
+    const api = both({
+      reauthActions: ['SUBMIT_CHECKLIST_WITH_SIGNATURE'],
+      state: AWAITING_CHECKLIST,
+      routes: [{ method: 'POST', path: /\/api\/filters\/f\d\/submit-checklist/, status: 403, body: LOCKED }],
+    });
+    await queueTwo(api);
+    await screen.findByText('Checklist Required');
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
+    await settle();
+    await passReauth('Wrong@1');
+    expect((await screen.findAllByText(LOCKED.message)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/succeeded, .* failed/)).toBeNull();
+    expect(api.requests.filter((r) => r.method === 'POST' && /submit-checklist$/.test(r.path)).map((r) => r.path)).toEqual(['/api/filters/f1/submit-checklist']);
   });
 });
 
