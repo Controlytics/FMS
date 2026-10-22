@@ -95,4 +95,49 @@ describe('Filter Operations — the station a pending checklist is answered at',
     await waitFor(() => expect(submits(a).map((r) => r.path)).toEqual(['/api/filters/f2/submit-checklist']));
     expect(screen.getByText(/F-001 has a pending Storage Out checklist — scan it at Storage Out/)).toBeInTheDocument();
   });
+  // c4621a7: a cycle waiting at START (started, no stage entered) answers its
+  // checklist before the first stage only at a first stage's station.
+  const waitingAtStart = {
+    currentState: null, tapeVersion: 3, blockChangeStatus: 'MATCH',
+    currentCycle: { id: 'c1', status: 'IN_PROGRESS' },
+    actions: [{
+      type: 'SUBMIT_CHECKLIST', label: 'Submit Checklist: Release check', blocking: true,
+      params: { checklistProfileId: 'cl1', checklistProfileName: 'Release check', versionPin: 3, afterStage: null, questions: [Q_YES] },
+    }],
+    pipelineGraph: {
+      stages: [
+        { id: 'n-start', nodeType: 'START' },
+        { id: 'n-cl', nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'cl1' } },
+        { id: 'n-a', nodeType: 'STAGE', stateKey: 'STORAGE_IN' },
+        { id: 'n-b', nodeType: 'STAGE', stateKey: 'STORAGE_OUT' },
+        { id: 'n-end', nodeType: 'END' },
+      ],
+      connections: [
+        { fromStageId: 'n-start', toStageId: 'n-cl' }, { fromStageId: 'n-cl', toStageId: 'n-a' },
+        { fromStageId: 'n-a', toStageId: 'n-b' }, { fromStageId: 'n-b', toStageId: 'n-end' },
+      ],
+    },
+    stageLookup: {
+      STORAGE_IN: { nextStages: ['STORAGE_OUT'], leadsToEnd: false, pendingChecklistProfileIds: [], interlockGated: false },
+      STORAGE_OUT: { nextStages: [], leadsToEnd: true, pendingChecklistProfileIds: [], interlockGated: false },
+    },
+    disabledChecklistProfileIds: [],
+  };
+
+  it('a cycle waiting at START, scanned past its first stage: refused, naming the first stage; nothing sent', async () => {
+    const a = setup({ state: waitingAtStart, routes });
+    await scanAndSubmit(a, 'STORAGE_OUT');
+    expect(await screen.findByText(/F-001 has a pending checklist before its first stage — scan it at Storage In/)).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText('Checklist Required')).toBeNull();
+    expect(submits(a)).toEqual([]);
+  });
+
+  it('a cycle waiting at START, scanned at its first stage: asked there', async () => {
+    const a = setup({ state: waitingAtStart, routes });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await answerYes();
+    submitChecklist();
+    await waitFor(() => expect(submits(a)).toHaveLength(1));
+  });
 });
