@@ -31,6 +31,12 @@
        enabled state), every non-extension function body, CHECK/EXCLUDE
        constraints, sequences and extensions — on BOTH DBs. Any line not in both
        is drift.
+       Accepted trade-off: function bodies are hashed with "--" line comments
+       removed and whitespace collapsed, because the seed re-applies part of
+       prisma/sql/invariants.sql, whose copies differ from the baseline's only
+       in comments and CRLF — compared byte for byte, every seeded DB failed.
+       So a change confined to whitespace, or to text after "--" on a line
+       (even inside a string literal), is NOT detected. A logic change is.
     4. verify-migrations.required.sql asserts on the SCRATCH DB alone that the
        migration-only objects the app relies on come out of the migrations with
        the expected definition. Step 3 only catches divergence: a migration that
