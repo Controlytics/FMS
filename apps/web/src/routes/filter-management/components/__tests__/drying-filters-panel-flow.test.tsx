@@ -51,6 +51,18 @@ function setup(o: Opts = {}) {
   return { ...props, ...view };
 }
 const submit = () => screen.getByRole('button', { name: /^Submit/ });
+/**
+ * A fetched value reaches the row through a chain: the row's state is read, the
+ * half-time effect posts fetch-readings, the answer renders. Under a loaded run
+ * the whole chain outlasted ONE findBy budget (the test passed alone and failed
+ * in full runs, 2026-10-22). Wait for each step the operator would see happen,
+ * in order, each in its own budget — never a longer timeout.
+ */
+async function fetchedValueShown(s: { api: { calls: (m: string, p: string | RegExp) => unknown[] } }, text: string) {
+  await waitFor(() => expect(s.api.calls('GET', '/api/filters/f1/current-state').length).toBeGreaterThan(0));
+  await waitFor(() => expect(s.api.calls('POST', '/api/equipment-groups/fetch-readings').length).toBeGreaterThan(0));
+  expect(await screen.findByText(text)).toBeInTheDocument();
+}
 
 describe('DryingFiltersPanel — list states', () => {
   it('desktop with no filters says so; mobile renders nothing', async () => {
@@ -280,8 +292,7 @@ describe('DryingFiltersPanel — instrument auto-fetch', () => {
       states: { f1: state({}, GA) },
       routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: { results: [{ instrumentId: 't1', ok: true, value: 60.47 }, { instrumentId: 'h1', ok: true, value: 14 }] } }],
     });
-    // 5 s: the half-time fetch lands after findBy's 1 s default when the full suite loads the machine.
-    expect(await screen.findByText('60.47 °C', {}, { timeout: 5_000 })).toBeInTheDocument();
+    await fetchedValueShown(s, '60.47 °C');
     // The row shows the value from its OWN state; the panel ticks a lone ready row
     // two effect passes later (row report → panel rows → auto-select). Under a
     // loaded run the click landed in between, on a still-disabled Submit, and was
@@ -300,7 +311,7 @@ describe('DryingFiltersPanel — instrument auto-fetch', () => {
       states: { f1: state({}, GA) },
       routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: { results: [{ instrumentId: 't1', ok: true, value: 61 }, { instrumentId: 'h1', ok: true, value: 14 }] } }],
     });
-    expect(await screen.findByText('61 °C')).toBeInTheDocument();
+    await fetchedValueShown(s, '61 °C');
     expect(screen.getByText('Auto')).toBeInTheDocument();
     expect(screen.getByText('Temperature fetched from the instrument.')).toBeInTheDocument();
     expect(s.api.calls('POST', '/api/equipment-groups/fetch-readings')[0].json).toEqual({ filterId: 'f1', groupId: 'ga', stageKey: 'DRY_IN' });

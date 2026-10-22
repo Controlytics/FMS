@@ -23,8 +23,9 @@ import { rfid } from './support/fakes';
 vi.mock('@/lib/connectivity', async () => (await import('./support/fakes')).connectivityModule);
 vi.mock('@/lib/sync-engine', async () => (await import('./support/fakes')).syncEngineModule);
 vi.mock('@/lib/rfid-bridge', async () => (await import('./support/fakes')).rfidBridgeModule);
+const panel = vi.hoisted(() => ({ props: null as any }));
 vi.mock('../../filter-management/components/drying-filters-panel', () => ({
-  DryingFiltersPanel: (p: any) => (
+  DryingFiltersPanel: (p: any) => (panel.props = p) && (
     <div data-testid="drying">
       drying:{p.filters.map((f: any) => f.name).join(',')}
       <button onClick={() => p.onSuccess('Dry In recorded for 1 filter')}>panel-ok</button>
@@ -542,6 +543,58 @@ describe('cross-block (online, CONFIRM mode)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('Cleaning in a different block')).toBeNull();
     expect(api.calls('POST', '/api/filters/bulk-operate')).toHaveLength(0);
+  });
+});
+
+describe('Dry In — the panel gets the page\'s AHU pre-flight and the Android-back hook (2026-10-22)', () => {
+  const ahuRoutes = (o: { both?: boolean; allAtFinal?: boolean } = {}) => [
+    { path: '/api/hierarchy/ahus', body: { data: [{ id: 'h1', blockId: 'b1' }, { id: 'h2', blockId: 'b2' }] } },
+    { method: 'POST', path: '/api/filters/ahu-set-availability', body: { hasBothSets: o.both ?? false } },
+    { method: 'POST', path: '/api/filters/ahu-completion-status/batch', body: { ahus: [{ ahuId: 'h2', ahuName: 'AHU-02', allAtFinal: o.allAtFinal ?? false, filters: [{ id: 'f9', name: 'F-009', stage: 'WASH_IN', done: false }] }] } },
+  ];
+  async function toPanel(o: any) {
+    const view = await renderOps({ stage: 'DRY_IN', ...o });
+    fireEvent.click(await screen.findByRole('button', { name: 'South' }));
+    await waitFor(() => expect(screen.getByTestId('drying')).toHaveTextContent('drying:F-004'));
+    return view;
+  }
+
+  it('NONE: the pre-flight proceeds with no dialog and no set', async () => {
+    await toPanel({ routes: ahuRoutes() });
+    let out: any;
+    await act(async () => { out = await panel.props.ahuPreflight(['f4']); });
+    expect(out).toEqual({ proceed: true, filterSet: null });
+  });
+
+  it('POPUP: the set chooser and the warning are the page\'s own; the chosen set comes back with "proceed"', async () => {
+    const { api } = await toPanel({ ahuMode: 'POPUP', routes: ahuRoutes({ both: true }) });
+    let pending!: Promise<any>;
+    act(() => { pending = panel.props.ahuPreflight(['f4']); });
+    expect(await screen.findByText('Choose the filter set before completing this AHU')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Set A/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Continue anyway/ }));
+    let out: any;
+    await act(async () => { out = await pending; });
+    expect(out).toEqual({ proceed: true, filterSet: 'SET_A' });
+    expect(api.calls('POST', '/api/filters/ahu-completion-status/batch')[0].json).toEqual({ filterIds: ['f4'], set: 'SET_A' });
+  });
+
+  it('INTERLOCK with siblings not done: blocked — the panel sends nothing', async () => {
+    await toPanel({ ahuMode: 'INTERLOCK', routes: ahuRoutes() });
+    let pending!: Promise<any>;
+    act(() => { pending = panel.props.ahuPreflight(['f4']); });
+    expect(await screen.findByText('AHU interlock — cleaning completion blocked')).toBeInTheDocument();
+    const closeButtons = screen.getAllByRole('button', { name: 'Close' });
+    fireEvent.click(closeButtons[closeButtons.length - 1]); // the interlock dialog's (rendered last)
+    let out: any;
+    await act(async () => { out = await pending; });
+    expect(out.proceed).toBe(false);
+  });
+
+  it('the page hands the panel the Android-back hook it was given', async () => {
+    const overlayBackRef = { current: null };
+    await toPanel({ routes: ahuRoutes(), props: { initialStageKey: 'DRY_IN', overlayBackRef } });
+    expect(panel.props.overlayBackRef).toBe(overlayBackRef);
   });
 });
 

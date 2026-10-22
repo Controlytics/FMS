@@ -22,8 +22,9 @@ vi.mock('@/lib/sync-engine', async () => (await import('./support/fakes')).syncE
 vi.mock('@/lib/sync-since', async () => (await import('./support/fakes')).syncSinceModule);
 vi.mock('@/lib/offline-sync-service', async (orig) => ({ ...(await orig() as any), syncAllDataForOffline: (await import('./support/fakes')).fakeSyncAllDataForOffline }));
 vi.mock('@capacitor/app', async () => (await import('./support/fakes')).capacitorAppModule);
+const ops = vi.hoisted(() => ({ ref: null as any }));
 vi.mock('../mobile-operations', () => ({
-  MobileOperationsPage: (p: any) => <div data-testid="ops">ops stage={p.initialStageKey} block={p.initialBlockId ?? '-'}</div>,
+  MobileOperationsPage: (p: any) => { ops.ref = p.overlayBackRef; return <div data-testid="ops">ops stage={p.initialStageKey} block={p.initialBlockId ?? '-'}</div>; },
 }));
 const stageApprovals = vi.hoisted(() => ({ ref: null as any }));
 vi.mock('../../stage-approvals', () => ({
@@ -464,6 +465,20 @@ describe('Android back button', () => {
     await pressBack();
     expect(screen.getByText('Stage approvals web page')).toBeInTheDocument();
     stageApprovals.ref.current = () => false; // nothing open
+    await pressBack();
+    expect(await screen.findByText('Scan stations')).toBeInTheDocument();
+    await flush();
+  });
+
+  it('on a scan station it first lets the page close its own dialog (the Dry In checklist)', async () => {
+    renderWrapper();
+    fireEvent.click(await screen.findByRole('button', { name: /Dry In/ }));
+    expect(await screen.findByTestId('ops')).toBeInTheDocument();
+    expect(ops.ref).toBeTruthy();
+    ops.ref.current = () => true; // a dialog was open and closed
+    await pressBack();
+    expect(screen.getByTestId('ops')).toBeInTheDocument();
+    ops.ref.current = () => false; // nothing open
     await pressBack();
     expect(await screen.findByText('Scan stations')).toBeInTheDocument();
     await flush();

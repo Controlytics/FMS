@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import useSWR from 'swr';
 import { formatByLeastCount, formatRecordedReading } from '@/lib/format-by-least-count';
 import { useDryerAutoFetch, type ReadingSource } from '@/lib/filter-ops/use-dryer-autofetch';
@@ -81,6 +81,12 @@ export interface DryingFiltersPanelProps {
    */
   ahuPreflight?: (filterIds: string[]) => Promise<{ proceed: boolean; filterSet?: string | null }>;
   variant: 'desktop' | 'mobile';
+  /**
+   * Tablet (2026-10-22): the Android back button asks the page first. The panel
+   * publishes here a closer for its OWN overlays (its re-auth prompt, its
+   * checklist) that returns whether it closed one; nothing is written by it.
+   */
+  overlayBackRef?: MutableRefObject<(() => boolean) | null>;
 }
 
 /** What each row reports up to the panel every render. */
@@ -119,7 +125,7 @@ function completesCycle(state: any): boolean {
 }
 
 export function DryingFiltersPanel({
-  filters, online, executeOrQueue, getCache, cacheData, onSuccess, onError, onAfterSubmit, ahuPreflight, variant,
+  filters, online, executeOrQueue, getCache, cacheData, onSuccess, onError, onAfterSubmit, ahuPreflight, variant, overlayBackRef,
 }: DryingFiltersPanelProps) {
   // Audit 2026-09-24 (web F1): the panel completed Dry In with no re-auth
   // signature — with ADVANCE_FILTER_STAGE / STAGE_DRY_IN enabled for the role
@@ -402,6 +408,18 @@ export function DryingFiltersPanel({
       setChecklistBusy(false);
     }
   };
+
+  // Android back (tablet): re-published every render so it sees current state.
+  // A send in flight swallows back rather than dropping the operator mid-write.
+  if (overlayBackRef) {
+    overlayBackRef.current = () => {
+      if (reauth.isOpen) { reauth.cancel(); return true; }
+      if (checklistBusy) return true;
+      if (checklistFor) { setChecklistFor(null); setChecklistError(''); return true; }
+      return false;
+    };
+  }
+  useEffect(() => () => { if (overlayBackRef) overlayBackRef.current = null; }, [overlayBackRef]);
 
   const isMobile = variant === 'mobile';
   const anyRow = filters.some((f: any) => !rows[f.id]?.submitted);

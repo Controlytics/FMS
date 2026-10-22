@@ -38,7 +38,7 @@ const state = (o: { group?: any; final?: string | null } = {}) => ({
   disabledChecklistProfileIds: [],
 });
 
-function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[]; ahuPreflight?: any } = {}) {
+function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[]; ahuPreflight?: any; overlayBackRef?: any } = {}) {
   const api = mockApi([
     ...(o.routes ?? []),
     { path: '/api/filters/f1/current-state', body: st },
@@ -53,6 +53,7 @@ function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[];
     onError: vi.fn(),
     onAfterSubmit: vi.fn(),
     ...(o.ahuPreflight ? { ahuPreflight: o.ahuPreflight } : {}),
+    ...(o.overlayBackRef ? { overlayBackRef: o.overlayBackRef } : {}),
   };
   renderPage(<DryingFiltersPanel filters={[{ id: 'f1', name: 'FLT-1' }]} online variant="desktop" {...props} />, { user: OPERATOR, api });
   return { ...props, api };
@@ -84,6 +85,24 @@ const answerAndSubmit = async () => {
   });
   fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
 };
+
+describe('DryingFiltersPanel — Android back (tablet, 2026-10-22)', () => {
+  it('closes the panel\'s own checklist and writes nothing; with nothing open it lets back go on', async () => {
+    const overlayBackRef: { current: null | (() => boolean) } = { current: null };
+    const s = setup(state({ group: DRYER, final: 'cl1' }), { overlayBackRef });
+    await ready();
+    expect(overlayBackRef.current?.()).toBe(false); // nothing open
+    await pickTemp();
+    fireEvent.click(submit());
+    await screen.findByText('Checklist Required');
+    let closed = false;
+    act(() => { closed = overlayBackRef.current!(); });
+    expect(closed).toBe(true);
+    await waitFor(() => expect(screen.queryByText('Checklist Required')).toBeNull());
+    expect(s.executeOrQueue).not.toHaveBeenCalled();
+    expect(overlayBackRef.current?.()).toBe(false);
+  });
+});
 
 describe('DryingFiltersPanel — a FINAL Dry In with a checklist after it', () => {
   it('asks the checklist first, then sends the readings AND the answers in ONE advance-with-checklist', async () => {

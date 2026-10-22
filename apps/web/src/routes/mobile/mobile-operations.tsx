@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, type MutableRefObject } from 'react';
 import { ALL_ROWS } from '@/lib/page-size';
 import { Navigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
@@ -104,10 +104,12 @@ function isStartChecklist(rows: Array<{ pipelineNodeId?: string }> | null | unde
   return !!rows && rows.length > 0 && rows.every((r) => String(r?.pipelineNodeId ?? '').startsWith('START-'));
 }
 
-export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
+export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayBackRef }: {
   initialStageKey?: string;
   /** OQ-05: My Tasks "Perform" opens the station with the task AHU's block already chosen. */
   initialBlockId?: string;
+  /** The wrapper's Android-back hook (2026-10-22): the Dry In panel closes its own checklist first. */
+  overlayBackRef?: MutableRefObject<(() => boolean) | null>;
 } = {}) {
   const { user, isLoading: authLoading } = useAuth();
   const { formatTime, formatDate } = useDatetimeFormat();
@@ -3738,6 +3740,16 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
                   onSuccess={(msg) => { setSuccess(msg); mutate('/api/assets/instances'); refreshOfflineData(); }}
                   onError={setError}
                   variant="mobile"
+                  overlayBackRef={overlayBackRef}
+                  // The page's own AHU pre-flight (POPUP / INTERLOCK + the A/B/All
+                  // chooser), once per Submit, for the readings that complete
+                  // their cycle — the same wiring as the desktop page.
+                  ahuPreflight={async (ids) => {
+                    ahuSetChoiceRef.current = null;
+                    if (ahuMode === 'NONE') return { proceed: true, filterSet: null };
+                    const proceed = (await runAhuGate(ids)) === 'proceed';
+                    return { proceed, filterSet: ahuSetChoiceRef.current };
+                  }}
                 />
               );
             })()}

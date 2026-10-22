@@ -515,6 +515,8 @@ export function MobileWrapperPage() {
   // The page owns its dialogs; this ref lets the Android back button close the
   // topmost one instead of dropping the approver out to Home.
   const stageApprovalsBack = useRef<(() => boolean) | null>(null);
+  // The operations page (scan stations) — its Dry In panel closes its own checklist.
+  const operationsBack = useRef<(() => boolean) | null>(null);
 
   // ── Replacement Schedule tasks (separate tile → own page, online-only) ──
   // /tasks returns EVERY approved entry with live AHU-filter progress (a task
@@ -1126,6 +1128,7 @@ export function MobileWrapperPage() {
     //     dialog and keeps the approver on their queue, rather than dropping
     //     them out to Home. The page reports whether it had anything to close.
     if (view === 'stage-approvals' && stageApprovalsBack.current?.()) return;
+    if (view === 'operations' && operationsBack.current?.()) return;
     // 2. Filter-lookup scan modal.
     if (scanRfidOpen) {
       setScanRfidOpen(false);
@@ -2121,7 +2124,7 @@ export function MobileWrapperPage() {
         {/* === OPERATIONS VIEW (renders MobileOperationsPage with proper offline support) === */}
         {view === 'operations' && (
           <div className="flex-1 overflow-y-auto">
-            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} initialBlockId={selectedBlockId ?? undefined} />
+            <MobileOperationsPage initialStageKey={selectedStageKey ?? undefined} initialBlockId={selectedBlockId ?? undefined} overlayBackRef={operationsBack} />
           </div>
         )}
 
