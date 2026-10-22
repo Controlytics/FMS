@@ -79,20 +79,31 @@ export async function deleteRoles(names: string[]): Promise<void> {
 
 export type ReauthGrant = Array<[action: string, role: string]>;
 
+// Both helpers lock the action-reauth row for their read-modify-write
+// (2026-10-21). Unlocked, two test files running at once each read the row,
+// and the later write put back grants the other had just removed - stale
+// grants for deleted roles accumulated in the shared test DB.
+async function lockReauthRow(tx: any): Promise<void> {
+  await tx.$queryRaw`SELECT 1 FROM system_config WHERE config_key = 'action-reauth' FOR UPDATE`;
+}
+
 /** Add `role` to each `action`'s re-auth role list. Returns exactly what was added. */
 export async function addReauth(grants: ReauthGrant): Promise<ReauthGrant> {
   const added: ReauthGrant = [];
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
-  const cfg = { ...((row?.configValue as Record<string, string[]> | null) ?? {}) };
-  for (const [action, role] of grants) {
-    const roles = Array.isArray(cfg[action]) ? [...cfg[action]] : [];
-    if (!roles.includes(role)) { roles.push(role); added.push([action, role]); }
-    cfg[action] = roles;
-  }
-  await prisma.systemConfig.upsert({
-    where: { configKey: 'action-reauth' },
-    update: { configValue: cfg },
-    create: { configKey: 'action-reauth', configValue: cfg, configType: 'security' },
+  await prisma.$transaction(async (tx) => {
+    await lockReauthRow(tx);
+    const row = await tx.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
+    const cfg = { ...((row?.configValue as Record<string, string[]> | null) ?? {}) };
+    for (const [action, role] of grants) {
+      const roles = Array.isArray(cfg[action]) ? [...cfg[action]] : [];
+      if (!roles.includes(role)) { roles.push(role); added.push([action, role]); }
+      cfg[action] = roles;
+    }
+    await tx.systemConfig.upsert({
+      where: { configKey: 'action-reauth' },
+      update: { configValue: cfg },
+      create: { configKey: 'action-reauth', configValue: cfg, configType: 'security' },
+    });
   });
   invalidateReauthCache();
   return added;
@@ -101,15 +112,18 @@ export async function addReauth(grants: ReauthGrant): Promise<ReauthGrant> {
 /** Undo `addReauth` by re-reading the row: only the pairs we added are removed. */
 export async function removeReauth(added: ReauthGrant): Promise<void> {
   if (!added.length) return;
-  const row = await prisma.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
-  if (!row) return;
-  const cfg = { ...((row.configValue as Record<string, string[]> | null) ?? {}) };
-  for (const [action, role] of added) {
-    if (!Array.isArray(cfg[action])) continue;
-    const roles = cfg[action].filter((r) => r !== role);
-    if (roles.length) cfg[action] = roles; else delete cfg[action];
-  }
-  await prisma.systemConfig.update({ where: { configKey: 'action-reauth' }, data: { configValue: cfg } });
+  await prisma.$transaction(async (tx) => {
+    await lockReauthRow(tx);
+    const row = await tx.systemConfig.findUnique({ where: { configKey: 'action-reauth' } });
+    if (!row) return;
+    const cfg = { ...((row.configValue as Record<string, string[]> | null) ?? {}) };
+    for (const [action, role] of added) {
+      if (!Array.isArray(cfg[action])) continue;
+      const roles = cfg[action].filter((r) => r !== role);
+      if (roles.length) cfg[action] = roles; else delete cfg[action];
+    }
+    await tx.systemConfig.update({ where: { configKey: 'action-reauth' }, data: { configValue: cfg } });
+  });
   invalidateReauthCache();
 }
 
