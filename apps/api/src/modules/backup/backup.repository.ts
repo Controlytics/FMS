@@ -326,21 +326,31 @@ export async function resetPublicSchema(): Promise<void> {
 }
 
 /**
- * Drop every schema a .dump restore parks the live audit trail in: the run's own
- * `digilog_keep_<hex>`, the fixed `digilog_keep` versions before 2026-10-22 used,
- * and any park an older archive carried in with it. Each is a full, mutable,
- * unchained copy of the trail, so none may outlive a successful restore.
+ * Every schema a .dump restore parks the audit trail in, by name: `digilog_keep_<hex>`
+ * (one per run), or the fixed `digilog_keep` versions before 2026-10-22 used.
  */
-export async function dropParkSchemas(): Promise<string[]> {
+export async function listParkSchemas(): Promise<string[]> {
   const rows = await prisma.$queryRawUnsafe<Array<{ nspname: string }>>(
     `SELECT nspname::text AS nspname FROM pg_namespace
-      WHERE nspname = 'digilog_keep' OR nspname ~ '^digilog_keep_[0-9a-f]+$'`,
+      WHERE nspname = 'digilog_keep' OR nspname ~ '^digilog_keep_[0-9a-f]+$'
+      ORDER BY nspname`,
   );
-  for (const { nspname } of rows) {
-    assertSafeIdentifier(nspname);
-    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${nspname}" CASCADE`);
-  }
   return rows.map((r) => r.nspname);
+}
+
+/**
+ * Drop every park schema except those named in `keep`. Each is a full, mutable,
+ * unchained copy of the trail, so none may outlive a successful restore — this
+ * run's, an earlier run's once its rows are carried over, and any an older archive
+ * carried in with it.
+ */
+export async function dropParkSchemas(keep: string[] = []): Promise<string[]> {
+  const dropped = (await listParkSchemas()).filter((name) => !keep.includes(name));
+  for (const name of dropped) {
+    assertSafeIdentifier(name);
+    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${name}" CASCADE`);
+  }
+  return dropped;
 }
 
 /**

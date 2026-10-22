@@ -34,6 +34,7 @@ import {
   getUserTriggerState,
   getServerMajorVersion,
   resetPublicSchema,
+  listParkSchemas,
   dropParkSchemas,
   preserveUnbackedAuditRows,
   resyncSequencesAfterRestore,
@@ -767,6 +768,9 @@ export async function exportDump(
  * Anything else (a Prisma error from the audit-row carry-over, for one) embeds
  * source paths and SQL, so it stays in the server log only (CLAUDE.md strict audit).
  */
+/** A schema name for one parked copy of the audit trail; no archive can hold it. */
+const newParkName = (): string => `digilog_keep_${randomBytes(8).toString('hex')}`;
+
 function restoreFailureReason(err: unknown): string {
   return err instanceof PgToolError
     ? err.message
@@ -818,9 +822,19 @@ export async function restoreDump(
   // in-app restore, or after a failed one before D-DB-10) dropped the parked LIVE
   // trail and loaded its stale copy, so the rows written after the backup were lost
   // while the restore reported success. No archive can name this schema.
-  const park = `digilog_keep_${randomBytes(8).toString('hex')}`;
+  const park = newParkName();
+  // Park schemas already in the LIVE database when this run starts: recovery copies
+  // an earlier failed restore kept (RESTORE_FAILED_NO_ROLLBACK names one). Trusted
+  // (operator decision 2026-10-22): their rows are carried over like live rows the
+  // backup lacks, and they are dropped only once that has succeeded. Parks that
+  // arrive WITH the archive are not trusted and are dropped unread.
+  let earlierParks: Array<{ was: string; now: string }> = [];
+  const earlierNote = (): string => (earlierParks.length === 0 ? '' :
+    ` The audit rows an earlier failed restore kept are still in schema${earlierParks.length > 1 ? 's' : ''} `
+    + `${earlierParks.map((p) => `${p.now} (was ${p.was})`).join(', ')}; they were not carried over.`);
 
   let auditRowsPreserved = 0;
+  let auditRowsFromEarlierFailedRestore = 0;
   try {
     await writeFile(archivePath, fileBuffer);
 
@@ -832,9 +846,14 @@ export async function restoreDump(
     // archive does not carry come back after the load instead of being
     // destroyed (the trail is the one table retained permanently).
     keepParked = true;
-    // A park left by a version before 2026-10-22: an archive that carries the same
-    // schema would refuse to load over it (pg_restore --clean drops it without CASCADE).
-    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS digilog_keep CASCADE`);
+    // 1c. The earlier parks get fresh names first. pg_restore --clean drops every
+    // schema the archive holds, so a park the archive also carries (the fixed
+    // `digilog_keep` of every dump taken after a failed restore before D-DB-10)
+    // would be replaced by the archive's stale copy.
+    earlierParks = (await listParkSchemas()).map((was) => ({ was, now: newParkName() }));
+    for (const p of earlierParks) {
+      await prisma.$executeRawUnsafe(`ALTER SCHEMA "${p.was}" RENAME TO ${p.now}`);
+    }
     await prisma.$executeRawUnsafe(`CREATE SCHEMA ${park}`);
     await prisma.$executeRawUnsafe(`CREATE TABLE ${park}.audit_trail AS SELECT * FROM public.audit_trail`);
 
@@ -844,7 +863,14 @@ export async function restoreDump(
       await runPgRestore(archivePath);
       auditRowsPreserved = await prisma.$transaction(
         async (tx: unknown) => {
-          const kept = await preserveUnbackedAuditRows(tx, `${park}.audit_trail`);
+          let kept = await preserveUnbackedAuditRows(tx, `${park}.audit_trail`);
+          // Then each earlier park, with the same dedupe: only rows the restored
+          // trail (and this run's park) do not already hold come back.
+          for (const p of earlierParks) {
+            const n = await preserveUnbackedAuditRows(tx, `${p.now}.audit_trail`);
+            kept += n;
+            auditRowsFromEarlierFailedRestore += n;
+          }
           // D1 (2026-10-21): pg_restore set audit_trail_chain_position_seq back
           // to its value at dump time, but the rows just carried over sit ABOVE
           // it (BACKUP_CREATED, written after every dump, is always one of them).
@@ -857,7 +883,8 @@ export async function restoreDump(
         },
         { timeout: 300_000, maxWait: 30_000 },
       );
-      // This run's park, and any park the archive brought with it.
+      // Every park: this run's, the earlier ones (their rows are back), and any the
+      // archive brought with it.
       await dropParkSchemas();
       keepParked = false;
     } catch (restoreErr: unknown) {
@@ -873,7 +900,8 @@ export async function restoreDump(
         rollbackNote =
           ` CRITICAL: the rollback ALSO failed (${restoreFailureReason(rollbackErr)}). The database may be empty.`
           + ` A safety copy was written to ${safetyPath} — do not delete it.`
-          + ` The audit trail as it was before the restore is also kept in schema ${park}.`;
+          + ` The audit trail as it was before the restore is also kept in schema ${park}.`
+          + earlierNote();
         // Keep the safety dump on disk, and the parked trail in the database, for manual recovery.
         preserveDir = true;
         keepParked = false;
@@ -882,7 +910,7 @@ export async function restoreDump(
           keepDir: dir,
         });
       }
-      throw Object.assign(new Error(`${restoreFailureReason(restoreErr)}${rollbackNote}`), { code: 'RESTORE_FAILED' });
+      throw Object.assign(new Error(`${restoreFailureReason(restoreErr)}${rollbackNote}${earlierNote()}`), { code: 'RESTORE_FAILED' });
     }
 
     const timestamp = new Date().toISOString();
@@ -892,7 +920,10 @@ export async function restoreDump(
       action: 'BACKUP_RESTORED',
       targetType: 'system',
       targetId: 'database_restore',
-      afterValue: { format: 'dump', timestamp, bytes: fileBuffer.length, auditRowsPreserved },
+      afterValue: {
+        format: 'dump', timestamp, bytes: fileBuffer.length, auditRowsPreserved,
+        ...(earlierParks.length > 0 ? { auditRowsFromEarlierFailedRestore } : {}),
+      },
       signatureMeaning: 'Database restored from pg_dump archive by administrator (full schema + data)',
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
@@ -908,9 +939,10 @@ export async function restoreDump(
   } finally {
     if (keepParked) {
       // The restore failed (and the database was rolled back) or stopped while
-      // parking. The caller sees that error; a failed drop is logged, not thrown
-      // over it, and the next successful .dump restore drops every park anyway.
-      await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${park} CASCADE`)
+      // parking: drop this run's park and any the archive brought, keep the earlier
+      // ones (under either name, in case a rename did not happen). The caller sees
+      // the restore's error; a failed drop is logged, not thrown over it.
+      await dropParkSchemas(earlierParks.flatMap((p) => [p.was, p.now]))
         .catch((err: unknown) => backupLog.error({ err, schema: park }, 'Could not drop the parked audit trail after a failed restore; drop the schema by hand'));
     }
     // Leave the directory behind only when a failed rollback needs it.

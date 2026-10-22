@@ -292,20 +292,31 @@ describe('restoreDump (pg_dump archive restore)', () => {
   let order: string[];
   /** The schema this run parked the live audit trail in (read back from its CREATE SCHEMA). */
   let park: string;
+  /** The park schemas in the fake database, kept up to date by the DDL the code runs. */
+  let schemas: Set<string>;
   const parkedBy = (sql: string) => /^CREATE SCHEMA (digilog_keep_[0-9a-f]+)$/.exec(sql)?.[1];
+  /** Applies a statement's effect on the park schemas. */
+  function track(sql: string) {
+    park = parkedBy(sql) ?? park;
+    if (parkedBy(sql)) schemas.add(parkedBy(sql)!);
+    const ren = /^ALTER SCHEMA "(\w+)" RENAME TO (\w+)$/.exec(sql);
+    if (ren) { schemas.delete(ren[1]); schemas.add(ren[2]); }
+    const drop = /^DROP SCHEMA IF EXISTS "?(\w+)"? CASCADE$/.exec(sql);
+    if (drop) schemas.delete(drop[1]);
+  }
 
   /** SHOW server_version, the keep-schema DDL and the reset all go through $executeRawUnsafe / $queryRawUnsafe. */
-  function wireDump(opts: { restoreFails?: number; rollbackFails?: boolean; dumpFails?: boolean; preserveFails?: boolean; archiveParks?: string[] } = {}) {
+  function wireDump(opts: { restoreFails?: number; rollbackFails?: boolean; dumpFails?: boolean; preserveFails?: boolean; liveParks?: string[]; archiveParks?: string[] } = {}) {
     order = [];
     park = '';
+    schemas = new Set(opts.liveParks ?? []);
     let restoreCalls = 0;
     m.prisma.$queryRawUnsafe.mockImplementation(async (sql: string) => {
       if (sql === 'SHOW server_version') return [{ server_version: '18.3' }];
-      // the park schemas present after the load: this run's, plus any the archive carried
-      if (sql.includes('FROM pg_namespace')) return [park, ...(opts.archiveParks ?? [])].map(nspname => ({ nspname }));
+      if (sql.includes('FROM pg_namespace')) return [...schemas].sort().map(nspname => ({ nspname }));
       throw new Error(`unexpected: ${sql}`);
     });
-    m.prisma.$executeRawUnsafe.mockImplementation(async (sql: string) => { order.push(sql); park = parkedBy(sql) ?? park; return 0; });
+    m.prisma.$executeRawUnsafe.mockImplementation(async (sql: string) => { order.push(sql); track(sql); return 0; });
     m.runPgDump.mockImplementation(async (path: string) => {
       order.push(`pg_dump ${path.endsWith('pre-restore-safety.dump') ? 'safety' : path}`);
       if (opts.dumpFails) throw new PgToolError('PG_TOOL_NOT_FOUND', 'pg_dump.exe was not found.', null, '');
@@ -316,6 +327,8 @@ describe('restoreDump (pg_dump archive restore)', () => {
       order.push(`pg_restore ${which}`);
       if (which === 'upload' && opts.restoreFails) throw new PgToolError('PG_TOOL_FAILED', 'pg_restore: error: could not execute query', 1, '');
       if (which === 'safety' && opts.rollbackFails) throw new PgToolError('PG_TOOL_FAILED', 'pg_restore: error: connection lost', 1, '');
+      // a loaded archive brings its own park schemas with it
+      if (which === 'upload') for (const p of opts.archiveParks ?? []) schemas.add(p);
       return { stderr: '' };
     });
     m.prisma.$transaction.mockImplementation(async () => {
@@ -341,7 +354,6 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(park).toMatch(/^digilog_keep_[0-9a-f]{16}$/);
     expect(order).toEqual([
       'pg_dump safety',
-      'DROP SCHEMA IF EXISTS digilog_keep CASCADE', // a park left by a version before 2026-10-22
       `CREATE SCHEMA ${park}`,
       `CREATE TABLE ${park}.audit_trail AS SELECT * FROM public.audit_trail`,
       'DROP SCHEMA public CASCADE',
@@ -378,7 +390,7 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
     expect(err.message).toBe('An internal error stopped the restore (details are in the server log). The database was rolled back to its pre-restore state.');
     expect(err.message).not.toMatch(/Invalid `|backup\.repository\.ts/);
-    expect(order.slice(-2)).toEqual(['pg_restore safety', `DROP SCHEMA IF EXISTS ${park} CASCADE`]);
+    expect(order.slice(-2)).toEqual(['pg_restore safety', `DROP SCHEMA IF EXISTS "${park}" CASCADE`]);
   });
 
   // BR-100 hole (2026-10-22): the park was always `digilog_keep`, and pg_restore
@@ -404,14 +416,68 @@ describe('restoreDump (pg_dump archive restore)', () => {
     const first = park;
     // the rows are brought back from THIS run's park, which no archive can name
     expect(keepQueries).toEqual([[first, 'audit_trail']]);
-    expect(order.slice(order.indexOf('preserve audit rows') + 1)).toEqual([
+    // the archive's parks are untrusted: dropped, never carried over
+    expect(order.slice(order.indexOf('preserve audit rows') + 1).sort()).toEqual([
       `DROP SCHEMA IF EXISTS "${first}" CASCADE`,
       'DROP SCHEMA IF EXISTS "digilog_keep" CASCADE',
       'DROP SCHEMA IF EXISTS "digilog_keep_0123456789abcdef" CASCADE',
-    ]);
+    ].sort());
+    expect(schemas.size).toBe(0);
     wireDump();
     await restoreDump(archive, sa);
     expect(park).not.toBe(first);
+  });
+
+  // Operator decision 2026-10-22: a park schema already in the LIVE database is a
+  // recovery copy an earlier failed restore left (RESTORE_FAILED_NO_ROLLBACK says
+  // the trail is kept there). It is trusted: its rows come back like live rows the
+  // backup lacks, and it is dropped only once they have. Before this, the next
+  // successful restore dropped it unread.
+  const tracingTx = (keepQueries: unknown[][]) => ({
+    $queryRawUnsafe: vi.fn(async (q: string, ...args: unknown[]) => {
+      if (q.includes('table_schema = $1')) { keepQueries.push(args); return [{ column_name: 'id' }, { column_name: 'chain_position' }]; }
+      if (q.includes("table_name = 'audit_trail'")) return [{ column_name: 'id' }, { column_name: 'chain_position' }];
+      if (q.includes('COUNT(*)')) return [{ n: 2 }];
+      throw new Error(`unexpected tx query: ${q}`);
+    }),
+    $executeRawUnsafe: vi.fn(async () => 0),
+  });
+
+  it('a park an earlier failed restore left is carried over: renamed out of any archive\'s reach, its rows brought back, dropped only after', async () => {
+    wireDump({ liveParks: ['digilog_keep', 'digilog_keep_00000000000000aa'], archiveParks: ['digilog_keep'] });
+    const keepQueries: unknown[][] = [];
+    m.prisma.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => { order.push('preserve audit rows'); return fn(tracingTx(keepQueries)); });
+    await restoreDump(archive, sa);
+
+    // renamed after the safety dump and before anything destructive, to names no archive holds
+    const renames = order.map(s => /^ALTER SCHEMA "(\w+)" RENAME TO (digilog_keep_[0-9a-f]{16})$/.exec(s)).filter(Boolean) as RegExpExecArray[];
+    expect(renames.map(r => r[1])).toEqual(['digilog_keep', 'digilog_keep_00000000000000aa']);
+    const renamedTo = renames.map(r => r[2]);
+    expect(order.indexOf('pg_dump safety')).toBeLessThan(order.indexOf(renames[0][0]));
+    expect(order.indexOf(renames[1][0])).toBeLessThan(order.indexOf('DROP SCHEMA public CASCADE'));
+    // this run's park first, then each earlier one
+    expect(keepQueries).toEqual([[park, 'audit_trail'], [renamedTo[0], 'audit_trail'], [renamedTo[1], 'audit_trail']]);
+    // every park is gone once the rows are back - the archive's digilog_keep included
+    expect(order.indexOf('preserve audit rows')).toBeLessThan(order.indexOf(`DROP SCHEMA IF EXISTS "${renamedTo[0]}" CASCADE`));
+    expect(schemas.size).toBe(0);
+    expect(m.auditLog).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'BACKUP_RESTORED',
+      afterValue: expect.objectContaining({ auditRowsPreserved: 6, auditRowsFromEarlierFailedRestore: 4 }),
+    }));
+  });
+
+  it('when that carry-over fails, the earlier park is kept and the error names it; the archive\'s park and this run\'s are dropped', async () => {
+    wireDump({ liveParks: ['digilog_keep_00000000000000aa'], archiveParks: ['digilog_keep'], preserveFails: true });
+    const err = await restoreDump(archive, sa).catch(e => e);
+    expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
+    const renamedTo = [...schemas];
+    expect(renamedTo).toHaveLength(1);
+    expect(renamedTo[0]).toMatch(/^digilog_keep_[0-9a-f]{16}$/);
+    expect(renamedTo[0]).not.toBe('digilog_keep_00000000000000aa');
+    expect(err.message).toBe(
+      'An internal error stopped the restore (details are in the server log). The database was rolled back to its pre-restore state.'
+      + ` The audit rows an earlier failed restore kept are still in schema ${renamedTo[0]} (was digilog_keep_00000000000000aa); they were not carried over.`,
+    );
   });
 
   // D1 (2026-10-21): the parked audit rows come back ABOVE the archive's
@@ -461,7 +527,7 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(err).toMatchObject({ code: 'RESTORE_FAILED' });
     expect(order.slice(-4)).toEqual([
       'DROP SCHEMA public CASCADE', 'CREATE SCHEMA public', 'pg_restore safety',
-      `DROP SCHEMA IF EXISTS ${park} CASCADE`,
+      `DROP SCHEMA IF EXISTS "${park}" CASCADE`,
     ]);
   });
 
@@ -469,17 +535,16 @@ describe('restoreDump (pg_dump archive restore)', () => {
     wireDump();
     m.prisma.$executeRawUnsafe.mockImplementation(async (sql: string) => {
       order.push(sql);
-      park = parkedBy(sql) ?? park;
+      track(sql);
       if (sql.startsWith(`CREATE TABLE ${park}.audit_trail`)) throw new Error('could not extend file: No space left on device');
       return 0;
     });
     await expect(restoreDump(archive, sa)).rejects.toThrow('No space left on device');
     expect(order).toEqual([
       'pg_dump safety',
-      'DROP SCHEMA IF EXISTS digilog_keep CASCADE',
       `CREATE SCHEMA ${park}`,
       `CREATE TABLE ${park}.audit_trail AS SELECT * FROM public.audit_trail`,
-      `DROP SCHEMA IF EXISTS ${park} CASCADE`,
+      `DROP SCHEMA IF EXISTS "${park}" CASCADE`,
     ]);
     expect(m.runPgRestore).not.toHaveBeenCalled();
   });
