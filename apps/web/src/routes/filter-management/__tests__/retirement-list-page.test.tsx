@@ -103,7 +103,7 @@ describe('Retirement List page', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
     fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Retirement List', format: 'Excel', recordCount: 3 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Retirement List', format: 'Excel', recordCount: 3, filters: {} });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.filename).toBe('retirement-list');
     expect(arg.rows[0]).toEqual(['1', 'FLT-001', 'Set A', expect.any(String), 'opr1', 'Torn media']);
@@ -123,6 +123,24 @@ describe('Retirement List page', () => {
     expect(vi.mocked(createReport).mock.calls[0][0]).toMatchObject({ reportKey: 'retirement-list', subtitle: 'Total: 2 retired filters (filtered by "FLT-00")' });
     expect(pdf.addTable.mock.calls[0][0].body).toHaveLength(2);
     expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toMatchObject({ format: 'PDF', recordCount: 2 });
+  });
+
+  // 2026-10-22: the audit record of an export names every filter that produced
+  // it (here the Block scope and the search, by name), not only the row count.
+  it('the export record states the Block scope and the search that produced the file', async () => {
+    const api = setup();
+    renderPage(<RetirementListPage />, { user: SA, api });
+    await screen.findByText('FLT-001');
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Block B' })).toBeInTheDocument());
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'b2' } });
+    fireEvent.change(screen.getByPlaceholderText(/Search filter, AHU/), { target: { value: 'FLT-00' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Export as PDF/ }));
+    await waitFor(() => expect(pdf.save).toHaveBeenCalledTimes(1));
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({
+      reportType: 'Retirement List', format: 'PDF', recordCount: 1, search: 'FLT-00',
+      filters: { Block: 'Block B', Search: 'FLT-00' },
+    });
   });
 
   it('export over the configured limit is refused with the configured message and logs nothing', async () => {

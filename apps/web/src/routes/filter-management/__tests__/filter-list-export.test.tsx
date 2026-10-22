@@ -29,7 +29,7 @@ describe('Filters page — export', () => {
     await openFiltersTab();
     openMenu('Excel');
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Filters', format: 'Excel', recordCount: 7 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Filters', format: 'Excel', recordCount: 7, filters: { Block: 'Block Alpha' } });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.filename).toBe('Block-Alpha-filters');
     expect(arg.sheetName).toBe('Filters');
@@ -58,7 +58,9 @@ describe('Filters page — export', () => {
     const table = pdf.addTable.mock.calls[0][0];
     expect(table.body).toHaveLength(6);
     expect(table.body.every((r: unknown[]) => r.every((c) => typeof c === 'string'))).toBe(true);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 6 });
+    // The search that narrowed the export is on its audit record (2026-10-22: it was null).
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json)
+      .toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 6, search: 'PF-00', filters: { Block: 'Block Alpha', Search: 'PF-00' } });
     expect(pdf.save.mock.calls[0][0]).toMatch(/^Block-Alpha.*\.pdf$/);
   });
 

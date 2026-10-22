@@ -158,7 +158,7 @@ export function QualityNotificationsPage() {
     try {
       const built = await buildQnnReport();
       if (!built) return;
-      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'PDF', recordCount: built.count, filters: { From: from, To: to } }, toast.warning);
       built.report.save(`${downloadName('quality-notifications')}.pdf`);
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
@@ -170,7 +170,7 @@ export function QualityNotificationsPage() {
     try {
       const r = await buildExport();
       if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
-      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Quality Notifications', format: 'Excel', recordCount: r.body.length, filters: { From: from, To: to } }, toast.warning);
       exportToExcel({ filename: `quality-notifications-${new Date().toISOString().slice(0, 10)}`, sheetName: 'QNN', head: headLabels, rows: r.body });
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };

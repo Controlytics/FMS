@@ -408,7 +408,7 @@ export function PmScheduleListPage() {
     try {
       const built = await buildPmReport();
       if (!built) return;
-      await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'PDF', recordCount: built.count, filters: { Year: yearLabel } }, toast.warning);
       built.report.save(`${downloadName('pm-schedule', String(yearLabel))}.pdf`);
     } catch (e: any) {
       if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
@@ -424,7 +424,7 @@ export function PmScheduleListPage() {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       // One signature covers the audit write AND the server-side workbook GET
       // (same EXPORT_PM_SCHEDULE row; the password rides in x-reauth-password).
-      const signedPw = await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
+      const signedPw = await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length, filters: { Year: yearLabel } }, toast.warning);
       // The server builds one workbook per year, so a cross-year range
       // downloads one file per year. Exporting only `fromYear` would drop the
       // rest without saying so.

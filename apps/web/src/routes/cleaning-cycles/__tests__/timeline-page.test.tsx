@@ -109,7 +109,7 @@ describe('Cycle detail page (timeline.tsx)', () => {
     await screen.findByRole('heading', { name: 'FLT-001' });
     exportVia('Excel');
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: 5 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: 5, filters: { Cycle: 'CC-001', Filter: 'FLT-001' } });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.filename).toBe('cycle-FLT-001-2026-10-01');
     expect(arg.head).toEqual(['S.No', 'Event', 'From', 'To', 'Performed By', 'Time', 'Remarks']);
@@ -146,7 +146,7 @@ describe('Cycle detail page (timeline.tsx)', () => {
     expect(report.titles()).toEqual(['Stage Progress', 'Event Timeline']);
     expect(report.kvs()[0]['Completed by']).toBe('opr2');
     expect(report.save.mock.calls[0][0]).toMatch(/^cycle.*FLT-001.*\.pdf$/);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: 5 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: 5, filters: { Cycle: 'CC-001', Filter: 'FLT-001' } });
   });
 
   it('PDF of a minimal cycle: header omits AHU/set; a build failure is reported, not swallowed', async () => {

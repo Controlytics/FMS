@@ -548,6 +548,16 @@ export function FilterLifecycleReportPage() {
     if (blockId) return `Block ${allBlocks.find((b) => b.id === blockId)?.name ?? ''}`.trim();
     return '';
   }, [filterId, ahuId, areaId, blockId, allFilters, allAhus, allAreas, allBlocks]);
+  // Every filter that produced an export, by name: the REPORT_GENERATED row must
+  // say WHICH records were exported, not only how many (2026-10-22).
+  const exportFilters = {
+    Block: blockId ? allBlocks.find((b) => b.id === blockId)?.name ?? blockId : '',
+    Area: areaId ? allAreas.find((a) => a.id === areaId)?.name ?? areaId : '',
+    AHU: ahuId ? allAhus.find((a) => a.id === ahuId)?.name ?? ahuId : '',
+    Filter: filterId ? allFilters.find((f) => f.id === filterId)?.name ?? filterId : '',
+    From: fromDate,
+    To: toDate,
+  };
 
   // `new Date('2026-07-15')` is UTC midnight, so the old bounds started the
   // range 05:30 into the operator's IST day and ended it 18.5h early — an
@@ -784,7 +794,7 @@ export function FilterLifecycleReportPage() {
       }
 
       if (asSnapshot) return report.getSnapshot();
-      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: totalCycles + totalEvents + totalManual, filters: exportFilters }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       report.save(`${downloadName('lifecycle', safeScope)}.pdf`);
       return null;
@@ -841,7 +851,7 @@ export function FilterLifecycleReportPage() {
       }
       if (rows.length === 0) { setDownloadMsg('No cleaning cycles or manual updates found for this selection and period.'); return; }
       if (rows.length > exportLimit.maxRecords) { setDownloadMsg(exportLimit.tooLargeMessage(rows.length)); return; }
-      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: rows.length, filters: exportFilters }, toast.warning);
       const safeScope = scopeLabel.replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '') || 'scope';
       exportToExcel({ filename: `lifecycle-${safeScope}`, sheetName: 'Cleaning Cycles', head, rows });
     } catch (e: any) {

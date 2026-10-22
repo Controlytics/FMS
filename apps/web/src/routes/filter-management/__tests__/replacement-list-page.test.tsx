@@ -136,7 +136,7 @@ describe('Replacement List page', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
     fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Replacement List', format: 'Excel', recordCount: 3 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Replacement List', format: 'Excel', recordCount: 3, filters: {} });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.sheetName).toBe('Replacements');
     expect(arg.rows[0]).toEqual(['1', 'FLT-001', 'FLT-009', expect.any(String), 'ravi kumar', 'Media torn']);

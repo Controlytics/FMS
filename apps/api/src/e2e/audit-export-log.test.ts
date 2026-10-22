@@ -77,6 +77,54 @@ describe('POST /api/audit/report-export-log', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  // 2026-10-22 (functional test): the export row said `search: null` although the
+  // page had a filter-name search applied, and carried no block / AHU / status at
+  // all. A REPORT_GENERATED row must state every filter that produced the file.
+  it('records every filter that produced the export, and names them in the reason', async () => {
+    const TAG = `exp-${Date.now().toString(36)}`;
+    const filters = { Search: `QA03-F1 ${TAG}`, Block: 'B1', AHU: 'PF-B5/AHU-29', Status: 'Completed', Reasons: ['PM', 'Breakdown'], 'Manual entries only': 'Yes' };
+    const res = await app.inject({
+      method: 'POST', url: '/api/audit/report-export-log', headers: { authorization: `Bearer ${token}` },
+      payload: { reportType: 'Cleaning Record', format: 'Excel', recordCount: 3, search: `QA03-F1 ${TAG}`, startDate: '2026-10-01T00:00:00.000Z', endDate: '2026-10-22T23:59:59.999Z', filters },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const row = await prisma.auditTrail.findFirst({
+      where: { action: 'REPORT_GENERATED', targetType: 'Cleaning Record', afterValue: { path: ['search'], equals: `QA03-F1 ${TAG}` } },
+      orderBy: { chainPosition: 'desc' },
+    });
+    expect(row).toBeTruthy();
+    expect(row!.afterValue).toMatchObject({
+      reportType: 'Cleaning Record', format: 'Excel', recordCount: 3, search: `QA03-F1 ${TAG}`,
+      startDate: '2026-10-01T00:00:00.000Z', endDate: '2026-10-22T23:59:59.999Z', filters,
+    });
+    expect(row!.reason).toContain(`Search: QA03-F1 ${TAG}`);
+    expect(row!.reason).toContain('AHU: PF-B5/AHU-29');
+    expect(row!.reason).toContain('Reasons: PM, Breakdown');
+  });
+
+  it('an export with no filters records an empty filter set, not a missing one', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/audit/report-export-log', headers: { authorization: `Bearer ${token}` },
+      payload: { reportType: 'Retirement List', format: 'PDF', recordCount: 7 },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'REPORT_GENERATED', targetType: 'Retirement List', userId: TEST_USERNAME }, orderBy: { chainPosition: 'desc' } });
+    expect((row!.afterValue as Record<string, unknown>).filters).toEqual({});
+    expect(row!.reason).toContain('no filters');
+  });
+
+  it.each([
+    ['a nested object', { Block: { id: 'x' } }],
+    ['too many entries', Object.fromEntries(Array.from({ length: 41 }, (_, i) => [`f${i}`, 'v']))],
+    ['an over-long value', { Search: 'x'.repeat(501) }],
+  ])('refuses filters with %s (400)', async (_l, filters) => {
+    const res = await app.inject({
+      method: 'POST', url: '/api/audit/report-export-log', headers: { authorization: `Bearer ${token}` },
+      payload: { reportType: 'Filters', format: 'PDF', recordCount: 1, filters },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('rejects an invalid format', async () => {
     const res = await app.inject({
       method: 'POST',

@@ -589,6 +589,22 @@ export default async function auditRoutes(app: FastifyInstance) {
           search: { type: 'string' },
           startDate: { type: 'string' },
           endDate: { type: 'string' },
+          // 2026-10-22: every filter that produced the export, label -> value, as
+          // the operator saw it (block / area / AHU / filter / status / search ...).
+          // Flat and bounded: it is written into a permanent audit row.
+          filters: {
+            type: 'object',
+            maxProperties: 40,
+            additionalProperties: {
+              // Text only (and lists of text): the body is type-coerced, so a
+              // number/boolean branch would silently turn "5" or "true" into another
+              // type. String first, or the array branch would wrap every value in a list.
+              anyOf: [
+                { type: 'string', maxLength: 500 },
+                { type: 'array', maxItems: 100, items: { type: 'string', maxLength: 500 } },
+              ],
+            },
+          },
         },
       },
       response: {
@@ -617,8 +633,14 @@ export default async function auditRoutes(app: FastifyInstance) {
     }
     const { ok: reauthOk } = await enforceReauth((REPORT_EXPORT_ACTIONS as Record<string, string>)[reportName] ?? 'EXPORT_AUDIT_TRAIL', req, reply);
     if (!reauthOk) return;
-    const { reportType, format, recordCount, period, search, startDate, endDate } =
-      req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string };
+    const { reportType, format, recordCount, period, search, startDate, endDate, filters } =
+      req.body as { reportType: string; format: string; recordCount: number; period?: string; search?: string; startDate?: string; endDate?: string; filters?: Record<string, string | string[]> };
+    // The record names what produced the file (2026-10-22): an inspector reading
+    // "Cleaning Record exported, 3 records" must be able to tell which 3.
+    const filterSet = filters ?? {};
+    const filterText = Object.entries(filterSet)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+      .join('; ');
     await auditLog({
       userId: req.user.username, userRole: req.user.role,
       action: 'REPORT_GENERATED',
@@ -631,8 +653,9 @@ export default async function auditRoutes(app: FastifyInstance) {
         search: search ?? null,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
+        filters: filterSet,
       },
-      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format}`,
+      reason: `Report generated: ${reportType} (${recordCount} record(s)) as ${format}; ${filterText ? `filters - ${filterText}` : 'no filters'}`,
       signatureMeaning: `${req.user.username} generated the ${reportType} report (${recordCount} record(s)) as ${format}`,
       ipAddress: req.ip, userAgent: req.headers['user-agent'], sessionId: req.user.sessionId,
     });

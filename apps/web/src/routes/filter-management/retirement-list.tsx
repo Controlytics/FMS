@@ -142,7 +142,7 @@ export function RetirementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
-      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'PDF', recordCount: filtered.length, search: search.trim() || undefined, filters: { ...scope.exportFilters, Search: search.trim() } }, toast.warning);
       report.save(`${downloadName('retirement-list')}.pdf`);
     } catch (e: any) {
       // A dismissed password prompt means "no export", not a failure (C-05).
@@ -157,7 +157,7 @@ export function RetirementListPage() {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No retirements to include'); return; }
     if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
-      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Retirement List', format: 'Excel', recordCount: filtered.length, search: search.trim() || undefined, filters: { ...scope.exportFilters, Search: search.trim() } }, toast.warning);
       exportToExcel({ filename: 'retirement-list', sheetName: 'Retirements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       // A dismissed password prompt means "no export", not a failure (C-05).

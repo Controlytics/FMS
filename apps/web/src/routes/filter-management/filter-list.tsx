@@ -543,6 +543,15 @@ export function FilterListPage() {
   }, [enrichedFilters, selectedBlock, diagramFilter, search, identifiersByAsset]);
 
   const selectedBlockName = selectedBlock ? (instanceMap.get(selectedBlock)?.name ?? 'Block') : '';
+  // Every filter that produced an export (the block, the diagram selection and
+  // the search box): the REPORT_GENERATED row must say WHICH filters were
+  // exported, not only how many (2026-10-22).
+  const diagramLabel = { area: 'Area', ahu: 'AHU', filter: 'Filter' } as Record<string, string>;
+  const exportFilters = {
+    Block: selectedBlockName,
+    ...(diagramFilter && diagramLabel[diagramFilter.type] ? { [diagramLabel[diagramFilter.type]]: diagramFilter.name ?? diagramFilter.id } : {}),
+    Search: search.trim(),
+  };
 
   // Pagination computed (client-side slice). safePage clamps page when the
   // filtered list shrinks below the current page (e.g. after a filter change).
@@ -1599,7 +1608,7 @@ export function FilterListPage() {
       const { headers, body, safeName } = buildFiltersExport();
       if (body.length === 0) return;
       if (body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(body.length)); return; }
-      await requireExportReauth(reauth, { reportType: 'Filters', format: 'Excel', recordCount: body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Filters', format: 'Excel', recordCount: body.length, search: search.trim() || undefined, filters: exportFilters }, toast.warning);
       exportToExcel({ filename: `${safeName}-filters`, sheetName: 'Filters', head: headers, rows: body });
     } catch (e) { reportExportError(e); }
   };
@@ -1627,7 +1636,7 @@ export function FilterListPage() {
     try {
       const built = await buildFiltersReport();
       if (!built) return;
-      await requireExportReauth(reauth, { reportType: 'Filters', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Filters', format: 'PDF', recordCount: built.count, search: search.trim() || undefined, filters: exportFilters }, toast.warning);
       built.report.save(`${downloadName(built.safeName, 'filters')}.pdf`);
     } catch (e) { reportExportError(e); }
   };

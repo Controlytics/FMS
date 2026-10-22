@@ -284,7 +284,7 @@ describe('Filter Lifecycle Report — export', () => {
       ['FLT-OLD', '2', 'CC-OLD-2', '2026-09-10 08:00', '2026-09-20 09:00', 'qa2', 'Replaced', '-'],
       ['FLT-OLD', '', 'Manual: Wash In → Dry In', '2026-09-05 08:00', '', 'admin', 'Manual Update', 'forced'],
     ]);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: 6 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'Excel', recordCount: 6, filters: { Block: 'Block A' } });
   });
 
   it('Excel: nothing in scope, over the limit, and a failing read each explain themselves without a file', async () => {
@@ -327,7 +327,7 @@ describe('Filter Lifecycle Report — export', () => {
     expect(t4.body[1][6]).toBe('Wash In -> Dry In · forced');
     expect(t5.body).toEqual([['Replaced by FLT-NEW', '2026-09-20 09:00', 'qa2', 'worn']]);
     expect(report.save.mock.calls[0][0]).toMatch(/lifecycle.*Block-Block-A.*\.pdf$/);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: 8 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: 8, filters: { Block: 'Block A' } });
   });
 
   it('PDF (single filter, chain): full detail per cycle on its own page, manual updates in their slot, the chain in the subtitle', async () => {
@@ -351,7 +351,7 @@ describe('Filter Lifecycle Report — export', () => {
     ]);
     const manualTable = report.tables().find((t) => t.head?.[0] === 'From');
     expect(manualTable.body).toEqual([['Wash In', 'Dry In', '2026-09-05 08:00', 'admin', 'forced']]);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: 3 + 2 + 1 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Lifecycle', format: 'PDF', recordCount: 3 + 2 + 1, filters: { Filter: 'FLT-NEW', To: '2026-10-31' } });
   });
 
   it('PDF (single filter): lifecycle events alone still get a filter header', async () => {

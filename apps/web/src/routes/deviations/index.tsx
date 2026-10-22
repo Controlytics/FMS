@@ -107,6 +107,10 @@ export function DeviationsPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadMsg, setDownloadMsg] = useState('');
 
+  // Every filter that produced an export (status + the report period): the
+  // REPORT_GENERATED row must say WHICH records were exported (2026-10-22).
+  const exportFilters = { Status: status !== 'ALL' ? status : '', From: fromDate, To: toDate };
+
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (status !== 'ALL') params.set('status', status);
   const { data, error: loadError, isLoading, mutate: refetch } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
@@ -291,7 +295,7 @@ export function DeviationsPage() {
     try {
       const built = await buildDeviationsReport();
       if (!built) return;
-      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'PDF', recordCount: built.count, filters: exportFilters }, toast.warning);
       built.report.save(`${downloadName('deviations')}.pdf`);
     } catch (e: any) {
       if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export
@@ -306,7 +310,7 @@ export function DeviationsPage() {
     try {
       const r = await buildDeviationsExport();
       if (!r) return;
-      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Deviations', format: 'Excel', recordCount: r.body.length, filters: exportFilters }, toast.warning);
       exportToExcel({ filename: `deviations-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Deviations', head: HEAD, rows: r.body });
     } catch (e: any) {
       if (isReauthCancelled(e)) return; // operator dismissed the password dialog — no export

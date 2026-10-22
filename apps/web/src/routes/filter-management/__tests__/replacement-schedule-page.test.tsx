@@ -396,6 +396,7 @@ describe('Replacement Schedule page — export + template', () => {
     await waitFor(() => expect(api.calls('GET', '/api/replacement-schedules/export.xlsx')).toHaveLength(1));
     const log = api.calls('POST', '/api/audit/report-export-log')[0];
     expect(log.json).toMatchObject({ reportType: 'Replacement Schedule', format: 'Excel', recordCount: 6 });
+    expect(log.json.filters).toEqual({}); // the whole schedule: the page has no filters
     expectSigned(log);
     const idxLog = api.requests.indexOf(log);
     const xlsx = api.calls('GET', '/api/replacement-schedules/export.xlsx')[0];

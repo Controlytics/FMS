@@ -208,7 +208,7 @@ export function ReplacementSchedulePage() {
       if (allEntries.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(allEntries.length)); return; }
       // One signature covers the audit write AND the server-side workbook GET
       // (same EXPORT_REPLACEMENT_SCHEDULE row; password in x-reauth-password).
-      const signedPw = await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
+      const signedPw = await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'Excel', recordCount: allEntries.length, filters: {} /* the whole schedule: this page has no filters */ }, toast.warning);
       const res = await fetch(apiUrl('/api/replacement-schedules/export.xlsx'), {
         headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token')}`, ...(signedPw ? { 'x-reauth-password': signedPw } : {}) },
       });
@@ -237,7 +237,7 @@ export function ReplacementSchedulePage() {
     try {
       const report = await buildReplacementReport();
       if (!report) return;
-      await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement Schedule', format: 'PDF', recordCount: schedules.flatMap((s: any) => (s.entries ?? [])).length, filters: {} /* the whole schedule: this page has no filters */ }, toast.warning);
       report.save(`${downloadName('replacement-schedule')}.pdf`);
     } catch (e: any) { if (!isReauthCancelled(e)) toast.error('Export failed', e?.message ?? 'Could not generate PDF'); } finally { setExporting(false); }
   };

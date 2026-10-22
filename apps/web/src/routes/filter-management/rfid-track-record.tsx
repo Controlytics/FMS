@@ -64,6 +64,10 @@ export function RfidTrackRecordPage() {
   const [perPage] = useReportPageSize();
   const [downloading, setDownloading] = useState(false);
 
+  // Every filter that produced an export (the same fields buildQs sends): the
+  // REPORT_GENERATED row must say WHICH records were exported (2026-10-22).
+  const exportFilters = { From: from, To: to, RFID: rfid, Filter: filterName, AHU: ahu, User: userQ };
+
   const buildQs = (limit: number, pg: number) => {
     const qs = new URLSearchParams();
     if (from) qs.set('from', from);
@@ -210,7 +214,7 @@ export function RfidTrackRecordPage() {
     try {
       const built = await buildRfidReport();
       if (!built) return;
-      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'PDF', recordCount: built.count, filters: exportFilters }, toast.warning);
       built.report.save(`${downloadName('rfid-track-record')}.pdf`);
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
@@ -222,7 +226,7 @@ export function RfidTrackRecordPage() {
     try {
       const r = await buildRfidExport();
       if (r.body.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(r.body.length)); return; }
-      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'RFID Track Record', format: 'Excel', recordCount: r.body.length, filters: exportFilters }, toast.warning);
       exportToExcel({ filename: `rfid-track-record-${new Date().toISOString().slice(0, 10)}`, sheetName: 'RFID Track Record', head: headLabels, rows: r.body });
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };

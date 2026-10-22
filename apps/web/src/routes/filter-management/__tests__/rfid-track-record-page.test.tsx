@@ -145,7 +145,7 @@ describe('RFID Track Record page', () => {
     const exportRead = api.calls('GET', '/api/assets/identifiers/track-record').find((r) => r.query.get('limit') === '500')!;
     expect(exportRead.query.get('rfid')).toBe('E2');
     expect(exportRead.query.get('page')).toBe('1');
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'RFID Track Record', format: 'Excel', recordCount: 2 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'RFID Track Record', format: 'Excel', recordCount: 2, filters: { RFID: 'E2' } });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.head).toEqual(['S.No', 'Date & Time', 'Event', 'RFID Number', 'Filter', 'AHU', 'User', 'Reason']);
     expect(arg.filename).toMatch(/^rfid-track-record-\d{4}-\d{2}-\d{2}$/);

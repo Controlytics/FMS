@@ -2,6 +2,13 @@ import { apiClient } from './api-client';
 import { REPORT_EXPORT_ACTIONS, type ReportExportName } from '@digilog/shared';
 import type { useReauth } from '@/hooks/use-reauth';
 
+/**
+ * Every filter that produced an export, as the operator saw it: label → value
+ * (names, not ids: "AHU: PF-B5/AHU-29", "Status: Completed"). Not applied =
+ * leave it out, or pass '' / null / undefined / false / [] — exportFilterSet drops them.
+ */
+export type ReportExportFilters = Record<string, string | string[] | number | boolean | null | undefined>;
+
 export interface ReportExportLogInput {
   /** Human report name shown in the audit trail, e.g. "Audit Trail", "Filters". */
   reportType: ReportExportName;
@@ -11,6 +18,27 @@ export interface ReportExportLogInput {
   search?: string;
   startDate?: string;
   endDate?: string;
+  /**
+   * Every filter that produced the file (2026-10-22): the REPORT_GENERATED row
+   * must say which records were exported, not only how many.
+   */
+  filters?: ReportExportFilters;
+}
+
+/** The applied filters only, every value as text (the API takes text and lists of text). */
+export function exportFilterSet(filters: ReportExportFilters | undefined): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [label, value] of Object.entries(filters ?? {})) {
+    if (value === undefined || value === null || value === false) continue;
+    if (Array.isArray(value)) {
+      const items = value.map((v) => String(v).trim()).filter(Boolean);
+      if (items.length > 0) out[label] = items;
+      continue;
+    }
+    const text = value === true ? 'Yes' : String(value).trim();
+    if (text) out[label] = text;
+  }
+  return out;
 }
 
 /**
@@ -33,6 +61,7 @@ export async function logReportExport(input: ReportExportLogInput, password?: st
     search: input.search || undefined,
     startDate: input.startDate || undefined,
     endDate: input.endDate || undefined,
+    filters: exportFilterSet(input.filters),
   };
   if (password) await apiClient.postWithReauth('/api/audit/report-export-log', body, password);
   else await apiClient.post('/api/audit/report-export-log', body);

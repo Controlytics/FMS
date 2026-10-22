@@ -273,7 +273,7 @@ describe('Filter Cleaning Record — export', () => {
     const exportReads = api.calls('GET', '/api/filters/cleaning-record').filter((r) => r.query.get('limit') === '100');
     expect(exportReads.map((r) => r.query.get('page'))).toEqual(['1', '2']);
     expect(exportReads[0].query.get('status')).toBe('COMPLETED');
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Record', format: 'Excel', recordCount: 151 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Cleaning Record', format: 'Excel', recordCount: 151, filters: { Status: 'Completed' } });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.sheetName).toBe('Cleaning Record');
     expect(arg.filename).toMatch(/^cleaning-cycles-All-Filters-\d{4}-\d{2}-\d{2}$/);

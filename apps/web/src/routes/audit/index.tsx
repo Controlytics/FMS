@@ -363,6 +363,7 @@ export function AuditTrailPage() {
       search: debouncedSearch || undefined,
       startDate: fromDateTime ? new Date(fromDateTime).toISOString() : undefined,
       endDate: toDateTime ? new Date(toDateTime).toISOString() : undefined,
+      filters: { Search: debouncedSearch, From: fromDateTime, To: toDateTime },
     }, toast.warning, { strict: true });
   };
 

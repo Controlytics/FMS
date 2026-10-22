@@ -248,6 +248,7 @@ describe('Audit Trail — export (AUDIT_EXPORT)', () => {
     const log = api.calls('POST', '/api/audit/report-export-log');
     expect(log).toHaveLength(1);
     expect(log[0].json).toMatchObject({ reportType: 'Audit Trail', format: 'PDF', recordCount: 5, period: 'All Time' });
+    expect(log[0].json.filters).toEqual({}); // nothing applied, and the record says so
 
     expect(pdf.configs[0]).toMatchObject({ reportKey: 'audit-trail', title: 'Audit Trail', orientation: 'landscape' });
     expect(pdf.configs[0].subtitle).toContain('Total: 5 record(s)');
@@ -283,6 +284,8 @@ describe('Audit Trail — export (AUDIT_EXPORT)', () => {
     expect(exportFetch.query.get('endDate')).toBe(new Date('2026-10-05T18:00').toISOString());
     const log = api.calls('POST', '/api/audit/report-export-log')[0].json;
     expect(log).toMatchObject({ format: 'Excel', recordCount: 5, search: 'user', startDate: new Date('2026-10-01T08:00').toISOString(), endDate: new Date('2026-10-05T18:00').toISOString() });
+    // 2026-10-22: every filter that produced the file is on its audit record.
+    expect(log.filters).toEqual({ Search: 'user', From: '2026-10-01T08:00', To: '2026-10-05T18:00' });
     expect(log.period).toMatch(/ to /);
     expect(pdf.reports).toHaveLength(0);
   });

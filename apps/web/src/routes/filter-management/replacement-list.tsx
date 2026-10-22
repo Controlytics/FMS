@@ -172,7 +172,7 @@ export function ReplacementListPage() {
         formatDateTime: (d: string) => formatDate(d),
       });
       report.addTable({ head: reportHead, body: reportRows(), columnStyles: { 0: { halign: 'center', cellWidth: 14 } } });
-      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'PDF', recordCount: filtered.length, search: search.trim() || undefined, filters: { ...scope.exportFilters, Search: search.trim() } }, toast.warning);
       report.save(`${downloadName('replacement-list')}.pdf`);
     } catch (e: any) {
       // A dismissed password prompt means "no export", not a failure (C-05).
@@ -187,7 +187,7 @@ export function ReplacementListPage() {
     if (filtered.length === 0) { toast.error('Nothing to export', 'No replacements to include'); return; }
     if (filtered.length > exportLimit.maxRecords) { toast.error('Export too large', exportLimit.tooLargeMessage(filtered.length)); return; }
     try {
-      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Replacement List', format: 'Excel', recordCount: filtered.length, search: search.trim() || undefined, filters: { ...scope.exportFilters, Search: search.trim() } }, toast.warning);
       exportToExcel({ filename: 'replacement-list', sheetName: 'Replacements', head: reportHead, rows: reportRows() });
     } catch (e: any) {
       // A dismissed password prompt means "no export", not a failure (C-05).

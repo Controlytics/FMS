@@ -151,6 +151,18 @@ export function CleaningCycleHistoryPage() {
   const selectedFilterName = selectedFilter
     ? filterInstances.find((f) => f.id === selectedFilter)?.name ?? 'Filter'
     : 'All Filters';
+  // Every filter that produced an export, by name: the REPORT_GENERATED row must
+  // say WHICH records were exported, not only how many (2026-10-22).
+  const exportFilters = {
+    Search: search,
+    Block: blockId ? blocks.find((b) => b.id === blockId)?.name ?? blockId : '',
+    Area: areaId ? areas.find((a) => a.id === areaId)?.name ?? areaId : '',
+    AHU: ahuId ? ahus.find((h) => h.id === ahuId)?.name ?? ahuId : '',
+    Filter: selectedFilter ? selectedFilterName : '',
+    Status: status ? STATUS_CONFIG[status]?.label ?? status : '',
+    From: fromDate,
+    To: toDate,
+  };
 
   const records = (data?.data ?? []) as any[];
   // Only real cleaning cycles feed the export (manual rows have no stages) —
@@ -323,7 +335,7 @@ export function CleaningCycleHistoryPage() {
       if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
       const report = await buildHistoryReport(record);
       if (!report) return;
-      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'PDF', recordCount: rows.length, search: search || undefined, startDate: fromIso || undefined, endDate: toIso || undefined, filters: exportFilters }, toast.warning);
       report.save(`${downloadName('cleaning-cycles', selectedFilterName)}.pdf`);
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
@@ -342,7 +354,7 @@ export function CleaningCycleHistoryPage() {
       if (!record) return;
       const rows = record.cycles;
       if (rows.length === 0) { toast.error('Nothing to export', 'This selection contains no cleaning cycles.'); return; }
-      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Record', format: 'Excel', recordCount: rows.length, search: search || undefined, startDate: fromIso || undefined, endDate: toIso || undefined, filters: exportFilters }, toast.warning);
       exportToExcel({ filename: `cleaning-cycles-${selectedFilterName.replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`, sheetName: 'Cleaning Record', head: ccHead, rows: buildCleaningRows(rows) });
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };

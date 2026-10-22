@@ -177,6 +177,7 @@ describe('Deviations — export', () => {
     expect(table.body[3][3]).toBe('2026-09-10\n\n');
     expect(table.body[3][4]).toBe('1 day delay');
     expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toMatchObject({ reportType: 'Deviations', format: 'PDF', recordCount: 4 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json.filters).toEqual({});
     expect(report.save.mock.calls[0][0]).toMatch(/^deviations_.*\.pdf$/);
   });
 
@@ -194,17 +195,20 @@ describe('Deviations — export', () => {
   });
 
   it('a period open at either end reads "Start" / "Now"', async () => {
-    open();
+    const api = open();
     await screen.findByText('DEV-0001');
     fireEvent.change(screen.getByLabelText('Deviations from date'), { target: { value: '2026-07-01' } });
     await exportAs('PDF');
     await waitFor(() => expect(report.save).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createReport).mock.calls[0][0].subtitle).toContain('Period: 2026-07-01 to Now  |  Total: 3 deviation(s)');
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json.filters).toEqual({ From: '2026-07-01' });
     fireEvent.click(screen.getByRole('button', { name: 'Clear date range' }));
     fireEvent.change(screen.getByLabelText('Deviations to date'), { target: { value: '2026-07-01' } });
     await exportAs('PDF');
     await waitFor(() => expect(report.save).toHaveBeenCalledTimes(2));
     expect(vi.mocked(createReport).mock.calls[1][0].subtitle).toContain('Period: Start to 2026-07-01  |  Total: 1 deviation(s)');
+    // 2026-10-22: the second export's record names the period that narrowed it.
+    expect(api.calls('POST', '/api/audit/report-export-log')[1].json.filters).toEqual({ To: '2026-07-01' });
   });
 
   it('Excel exports the same rows after logging', async () => {

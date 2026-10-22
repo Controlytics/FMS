@@ -466,6 +466,7 @@ describe('PM list — Export', () => {
     expect(table.body[1]).toEqual(['2', '-', 'Jan', shown(12), '-', 'WEIRD', '-', '-', '-', '-']);
     const [log] = api.calls('POST', '/api/audit/report-export-log');
     expect(log.json).toMatchObject({ reportType: 'PM Schedule', format: 'PDF', recordCount: 2 });
+    expect(log.json.filters).toEqual({ Year: String(Y) }); // the export covers whole years
     expect(report.save.mock.calls[0][0]).toMatch(new RegExp(`^pm-schedule-${Y}_.*\\.pdf$`));
   });
 
@@ -552,6 +553,7 @@ describe('PM list — Export', () => {
     const [log] = api.calls('POST', '/api/audit/report-export-log');
     expectSigned(log);
     expect(log.json).toMatchObject({ reportType: 'PM Schedule', format: 'Excel' });
+    expect(log.json.filters).toEqual({ Year: `${Y - 1}-${Y}` });
   });
 
   it('an Excel download the server refuses says "Export failed"', async () => {

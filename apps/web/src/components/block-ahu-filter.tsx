@@ -43,6 +43,8 @@ export interface BlockAhuScope {
   matches: (row: ScopedRow) => boolean;
   /** e.g. `Block CWH › AHU-0B` — for the report subtitle. '' when unscoped. */
   scopeLabel: string;
+  /** The chosen Block / AHU by name, for an export's audit record ('' when not chosen). */
+  exportFilters: { Block: string; AHU: string };
   /** Clear both dropdowns. */
   reset: () => void;
 }
@@ -106,11 +108,16 @@ export function useBlockAhuScope(): BlockAhuScope {
     return parts.join(' › ');
   }, [blocks, allAhus, blockId, ahuId]);
 
+  const exportFilters = useMemo(() => ({
+    Block: blockId ? blocks.find(b => b.id === blockId)?.name ?? blockId : '',
+    AHU: ahuId ? allAhus.find(a => a.id === ahuId)?.name ?? ahuId : '',
+  }), [blocks, allAhus, blockId, ahuId]);
+
   return {
     blockId, ahuId, setBlockId, setAhuId,
     blocks, ahus,
     isActive: !!blockId || !!ahuId,
-    matches, scopeLabel, reset,
+    matches, scopeLabel, exportFilters, reset,
   };
 }
 

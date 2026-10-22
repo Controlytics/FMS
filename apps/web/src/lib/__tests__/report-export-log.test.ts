@@ -27,15 +27,21 @@ describe('logReportExport', () => {
     const m = mockApi([{ method: 'POST', path: URL, body: {} }]);
     await logReportExport({ reportType: 'Filters', format: 'PDF', recordCount: 12, period: '', search: '', startDate: '', endDate: '' });
     expect(m.calls('POST', URL)).toHaveLength(1);
-    expect(m.requests[0].json).toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 12 });
+    // No filter applied is still stated: an empty filter set, never a missing one.
+    expect(m.requests[0].json).toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 12, filters: {} });
     expect(m.requests[0].headers['x-reauth-password']).toBeUndefined();
   });
 
   it('keeps the filter context when given', async () => {
     const m = mockApi([{ method: 'POST', path: URL, body: {} }]);
-    await logReportExport({ reportType: 'Audit Trail', format: 'Excel', recordCount: 3, period: 'Last 7 days', search: 'wash', startDate: '2026-10-01', endDate: '2026-10-07' });
+    await logReportExport({
+      reportType: 'Audit Trail', format: 'Excel', recordCount: 3, period: 'Last 7 days', search: 'wash', startDate: '2026-10-01', endDate: '2026-10-07',
+      // 2026-10-22: every filter that produced the file, by name; what was not applied is dropped.
+      filters: { Search: 'wash', Block: 'B1', AHU: '', Area: null, Filter: undefined, Status: ['Open', ' ', 'Closed'], Manual: true, Archived: false, Count: 3 },
+    });
     expect(m.requests[0].json).toEqual({
       reportType: 'Audit Trail', format: 'Excel', recordCount: 3, period: 'Last 7 days', search: 'wash', startDate: '2026-10-01', endDate: '2026-10-07',
+      filters: { Search: 'wash', Block: 'B1', Status: ['Open', 'Closed'], Manual: 'Yes', Count: '3' },
     });
   });
 
@@ -43,7 +49,7 @@ describe('logReportExport', () => {
     const m = mockApi([{ method: 'POST', path: URL, body: {} }]);
     await logReportExport({ reportType: 'Filters', format: 'PDF', recordCount: 1 }, 'pw');
     expect(m.requests[0].headers['x-reauth-password']).toBe('pw');
-    expect(m.requests[0].json).toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 1, _currentPassword: 'pw' });
+    expect(m.requests[0].json).toEqual({ reportType: 'Filters', format: 'PDF', recordCount: 1, filters: {}, _currentPassword: 'pw' });
   });
 
   it('throws when the audit write fails (fail-closed)', async () => {

@@ -108,7 +108,7 @@ export function CleaningCycleTimelinePage() {
     setDownloading(true);
     try {
       const report = await buildCycleReport();
-      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0 }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'PDF', recordCount: cycle.events?.length ?? 0, filters: { Cycle: cycle.cycleCode, Filter: cycle.filterName } }, toast.warning);
       report.save(`${downloadName('cycle', cycle.filterName ?? 'filter', formatDate(cycle.startedAt))}.pdf`);
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };
@@ -135,7 +135,7 @@ export function CleaningCycleTimelinePage() {
         e.remarks ?? '-',
         ];
       });
-      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length }, toast.warning);
+      await requireExportReauth(reauth, { reportType: 'Cleaning Cycle Detail', format: 'Excel', recordCount: rows.length, filters: { Cycle: cycle.cycleCode, Filter: cycle.filterName } }, toast.warning);
       exportToExcel({ filename: `cycle-${cycle.filterName ?? 'filter'}-${formatDate(cycle.startedAt)}`, sheetName: 'Cycle Detail', head, rows });
     } catch (e) { reportExportError(e); } finally { setDownloading(false); }
   };

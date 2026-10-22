@@ -94,7 +94,7 @@ describe('Quality Notifications page', () => {
     fireEvent.click(screen.getByRole('button', { name: /Export as Excel/ }));
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledTimes(1));
     expect(api.calls('GET', '/api/pm-schedules/qnn').some((r) => r.query.get('limit') === '500')).toBe(true);
-    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Quality Notifications', format: 'Excel', recordCount: 2 });
+    expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toEqual({ reportType: 'Quality Notifications', format: 'Excel', recordCount: 2, filters: {} });
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.sheetName).toBe('QNN');
     expect(arg.head).toEqual(['S.No', 'QNN', 'Action', 'AHU', 'Message', 'By', 'Date & Time']);
