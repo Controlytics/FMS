@@ -336,6 +336,18 @@ describe('Filter Cleaning Record — list', () => {
     await waitFor(() => expect(api.calls('GET', '/api/filters/cycles').some((r) => !!r.query.get('to'))).toBe(true));
   });
 
+  it('the AHU picker alone is sent to the server too (ahuId, d9aa1b3); a chosen filter wins', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `a${i}`, filterId: i < 11 ? 'f101' : 'f301', cycleCode: `CC-${String(i + 200).padStart(4, '0')}`, status: 'COMPLETED', startedAt: iso(10 + i), completedAt: iso(5 + i) }));
+    const { api } = await openCycles({ cycles: many });
+    await waitFor(() => expect(cards()).toHaveLength(10));
+    pick('AHU', 'h3');
+    // the one AHU-03 cycle sits on page 2 of the unfiltered record: only the server can find it
+    await waitFor(() => expect(cards()).toEqual(['CC-0211']));
+    expect(api.calls('GET', '/api/filters/cycles').some((r) => r.query.get('ahuId') === 'h3' && !r.query.get('filterId'))).toBe(true);
+    pick('Filter', 'f301');
+    await waitFor(() => expect(api.calls('GET', '/api/filters/cycles').some((r) => r.query.get('filterId') === 'f301' && !r.query.get('ahuId'))).toBe(true));
+  });
+
   it('AHU + Filter + From/To narrow the list (Filter and From/To on the server); switching AHU drops a filter that is not under it; clear resets', async () => {
     await openCycles();
     await waitFor(() => expect(cards()).toHaveLength(6));

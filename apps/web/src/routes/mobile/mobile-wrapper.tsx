@@ -384,9 +384,10 @@ export function MobileWrapperPage() {
   // cycle of the last 30 days with events (limit 1,000,000) every 30 s: at
   // ~1,500 cycles a day that overflowed the server within weeks. (The 2026-10-17
   // load test had already cut it from "every cycle ever" to 30 days.) One page
-  // of the operator's page size; the Filter and From / To pickers go to the
-  // server — narrowing a paged list in the browser would filter only the rows
-  // that came back. With no From, the last 30 days.
+  // of the operator's page size; the AHU, Filter and From / To pickers go to the
+  // server (a chosen filter wins over its AHU) — narrowing a paged list in the
+  // browser would filter only the rows that came back. With no From, the last
+  // 30 days.
   const cyclesSince = useMemo(() => new Date(Date.now() - 30 * 86_400_000).toISOString(), []);
   const [cyclePage, setCyclePage] = useState(1);
   const [cyclePageSize, setCyclePageSize] = usePageSize();
@@ -398,8 +399,9 @@ export function MobileWrapperPage() {
     const toMs = cycleTo ? new Date(cycleTo).getTime() : NaN;
     if (Number.isFinite(toMs)) q.set('to', new Date(toMs).toISOString());
     if (cycleFilterId !== 'all') q.set('filterId', cycleFilterId);
+    else if (cycleAhuId !== 'all') q.set('ahuId', cycleAhuId);
     return q.toString();
-  }, [cyclePage, cyclePageSize, cycleFrom, cycleTo, cycleFilterId, cyclesSince]);
+  }, [cyclePage, cyclePageSize, cycleFrom, cycleTo, cycleFilterId, cycleAhuId, cyclesSince]);
   const { data: cyclePageData, isLoading: cyclesLoading } =
     useSWR<any>(online && view === 'cycles' ? `/api/filters/cycles?${cycleQuery}` : null, { refreshInterval: 30000 });
   // What the Cycles view showed last is what it shows offline.
@@ -671,9 +673,9 @@ export function MobileWrapperPage() {
     ? (allFilters as any[])
     : (allFilters as any[]).filter((f: any) => f.parentId === cycleAhuId);
 
-  // Filtered cycles list. Online the server already applied the Filter and From /
-  // To pickers to its page (re-applying them here is a no-op); the AHU picker
-  // narrows the Filter picker. Offline everything narrows the cached snapshot.
+  // Filtered cycles list. Online the server already applied every picker to its
+  // page (re-applying them here is a no-op). Offline they narrow the cached
+  // snapshot.
   const filteredCyclesList: any[] = cyclesList.filter((c: any) => {
     if (cycleAhuId !== 'all') {
       const parent = filterParentByFilterId.get(c.filterId);
