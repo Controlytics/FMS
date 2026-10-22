@@ -82,6 +82,32 @@ export async function loadDisabledChecklistProfileIds(
 }
 
 /**
+ * Ids of the ACTIVE checklist profiles named by the CHECKLIST nodes right after
+ * `stage` — the checklists still to be answered there. A node whose checklist is
+ * disabled or no longer exists asks nothing. The one server read of "does a
+ * checklist follow this stage" for completion decisions: advance() (does this
+ * advance complete the cycle, or does the checklist) and the QA approval of a
+ * final gated stage (does the approval complete it, 2026-10-22).
+ */
+export async function activeChecklistIdsAfterStage(
+  stage: any,
+  allStages: any[],
+  connections: any[],
+): Promise<string[]> {
+  const ids = [...new Set(
+    collectChecklistsAfterStage(stage, allStages, connections)
+      .map(n => (n.configuration as { checklistProfileId?: unknown } | null)?.checklistProfileId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )];
+  if (ids.length === 0) return [];
+  const active = await prisma.checklistProfile.findMany({
+    where: { id: { in: ids }, isActive: true },
+    select: { id: true },
+  });
+  return active.map(a => a.id);
+}
+
+/**
  * The disabled checklists that sit after each of `afterStages` in the
  * context's pipeline, named for the event record (`skippedChecklists`). Empty
  * when none is disabled — the common case costs no query.

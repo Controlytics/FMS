@@ -321,6 +321,7 @@ export function deriveStatusCode(code: string): number {
     case 'CYCLE_CHANGED':
     case 'CYCLE_ACTIVE':
     case 'GROUP_VERSION_MISSING':
+    case 'EQUIPMENT_GROUP_MISMATCH':
       return 409;
     case 'BYPASS_FORBIDDEN':
       return 403;

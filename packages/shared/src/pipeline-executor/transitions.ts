@@ -106,20 +106,71 @@ function eventMs(e: { performedAt: Date | string }): number {
   return Number.isFinite(t) ? t : 0;
 }
 
+type EntryEvent = { eventType: string; toState: string | null; performedAt: Date | string; attributes?: unknown };
+
 /**
- * The instant the filter last ENTERED `stage` in this cycle (latest event
- * whose toState is the stage), or null when no such event is in the context.
- * Shared by the checklist gate and the server's duplicate-submission guard so
- * "one attestation per attempt" is decided the same way on both sides.
+ * Is this event an ENTRY into `stage` — the filter moving INTO it? (2026-10-22)
+ *
+ * The in-place dryer steps are recorded with toState DRY_IN but move nothing:
+ * the SUBMIT_READINGS row (`action: 'DRYER_READINGS_SUBMITTED'`) and, since
+ * 2026-10-22, any row marked `inPlace: true` (the in-place SET_DURATION that
+ * recovers a cycle sitting at Dry In without a dryer). Counting them as entries
+ * voided a checklist answered after SET_DURATION the moment the readings landed
+ * (400 CHECKLIST_PENDING on the way out of a mid-pipeline Dry In).
  */
-export function latestEntryIntoStage(events: Array<{ eventType: string; toState: string | null; performedAt: Date | string }>, stage: string): number | null {
+export function isEntryIntoStage(e: EntryEvent, stage: string): boolean {
+  if (e.toState !== stage) return false;
+  const a = (e.attributes ?? {}) as { action?: unknown; inPlace?: unknown };
+  return a.action !== 'DRYER_READINGS_SUBMITTED' && a.inPlace !== true;
+}
+
+/**
+ * The instant the filter last ENTERED `stage` in this cycle (latest entry event,
+ * see isEntryIntoStage), or null when no such event is in the context.
+ * Shared by the checklist gate, the tape and the server's duplicate-submission
+ * guard so "one attestation per attempt" is decided the same way everywhere.
+ */
+export function latestEntryIntoStage(events: EntryEvent[], stage: string): number | null {
   let latest: number | null = null;
   for (const e of events) {
-    if (e.toState !== stage) continue;
+    if (!isEntryIntoStage(e, stage)) continue;
     const t = eventMs(e);
     if (latest === null || t > latest) latest = t;
   }
   return latest;
+}
+
+/**
+ * Has the checklist after `position` been answered in the CURRENT attempt at it?
+ * `position` is a stage key, or null for START (the checklists between START and
+ * the first stage, 2026-10-22). Only CHECKLIST_COMPLETED rows recorded at/after
+ * the latest entry into the stage count (a QA rejection sends the filter back
+ * and the stage's checklist must be answered again). The ONE rule for the
+ * server gate, the tape and current-state.
+ */
+export function checklistAnsweredInCurrentEntry(events: EntryEvent[], position: string | null): boolean {
+  const entryAt = position === null ? null : latestEntryIntoStage(events, position);
+  return events.some(
+    e =>
+      e.eventType === 'CHECKLIST_COMPLETED' &&
+      ((e.attributes as { afterStage?: string | null } | undefined)?.afterStage ?? null) === position &&
+      (entryAt === null || eventMs(e) >= entryAt),
+  );
+}
+
+/**
+ * Does THIS call finish the work of `targetState`? (2026-10-22, one rule.)
+ *
+ * Every stage's work is done the moment the filter enters it — except Dry In,
+ * whose work is the dryer run: it starts on entry (SET_DURATION; "a cycle may
+ * only ENTER Dry In with the dryer running") and ends with the half-time
+ * readings (SUBMIT_READINGS). So a FINAL Dry In completes the cycle on
+ * SUBMIT_READINGS, and the checklist after it rides on that call, never on the
+ * entry. Used by advanceMustCarryChecklist, the server's completion decision and
+ * the tape.
+ */
+export function callCompletesStageWork(targetState: string | null | undefined, dryerAction?: string | null): boolean {
+  return targetState !== 'DRY_IN' || dryerAction === 'SUBMIT_READINGS';
 }
 
 /**
@@ -138,8 +189,13 @@ export function assertChecklistGatePassed(
   cp: ProfileSlice,
   currentState: string | null | undefined,
 ): GuardResult {
-  if (!currentState) return { ok: true };
-  const currentStage = cp.nodes.find(s => s.stateKey === currentState);
+  // START is a position like a stage (2026-10-22): enabled checklists between
+  // START and the first stage are answered after start-cycle, before the first
+  // stage is entered. Until then they were never asked at all.
+  const position = currentState ?? null;
+  const currentStage = position === null
+    ? cp.nodes.find(s => s.nodeType === 'START')
+    : cp.nodes.find(s => s.stateKey === position);
   if (!currentStage) return { ok: true };
 
   const pendingCLNodes = enabledChecklistNodes(
@@ -153,22 +209,17 @@ export function assertChecklistGatePassed(
   // this stage. A QA rejection sends the filter back (WASH_OUT → WASH_IN),
   // the operator re-performs the stage, and the post-stage checklist must be
   // answered AGAIN — the attempt-1 CHECKLIST_COMPLETED row no longer counts.
-  // "Current attempt" starts at the latest event that moved the filter INTO
-  // this stage (the ordinary STATE_TRANSITION, or the interlock-reject
-  // transition that rolled it back).
-  const entryAt = latestEntryIntoStage(ctx.events, currentState);
-  const answered = ctx.events.some(
-    e =>
-      e.eventType === 'CHECKLIST_COMPLETED' &&
-      ((e.attributes as { afterStage?: string | null })?.afterStage ?? null) === currentState &&
-      (entryAt === null || eventMs(e) >= entryAt),
-  );
-  if (answered) return { ok: true };
+  // "Current attempt" starts at the latest ENTRY into this stage (the ordinary
+  // STATE_TRANSITION, or the interlock-reject transition that rolled it back —
+  // never an in-place dryer step, see isEntryIntoStage).
+  if (checklistAnsweredInCurrentEntry(ctx.events, position)) return { ok: true };
 
   return {
     ok: false,
     code: 'CHECKLIST_PENDING',
-    message: `Please complete the checklist before advancing from ${prettyStageLabel(currentState)}`,
+    message: position === null
+      ? 'Answer the checklist that comes before the first stage, then enter the first stage.'
+      : `Please complete the checklist before advancing from ${prettyStageLabel(position)}`,
   };
 }
 
@@ -321,9 +372,14 @@ export function enabledChecklistNodes(
 export function advanceMustCarryChecklist(
   entry: (Partial<StageInfo> & { interlockGated?: boolean }) | null | undefined,
   disabledChecklistProfileIds?: readonly string[] | null,
+  call?: { targetState?: string | null; dryerAction?: string | null },
 ): boolean {
   if (!entry || entry.leadsToEnd !== true || (entry.nextStages?.length ?? 0) > 0) return false;
   if (entry.interlockGated === true) return false;
+  // The checklist rides on the call that FINISHES the final stage's work: for a
+  // final Dry In that is SUBMIT_READINGS, not the entry (2026-10-22). A caller
+  // that does not pass `call` gets the entry-call answer (any non-Dry-In stage).
+  if (call && !callCompletesStageWork(call.targetState, call.dryerAction)) return false;
   const disabled = new Set(disabledChecklistProfileIds ?? []);
   return (entry.pendingChecklistProfileIds ?? []).some((id) => !!id && !disabled.has(id));
 }

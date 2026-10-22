@@ -12,6 +12,7 @@
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
+import * as executor from '@digilog/shared';
 import { PM_ENTRY_IN_FORCE } from '../pm-schedules/pm-shared.js';
 import { generateTape } from './tape/tape-generator.js';
 import type { TapeChecklistProfile } from './tape/types.js';
@@ -374,72 +375,81 @@ export async function getCurrentStateImpl(
     return Boolean(id) && !disabledChecklistSet.has(id);
   };
 
+  // The cycle's checklist answers + the entries into the current stage, read
+  // ONCE (2026-10-22). "Answered" is the server gate's rule —
+  // checklistAnsweredInCurrentEntry: only answers given since the latest ENTRY
+  // into the stage count (a QA rejection rolls the filter back and the stage's
+  // checklist is asked again). This used to be an unscoped findFirst, so after
+  // a rollback the old answer hid the checklist the server still demanded, and
+  // an in-place dryer step counted as an entry on the server but not here.
+  const position: string | null = filter.currentLifecycleState ?? null;
+  const cycleChecklistRows: Array<{ eventType: string; toState: string | null; performedAt: Date; attributes: unknown }> =
+    currentCycle
+      ? await prisma.filterEvent.findMany({
+          where: {
+            filterId: filter.id,
+            cycleId: currentCycle.id,
+            OR: [{ eventType: 'CHECKLIST_COMPLETED' }, ...(position ? [{ toState: position }] : [])],
+          },
+          select: { eventType: true, toState: true, performedAt: true, attributes: true },
+        })
+      : [];
+
   if (cp) {
         profile = { name: cp.name, flowMode: cp.flowMode };
 
-        if (currentCycle && filter.currentLifecycleState) {
-          const currentStage = cp.stages.find((s: any) => s.stateKey === filter.currentLifecycleState);
-          if (currentStage) {
-            // Check for CHECKLIST nodes directly after current stage
-            const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
+        // The position the cycle is at: its stage, or START after start-cycle
+        // before the first stage (2026-10-22: the checklists between START and
+        // the first stage are asked there — they were never asked before).
+        const positionNode = currentCycle
+          ? (position
+              ? cp.stages.find((s: any) => s.stateKey === position)
+              : cp.stages.find((s: any) => s.nodeType === 'START'))
+          : undefined;
+        if (currentCycle && positionNode) {
+          const currentStage = positionNode;
+          // Check for CHECKLIST nodes directly after current stage
+          const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
 
-            if (checklistNodes.length > 0) {
-              // Check if checklists have already been answered for this stage in this cycle.
-              //
-              // Audit 2026-05-04 fix C3 parity (same shape that submit-checklist.ts:179
-              // already mitigates): `equals: undefined` collapses to "no JSON filter at
-              // all" in Prisma, which would match every CHECKLIST_COMPLETED for the
-              // cycle — including ones for other stages — and falsely mark the gate as
-              // satisfied. Use Prisma's explicit JSON-null match (`equals: null`) so a
-              // stage-null event row is matched correctly and stage-other rows are not.
-              const answeredEvent = await prisma.filterEvent.findFirst({
-                where: {
-                  filterId,
-                  cycleId: currentCycle.id,
-                  eventType: 'CHECKLIST_COMPLETED',
-                  attributes: { path: ['afterStage'], equals: filter.currentLifecycleState ?? (null as any) },
-                },
-              });
-
-              if (!answeredEvent) {
-                // Checklists pending — resolve via cycle's pinned versions (Phase A.1).
-                // currentCycle is in scope here.
-                const pins = (currentCycle?.checklistVersionPins ?? null) as Record<string, number> | null;
-                pendingChecklist = await resolveChecklistQuestions(checklistNodes.filter(isEnabledChecklistNode), pins);
-                if (pendingChecklist.length > 0) {
-                  // Active checklists pending — block until completed
-                  nextAllowedStages = [];
-                } else {
-                  // Every checklist here is disabled (or its record is gone) —
-                  // skip them, show next stages
-                  for (const cl of checklistNodes) {
-                    nextAllowedStages.push(...getNextStageKeys(cl.id, cp.stages, cp.connections));
-                  }
-                  nextBlocks = extractBlocks(cp.stages.filter((s: any) => nextAllowedStages.some(key => cp.stages.find((st: any) => st.stateKey === key)?.id === s.id)));
-                }
+          if (checklistNodes.length > 0) {
+            if (!executor.checklistAnsweredInCurrentEntry(cycleChecklistRows, position)) {
+              // Checklists pending — resolve via cycle's pinned versions (Phase A.1).
+              // currentCycle is in scope here.
+              const pins = (currentCycle?.checklistVersionPins ?? null) as Record<string, number> | null;
+              pendingChecklist = await resolveChecklistQuestions(checklistNodes.filter(isEnabledChecklistNode), pins);
+              if (pendingChecklist.length > 0) {
+                // Active checklists pending — block until completed
+                nextAllowedStages = [];
               } else {
-                // Checklists done — walk past checklist nodes to find next STAGE nodes
+                // Every checklist here is disabled (or its record is gone) —
+                // skip them, show next stages
                 for (const cl of checklistNodes) {
                   nextAllowedStages.push(...getNextStageKeys(cl.id, cp.stages, cp.connections));
                 }
-                const reachableFromChecklists = new Set<string>();
-                for (const cl of checklistNodes) {
-                  const outConns = cp.connections.filter((c: any) => c.fromStageId === cl.id);
-                  outConns.forEach((c: any) => reachableFromChecklists.add(c.toStageId));
-                }
-                const nextStages = cp.stages.filter((s: any) => reachableFromChecklists.has(s.id));
-                nextBlocks = extractBlocks(nextStages);
+                nextBlocks = extractBlocks(cp.stages.filter((s: any) => nextAllowedStages.some(key => cp.stages.find((st: any) => st.stateKey === key)?.id === s.id)));
               }
             } else {
-              // No checklist — normal flow
-              nextAllowedStages = getNextStageKeys(currentStage.id, cp.stages, cp.connections);
-              const outConns = cp.connections.filter((c: any) => c.fromStageId === currentStage.id);
-              const nextStageIds = outConns.map((c: any) => c.toStageId);
-              const nextStages = cp.stages.filter((s: any) => nextStageIds.includes(s.id));
+              // Checklists done — walk past checklist nodes to find next STAGE nodes
+              for (const cl of checklistNodes) {
+                nextAllowedStages.push(...getNextStageKeys(cl.id, cp.stages, cp.connections));
+              }
+              const reachableFromChecklists = new Set<string>();
+              for (const cl of checklistNodes) {
+                const outConns = cp.connections.filter((c: any) => c.fromStageId === cl.id);
+                outConns.forEach((c: any) => reachableFromChecklists.add(c.toStageId));
+              }
+              const nextStages = cp.stages.filter((s: any) => reachableFromChecklists.has(s.id));
               nextBlocks = extractBlocks(nextStages);
             }
+          } else {
+            // No checklist — normal flow
+            nextAllowedStages = getNextStageKeys(currentStage.id, cp.stages, cp.connections);
+            const outConns = cp.connections.filter((c: any) => c.fromStageId === currentStage.id);
+            const nextStageIds = outConns.map((c: any) => c.toStageId);
+            const nextStages = cp.stages.filter((s: any) => nextStageIds.includes(s.id));
+            nextBlocks = extractBlocks(nextStages);
           }
-        } else {
+        } else if (!(currentCycle && position)) {
           const startNode = cp.stages.find((s: any) => s.nodeType === 'START');
           if (startNode) {
             nextAllowedStages = getNextStageKeys(startNode.id, cp.stages, cp.connections);
@@ -700,18 +710,22 @@ export async function getCurrentStateImpl(
   // this cycle (used to derive a tapeVersion that changes on every cycle
   // event, STATE_TRANSITION included, not just checklist completions).
   //
-  // M6 (Phase 8.0 review follow-up): run the two prisma reads in parallel
-  // — they're independent, so the sequential await pair was an unnecessary
-  // round-trip.
-  const [recentChecklistEvents, filterEventCount] = currentCycle
-    ? await Promise.all([
-        prisma.filterEvent.findMany({
-          where: { filterId: filter.id, cycleId: currentCycle.id, eventType: 'CHECKLIST_COMPLETED' },
-          select: { eventType: true, attributes: true },
-        }),
-        prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } }),
-      ])
-    : [[] as Array<{ eventType: string; attributes: unknown }>, 0];
+  // The answers come from `cycleChecklistRows` above. The tape sees each answer
+  // without its time, so an answer given BEFORE the latest entry into the
+  // current stage (a superseded attempt) is left out here — otherwise the tape
+  // would call the stage's checklist answered while the server gate refuses the
+  // advance (2026-10-22, same rule: latestEntryIntoStage).
+  const currentEntryAt = position ? executor.latestEntryIntoStage(cycleChecklistRows, position) : null;
+  const recentChecklistEvents = cycleChecklistRows.filter((e) =>
+    e.eventType === 'CHECKLIST_COMPLETED'
+    && !(
+      currentEntryAt !== null
+      && ((e.attributes as { afterStage?: string | null } | null)?.afterStage ?? null) === position
+      && e.performedAt.getTime() < currentEntryAt
+    ));
+  const filterEventCount = currentCycle
+    ? await prisma.filterEvent.count({ where: { filterId: filter.id, cycleId: currentCycle.id } })
+    : 0;
 
   const tape = generateTape({
     cycle: currentCycle

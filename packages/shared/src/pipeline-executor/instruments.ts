@@ -29,6 +29,26 @@ export function assertEquipmentGroupValid(
   return { ok: true };
 }
 
+/**
+ * A cycle already BOUND to an equipment group takes readings for that group
+ * only (2026-10-22). Sending a different group id used to override the binding
+ * for that advance, so the readings were validated against — and recorded under
+ * — a group the cycle does not use. No id, or the bound one, passes.
+ */
+export function assertEquipmentGroupMatchesCycle(
+  _ctx: LocalContext,
+  requestedGroupId: string | null | undefined,
+  boundGroupId: string | null | undefined,
+): GuardResult {
+  if (!requestedGroupId || !boundGroupId || requestedGroupId === boundGroupId) return { ok: true };
+  return {
+    ok: false,
+    code: 'EQUIPMENT_GROUP_MISMATCH',
+    message: 'This cleaning cycle is already bound to a different equipment group. Record the readings with the equipment group the cycle started with.',
+    details: { boundEquipmentGroupId: boundGroupId },
+  };
+}
+
 /** Guard #27: instrument reading required (per instrument). */
 export function assertInstrumentReadingRequired(
   _ctx: LocalContext,

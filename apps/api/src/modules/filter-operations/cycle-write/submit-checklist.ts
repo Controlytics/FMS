@@ -29,7 +29,7 @@ import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
 import { auditLog } from '../../../lib/audit.js';
 import { AppError } from '../../../lib/errors.js';
-import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withClientOpId } from '../../../lib/idempotency.js';
+import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle } from '../../../lib/idempotency.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
@@ -39,13 +39,18 @@ import {
   prettyStageLabel,
   collectChecklistsAfterStage,
   resolveChecklistQuestions,
-  toLocalDateString,
 } from '../helpers.js';
+import { completeCycleTx } from './complete-cycle.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
 import { getInterlockConfig, isInterlockStage, assertStageApprovedToLeave } from '../stage-interlock.js';
 
 type TxClient = Prisma.TransactionClient;
+
+/** "after Wash In" / "before the first stage" (START, stageKey null). */
+function positionLabel(stageKey: string | null): string {
+  return stageKey ? `after ${prettyStageLabel(stageKey)}` : 'before the first stage';
+}
 
 /** Everything `executeChecklistTx` needs. Built by `prepareChecklist` with no writes. */
 export interface ChecklistPlan {
@@ -81,6 +86,12 @@ export interface PrepareChecklistOpts {
    * — re-checking here would just re-find the same event.
    */
   skipDedup?: boolean;
+  /**
+   * The composed call carries the Dry In readings (dryerAction SUBMIT_READINGS,
+   * 2026-10-22): a checklist that completes the cycle out of a final Dry In may
+   * do so only with the readings in, recorded earlier or by this same call.
+   */
+  dryerReadingsInThisCall?: boolean;
 }
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -150,6 +161,14 @@ export async function prepareChecklist(
   const stageKey = opts.stateOverride !== undefined
     ? opts.stateOverride
     : localCtx.filter.currentLifecycleState;
+  // The pipeline node the checklist follows: the stage, or START when no stage
+  // has been entered yet (2026-10-22: the checklists between START and the first
+  // stage are answered after start-cycle — they were never asked before).
+  const positionNode = cp
+    ? (stageKey
+        ? cp.stages.find(s => s.stateKey === stageKey)
+        : cp.stages.find(s => s.nodeType === 'START'))
+    : undefined;
 
   // Resolve checklist nodes for the stage. Required for: validation,
   // schema-drift detection, and the per-profile snapshot we persist on the event.
@@ -159,32 +178,29 @@ export async function prepareChecklist(
   const cyclePins = (cycle.checklistVersionPins ?? null) as Record<string, number> | null;
   let resolvedChecklists: any[] = [];
   let checklistNodeCount = 0;
-  if (cp && stageKey) {
-    const currentStage = cp.stages.find(s => s.stateKey === stageKey);
-    if (currentStage) {
-      const checklistNodes = collectChecklistsAfterStage(currentStage, cp.stages, cp.connections);
-      checklistNodeCount = checklistNodes.length;
-      // 2026-10-12: a DISABLED checklist is skipped — it is not asked, so it
-      // cannot be answered online. On an offline replay the operator may have
-      // answered it before it was switched off: that answer is a real record,
-      // so it is kept (and the bypass is named in replayExemptGates).
-      const disabled = new Set(localCtx.disabledChecklistProfileIds ?? []);
-      const answeredIds = new Set(answers && typeof answers === 'object' ? Object.keys(answers) : []);
-      const all = await resolveChecklistQuestions(checklistNodes, cyclePins);
-      resolvedChecklists = all.filter((cl: any) => {
-        if (!disabled.has(cl.checklistProfileId)) return true;
-        return ctx.isOfflineReplay === true && cl.questions.some((q: any) => answeredIds.has(q.id));
-      });
-      if (resolvedChecklists.some((cl: any) => disabled.has(cl.checklistProfileId))) {
-        replayExemptGates.push('CHECKLIST_DISABLED');
-      }
-      if (checklistNodeCount > 0 && all.length > 0 && resolvedChecklists.length === 0) {
-        throw new AppError(
-          400,
-          'CHECKLIST_DISABLED',
-          `The checklist after ${prettyStageLabel(stageKey)} is disabled, so it is skipped — there is nothing to submit.`,
-        );
-      }
+  if (cp && positionNode) {
+    const checklistNodes = collectChecklistsAfterStage(positionNode, cp.stages, cp.connections);
+    checklistNodeCount = checklistNodes.length;
+    // 2026-10-12: a DISABLED checklist is skipped — it is not asked, so it
+    // cannot be answered online. On an offline replay the operator may have
+    // answered it before it was switched off: that answer is a real record,
+    // so it is kept (and the bypass is named in replayExemptGates).
+    const disabled = new Set(localCtx.disabledChecklistProfileIds ?? []);
+    const answeredIds = new Set(answers && typeof answers === 'object' ? Object.keys(answers) : []);
+    const all = await resolveChecklistQuestions(checklistNodes, cyclePins);
+    resolvedChecklists = all.filter((cl: any) => {
+      if (!disabled.has(cl.checklistProfileId)) return true;
+      return ctx.isOfflineReplay === true && cl.questions.some((q: any) => answeredIds.has(q.id));
+    });
+    if (resolvedChecklists.some((cl: any) => disabled.has(cl.checklistProfileId))) {
+      replayExemptGates.push('CHECKLIST_DISABLED');
+    }
+    if (checklistNodeCount > 0 && all.length > 0 && resolvedChecklists.length === 0) {
+      throw new AppError(
+        400,
+        'CHECKLIST_DISABLED',
+        `The checklist ${positionLabel(stageKey)} is disabled, so it is skipped — there is nothing to submit.`,
+      );
     }
   }
 
@@ -203,8 +219,8 @@ export async function prepareChecklist(
       400,
       'NO_CHECKLIST_AT_TARGET',
       checklistNodeCount === 0
-        ? `There is no checklist to submit at ${prettyStageLabel(stageKey)}.`
-        : `The checklist after ${prettyStageLabel(stageKey)} no longer exists, so there is nothing to submit. Ask an administrator to fix the cleaning profile.`,
+        ? `There is no checklist to submit ${stageKey ? `at ${prettyStageLabel(stageKey)}` : 'before the first stage'}.`
+        : `The checklist ${positionLabel(stageKey)} no longer exists, so there is nothing to submit. Ask an administrator to fix the cleaning profile.`,
     );
   }
 
@@ -254,19 +270,30 @@ export async function prepareChecklist(
   // WASH_IN→CHECKLIST→END) so the operator can answer the post-stage
   // checklist; we complete the cycle here in the same transaction.
   let shouldComplete = false;
-  if (cp && stageKey) {
-    const currentStage = cp.stages.find(s => s.stateKey === stageKey);
-    if (currentStage) {
-      // Cross-cutting cleanup: replaced inline recursive walker with the
-      // canonical `executor.findReachable` (packages/shared/src/
-      // pipeline-executor/transitions.ts:279). Same semantics — `leadsToEnd`
-      // is `hasEndNext`; `!hasMoreStages` is `reachableStages.length === 0`.
-      // Uses `localCtx.profile` (the projected shared-typed view) rather
-      // than `cp.stages` (Prisma row shape) because the helper takes
-      // TapeStage[]; `currentStage.id` is consistent between the two.
-      const reach = executor.findReachable(currentStage.id, localCtx.profile.nodes, localCtx.profile.edges);
-      shouldComplete = reach.hasEndNext && reach.reachableStages.length === 0;
-    }
+  if (positionNode) {
+    // Cross-cutting cleanup: replaced inline recursive walker with the
+    // canonical `executor.findReachable` (packages/shared/src/
+    // pipeline-executor/transitions.ts:279). Same semantics — `leadsToEnd`
+    // is `hasEndNext`; `!hasMoreStages` is `reachableStages.length === 0`.
+    // Uses `localCtx.profile` (the projected shared-typed view) rather
+    // than `cp.stages` (Prisma row shape) because the helper takes
+    // TapeStage[]; `positionNode.id` is consistent between the two.
+    const reach = executor.findReachable(positionNode.id, localCtx.profile.nodes, localCtx.profile.edges);
+    shouldComplete = reach.hasEndNext && reach.reachableStages.length === 0;
+  }
+
+  // A checklist that completes the cycle out of a FINAL Dry In leaves Dry In, so
+  // the Dry In leave rule applies (2026-10-22, the same guard advance() uses,
+  // online and on replay): the readings must be in — recorded earlier, or
+  // carried by this composed call (advance-with-checklist, dryerAction
+  // SUBMIT_READINGS). Before, entering a final Dry In completed the cycle at
+  // dryer START and no reading was ever taken.
+  if (shouldComplete && stageKey === 'DRY_IN') {
+    throwIfFailed(executor.assertDryerReadingsSubmittedBeforeLeavingDryIn(
+      { ...localCtx.cycle, dryerReadingsSubmitted: localCtx.cycle.dryerReadingsSubmitted || opts.dryerReadingsInThisCall === true },
+      'DRY_IN',
+      'END',
+    ));
   }
 
   // Audit 2026-09-24 (F12): a checklist that COMPLETES the cycle is a leave of
@@ -318,7 +345,7 @@ export async function prepareChecklist(
       ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
       ...(replayExemptGates.length ? { replayExemptGates } : {}),
     },
-    remarks: `Checklist completed after ${stageKey}`,
+    remarks: stageKey ? `Checklist completed after ${stageKey}` : 'Checklist completed before the first stage',
   };
   const checksum = computeChecksum(eventData);
 
@@ -382,23 +409,27 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
   // the attempt-1 row must not block the fresh attestation — mirror the
   // shared gate (latestEntryIntoStage): only rows at/after the latest event
   // that moved the filter INTO this stage count.
-  const latestEntry = stageKey
-    ? await tx.filterEvent.findFirst({
+  // 2026-10-22: "entry" is the shared isEntryIntoStage — an in-place dryer step
+  // (readings, in-place SET_DURATION) is not an entry, so it does not open a
+  // fresh attempt in which the same checklist could be recorded twice. START
+  // (stageKey null) has no entry: one answer per cycle.
+  const stageRows = stageKey
+    ? await tx.filterEvent.findMany({
         where: { filterId, cycleId, toState: stageKey },
-        orderBy: { performedAt: 'desc' },
-        select: { performedAt: true },
+        select: { eventType: true, toState: true, performedAt: true, attributes: true },
       })
-    : null;
+    : [];
+  const latestEntryMs = stageKey ? executor.latestEntryIntoStage(stageRows, stageKey) : null;
   const existing = await tx.filterEvent.findFirst({
     where: {
       filterId,
       cycleId,
       eventType: 'CHECKLIST_COMPLETED',
       attributes: { path: ['afterStage'], equals: stageKey ?? (null as any) },
-      ...(latestEntry ? { performedAt: { gte: latestEntry.performedAt } } : {}),
+      ...(latestEntryMs !== null ? { performedAt: { gte: new Date(latestEntryMs) } } : {}),
     },
   });
-  if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted for ${prettyStageLabel(stageKey)}`);
+  if (existing) throw new AppError(409, 'ALREADY_SUBMITTED', `Checklist already submitted ${positionLabel(stageKey)}`);
 
   await tx.filterEvent.create({
     data: {
@@ -412,43 +443,12 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
   });
 
   if (plan.shouldComplete) {
-    const completedAt = offlineTime ?? new Date();
-    await tx.cleaningCycle.update({
-      where: { id: cycleId },
-      data: { status: 'COMPLETED', completedAt },
+    // The one completion write set (complete-cycle.ts), shared with advance()
+    // and the QA approval of a final gated stage.
+    await completeCycleTx(tx, {
+      filterId, cycleId, sequenceNumber: plan.sequenceNumber, ctx,
+      finalStage: stageKey, offlineTime, clientOpId,
     });
-    // 2026-06-02: completion (checklist-as-final-stage path) mirrors advance.ts
-    // — terminal CLEANING_CYCLE_COMPLETED state + lastCleaningDate stamp.
-    // currentCycleId stays cleared so the filter is available for a new cycle.
-    await tx.filterDetails.update({
-      where: { assetInstanceId: filterId },
-      data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
-    });
-    // LOCAL calendar day (not UTC) so a completion near local midnight isn't
-    // stamped a day early — see toLocalDateString.
-    const cleanDate = toLocalDateString(completedAt);
-    await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
-    const completeEvent = {
-      filterId, cycleId, eventType: 'CYCLE_COMPLETED' as const,
-      performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: plan.sequenceNumber }, clientOpId),
-    };
-    await tx.filterEvent.create({
-      data: {
-        ...completeEvent,
-        checksum: computeChecksum(completeEvent),
-        ipAddress: ctx.ipAddress,
-        telemetrySnapshot: {},
-        ...(offlineTime ? { performedAt: offlineTime } : {}),
-      },
-    });
-    // Audit 2026-09-24 (F13): completion gets its own audit row on this
-    // path too (mirrors executeAdvanceTx).
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_COMPLETED',
-      targetType: 'filter', targetId: filterId,
-      afterValue: { cycleId, completedAt, finalStage: stageKey },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    }, tx);
   }
 
   // Audit §1.1 (2026-05-16): audit-write inside business tx.

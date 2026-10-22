@@ -28,7 +28,8 @@ import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withCl
 import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
-import { computeChecksum, collectChecklistsAfterStage, describeSkippedChecklists, prettyStageLabel, toLocalDateString } from '../helpers.js';
+import { computeChecksum, activeChecklistIdsAfterStage, describeSkippedChecklists, prettyStageLabel } from '../helpers.js';
+import { completeCycleTx } from './complete-cycle.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
@@ -183,9 +184,22 @@ export async function prepareAdvance(
   }
 
   const currentState = localCtx.filter.currentLifecycleState;
+  // Dryer-in-place exception: SET_DURATION / SUBMIT_READINGS at DRY_IN -> DRY_IN.
+  const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && currentState === 'DRY_IN';
 
-  // Pending checklist gate (frozen at cycle start per A5).
-  throwIfFailed(executor.assertChecklistGatePassed(localCtx, localCtx.profile, currentState));
+  // Pending checklist gate (frozen at cycle start per A5): the checklist after
+  // the current position must be answered before LEAVING it. An in-place dryer
+  // step leaves nothing (2026-10-22) — at a final Dry In the checklist rides on
+  // the readings call itself (advance-with-checklist, SUBMIT_READINGS).
+  if (!isDryerInPlace) {
+    const gate = executor.assertChecklistGatePassed(localCtx, localCtx.profile, currentState);
+    // The checklist BEFORE the first stage has been asked only since 2026-10-22.
+    // A tablet built earlier never offers it, so its offline queue enters the
+    // first stage without it: let that replay through — the queue must not be
+    // lost — and RECORD the skip, as TERMINAL_CHECKLIST does below.
+    if (!gate.ok && currentState == null && ctx.isOfflineReplay) replayExemptGates.push('START_CHECKLIST');
+    else throwIfFailed(gate);
+  }
 
   // Stage interlock — leave-gate (QA approval after WASH_OUT / DRY_OUT).
   // Cannot leave an interlock stage until the latest approval for (cycle, stage)
@@ -218,9 +232,9 @@ export async function prepareAdvance(
     ? executor.findReachable(fromNodeForReachability.id, localCtx.profile.nodes, localCtx.profile.edges)
     : { reachableStages: [] as string[], hasEndNext: false };
 
-  throwIfFailed(executor.assertNotCycleComplete(localCtx, reachableStages, hasEndNext));
-  // Dryer-in-place exception: SET_DURATION / SUBMIT_READINGS at DRY_IN -> DRY_IN.
-  const isDryerInPlace = !!dryerAction && targetState === 'DRY_IN' && currentState === 'DRY_IN';
+  // An in-place dryer step at a FINAL Dry In is not "advancing past the end":
+  // it is the step that finishes the stage (2026-10-22, callCompletesStageWork).
+  if (!isDryerInPlace) throwIfFailed(executor.assertNotCycleComplete(localCtx, reachableStages, hasEndNext));
   throwIfFailed(
     executor.assertTargetStateReachable(
       localCtx,
@@ -242,6 +256,10 @@ export async function prepareAdvance(
   throwIfFailed(executor.assertParametersInRange(localCtx, parameters, paramDefs));
 
   const fromState = currentState;
+
+  // A cycle bound to a group takes readings for THAT group only (2026-10-22);
+  // a different id used to override the binding for this advance.
+  throwIfFailed(executor.assertEquipmentGroupMatchesCycle(localCtx, equipmentGroupId, cycle.equipmentGroupId));
 
   // Equipment-group existence check when provided + not yet bound (server I/O).
   if (equipmentGroupId && !cycle.equipmentGroupId) {
@@ -320,11 +338,10 @@ export async function prepareAdvance(
     let cycleGroupId = equipmentGroupId ?? cycle.equipmentGroupId;
     // Three pin sources (priority): cycle pin → lazy-bind live group version → null (legacy).
     // #eqpin (2026-07-04): the pin was frozen against cycle.equipmentGroupId. Only
-    // honour it when we're validating THAT group. If the caller supplies a different
-    // equipmentGroupId (an advance-time override), the pin doesn't apply to it — drop
-    // to null so we lazy-bind / use live for the overriding group instead of matching
-    // the wrong group against a stale version number. Defensive: normal advances pass
-    // no override, so cycleGroupId === cycle.equipmentGroupId and the pin is kept.
+    // honour it when we're validating THAT group. A different equipmentGroupId on a
+    // bound cycle is refused above (EQUIPMENT_GROUP_MISMATCH, 2026-10-22), so here a
+    // supplied id is either the bound one (pin kept) or the first binding of an
+    // unbound cycle (no pin yet → lazy-bind below).
     let cycleVersionPin: number | null =
       cycleGroupId && cycleGroupId === cycle.equipmentGroupId
         ? (cycle.equipmentGroupVersionPin ?? null)
@@ -451,17 +468,8 @@ export async function prepareAdvance(
   let hasPendingChecklistAfterTarget = false;
   let activePostChecklistIds: string[] = [];
   if (leadsToEnd && !hasMoreStages) {
-    const postNodes = collectChecklistsAfterStage(targetStage, cp.stages, cp.connections)
-      .filter(n => (n.configuration as any)?.checklistProfileId);
-    const postProfileIds = [...new Set(postNodes.map(n => (n.configuration as any).checklistProfileId).filter(Boolean))] as string[];
-    if (postProfileIds.length > 0) {
-      const active = await prisma.checklistProfile.findMany({
-        where: { id: { in: postProfileIds }, isActive: true },
-        select: { id: true },
-      });
-      activePostChecklistIds = active.map(a => a.id);
-      hasPendingChecklistAfterTarget = activePostChecklistIds.length > 0;
-    }
+    activePostChecklistIds = await activeChecklistIdsAfterStage(targetStage, cp.stages, cp.connections);
+    hasPendingChecklistAfterTarget = activePostChecklistIds.length > 0;
   }
 
   // A-01 (operator decision 2026-10-21; Phase 2 of ATOMIC-ADVANCE-CHECKLIST-PLAN).
@@ -482,12 +490,13 @@ export async function prepareAdvance(
   const finalStageAwaitsQa = interlockConfig.enabled && isInterlockStage(targetState);
   // The ONE rule, shared with the web batch path, which asks the checklist first
   // by the same predicate (packages/shared advanceMustCarryChecklist, 2026-10-22).
+  // For a final Dry In the checklist rides on SUBMIT_READINGS, never on the entry.
   const mustCarryChecklist = executor.advanceMustCarryChecklist({
     leadsToEnd,
     nextStages: reachFromTarget.reachableStages,
     pendingChecklistProfileIds: activePostChecklistIds,
     interlockGated: finalStageAwaitsQa,
-  });
+  }, undefined, { targetState, dryerAction });
   if (mustCarryChecklist && opts.composedWithChecklist !== true) {
     if (!ctx.isOfflineReplay) {
       throw new AppError(
@@ -499,9 +508,25 @@ export async function prepareAdvance(
     replayExemptGates.push('TERMINAL_CHECKLIST');
   }
 
-  // advance's OWN completion — unchanged. When a checklist follows the target
-  // stage the checklist half completes the cycle, composed or not.
-  const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget;
+  // What finishes a FINAL stage's work (2026-10-22, every pipeline shape must
+  // complete):
+  //  - Dry In: the readings at half time, not the entry (callCompletesStageWork) —
+  //    entering a final Dry In used to complete the cycle the moment the dryer
+  //    STARTED, so its readings were never taken;
+  //  - a QA-gated stage (online, bare advance): its approval. The approval
+  //    completes the cycle when no enabled checklist follows the stage
+  //    (stage-approvals approve()); with one, the checklist after approval does,
+  //    as before. This advance used to answer 422 INTERLOCK_TERMINAL_STAGE, so a
+  //    pipeline ending at a gated stage could never complete. The composed
+  //    advance-with-checklist into it keeps that 422 (two-step design), and an
+  //    offline replay is never gated (completes here, recorded below).
+  const workDoneByThisCall = executor.callCompletesStageWork(targetState, dryerAction);
+  const approvalCompletesStage = finalStageAwaitsQa && !ctx.isOfflineReplay && opts.composedWithChecklist !== true;
+
+  // advance's OWN completion. When a checklist follows the target stage the
+  // checklist half completes the cycle, composed or not.
+  const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget
+    && workDoneByThisCall && !approvalCompletesStage;
 
   // Stage interlock — entry step. When this advance ENTERS an interlock stage
   // (WASH_OUT / DRY_OUT) and the cycle is NOT auto-completing here, a PENDING
@@ -514,7 +539,7 @@ export async function prepareAdvance(
   // in the composed path includes the checklist landing in the same tx. In the
   // bare path `composedWithChecklist` is false and this is identical to
   // `completesCycle` — i.e. unchanged behaviour for every existing caller.
-  const cycleWillComplete = leadsToEnd && !hasMoreStages
+  const cycleWillComplete = leadsToEnd && !hasMoreStages && workDoneByThisCall && !approvalCompletesStage
     && (!hasPendingChecklistAfterTarget || opts.composedWithChecklist === true);
 
   // #5 fix (audit 2026-07-04): a terminal interlock stage — WASH_OUT / DRY_OUT that
@@ -522,9 +547,11 @@ export async function prepareAdvance(
   // zeroes `enteringInterlock` below, so no PENDING CleaningStageApproval is ever
   // created and the interlock gate ("no filter leaves WASH_OUT/DRY_OUT without QA
   // approval") is silently defeated. Fail SAFE: reject the completing advance rather
-  // than complete without the required approval (21 CFR §11). An admin must add a
-  // stage after the interlock point or disable the interlock. Offline replay is
-  // exempt (offline work is never gated — same carve-out as `enteringInterlock`).
+  // than complete without the required approval (21 CFR §11). Since 2026-10-22
+  // only the composed advance-with-checklist reaches this: the bare advance into
+  // a final gated stage enters it and raises the approval, which completes the
+  // cycle (approvalCompletesStage above). Offline replay is exempt (offline work
+  // is never gated — same carve-out as `enteringInterlock`).
   if (interlockConfig.enabled && isInterlockStage(targetState) && cycleWillComplete) {
     if (!ctx.isOfflineReplay) {
       throw new AppError(
@@ -589,7 +616,9 @@ export async function prepareAdvance(
   // cycle) after the stage being entered.
   const skippedChecklists = await describeSkippedChecklists(localCtx, [
     ...(currentState && targetState !== currentState ? [currentState] : []),
-    ...(leadsToEnd && !hasMoreStages ? [targetState] : []),
+    // after the stage entered, when this call finishes the final stage's work
+    // (for a final Dry In that is SUBMIT_READINGS, not the entry)
+    ...(leadsToEnd && !hasMoreStages && workDoneByThisCall ? [targetState] : []),
   ]);
 
   const eventAttributes = withClientOpId({
@@ -598,6 +627,11 @@ export async function prepareAdvance(
     ...(validatedReadings ? { instrumentReadings: validatedReadings } : {}),
     ...(dryerAction === 'SET_DURATION' ? { action: 'DRYER_STARTED', dryerDurationMinutes, dryerStartedAt: dryerStartedAt!.toISOString() } : {}),
     ...(dryerAction === 'SUBMIT_READINGS' ? { action: 'DRYER_READINGS_SUBMITTED' } : {}),
+    // 2026-10-22: a dryer step taken while already AT Dry In is not an entry into
+    // the stage (shared isEntryIntoStage). Without the marker an in-place
+    // SET_DURATION looked like a fresh entry and voided the checklist already
+    // answered after Dry In (CHECKLIST_PENDING forever).
+    ...(isDryerInPlace ? { inPlace: true } : {}),
     // 2026-07-10 (per user): durably mark a stage-entry performed OFFLINE. The
     // stage interlock never gates offline work, so the self-heal in
     // current-state.ts reads this to avoid manufacturing a PENDING approval when
@@ -755,54 +789,13 @@ export async function executeAdvanceTx(tx: TxClient, plan: AdvancePlan): Promise
   }
 
   if (plan.completesCycle) {
-    const completedAt = offlineTime ?? new Date();
-    await tx.cleaningCycle.update({
-      where: { id: cycleId },
-      data: { status: 'COMPLETED', completedAt },
+    // The one completion write set (complete-cycle.ts): cycle, FilterDetails,
+    // lastCleaningDate, CYCLE_COMPLETED event + audit row. Offline replay
+    // stamps the operator's instant on all of them (Audit 2026-09-24 F6/F13).
+    await completeCycleTx(tx, {
+      filterId, cycleId, sequenceNumber: plan.sequenceNumber, ctx,
+      finalStage: targetState, offlineTime, clientOpId: plan.clientOpId,
     });
-    // 2026-06-02: completion now leaves the filter in the terminal
-    // CLEANING_CYCLE_COMPLETED state (was null/Idle). currentCycleId is still
-    // cleared, so getCurrentState/start-cycle treat the filter as available
-    // (both key off currentCycleId, not the lifecycle label).
-    await tx.filterDetails.update({
-      where: { assetInstanceId: filterId },
-      data: { currentCycleId: null, currentLifecycleState: 'CLEANING_CYCLE_COMPLETED' },
-    });
-    // Stamp the typed filter's lastCleaningDate to the completion day so the
-    // "Last Cleaned" column reflects the just-finished cycle. Uses offlineTime
-    // (not server-now) for offline replay, per the dryer-anchor rule. jsonb_set
-    // merges — other field-option attributes are preserved. The filters→
-    // asset_instances mirror trigger keeps the legacy row in sync.
-    // LOCAL calendar day (not toISOString/UTC) so a completion near local
-    // midnight isn't stamped a day early — see toLocalDateString.
-    const cleanDate = toLocalDateString(completedAt);
-    await tx.$executeRaw`UPDATE filters SET attributes = jsonb_set(COALESCE(attributes, '{}'::jsonb), '{lastCleaningDate}', to_jsonb(${cleanDate}::text), true) WHERE id = ${filterId}::uuid`;
-
-    const completeEvent = {
-      filterId, cycleId, eventType: 'CYCLE_COMPLETED' as const,
-      performedBy: ctx.userSub, attributes: withClientOpId({ sequenceNumber: plan.sequenceNumber }, plan.clientOpId),
-    };
-    await tx.filterEvent.create({
-      data: {
-        ...completeEvent,
-        checksum: computeChecksum(completeEvent),
-        ipAddress: ctx.ipAddress,
-        telemetrySnapshot: {},
-        // Audit 2026-09-24 (F6): on offline replay the completion event must
-        // carry the same instant as cycle.completedAt / lastCleaningDate (the
-        // checklist completion path already did) — two §11 records for one
-        // completion cannot disagree.
-        ...(offlineTime ? { performedAt: offlineTime } : {}),
-      },
-    });
-    // Audit 2026-09-24 (F13): completion gets its own audit row; it used to
-    // leave only the STATE_TRANSITION of the last stage.
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole, action: 'CYCLE_COMPLETED',
-      targetType: 'filter', targetId: filterId,
-      afterValue: { cycleId, completedAt, finalStage: targetState },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
-    }, tx);
   }
 
   // Audit §1.1 (2026-05-16): audit-write inside business tx.

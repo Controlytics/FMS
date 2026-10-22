@@ -69,6 +69,10 @@ export {
   checklistNodeProfileId,
   enabledChecklistNodes,
   advanceMustCarryChecklist,
+  isEntryIntoStage,
+  latestEntryIntoStage,
+  checklistAnsweredInCurrentEntry,
+  callCompletesStageWork,
   findReachable,
   buildStageLookup,
   prettyStageLabel,
@@ -97,6 +101,7 @@ export {
 // ── Instruments + Equipment Group ────────────────────────────────────────
 export {
   assertEquipmentGroupValid,
+  assertEquipmentGroupMatchesCycle,
   assertInstrumentReadingRequired,
   assertInstrumentReadingValid,
   assertInstrumentReadingInRange,

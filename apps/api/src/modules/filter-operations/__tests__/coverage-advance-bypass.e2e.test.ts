@@ -236,6 +236,28 @@ describe('advance: equipment-group readings (pin → snapshot / live / legacy / 
     expect(ok.statusCode).toBe(200);
     expect((await prisma.cleaningCycle.findUnique({ where: { id: c.id } }))!.equipmentGroupId).toBe(ga.id);
   });
+
+  it('a cycle bound to a group refuses readings sent for ANOTHER group (409 EQUIPMENT_GROUP_MISMATCH); its own group is accepted (2026-10-22)', async () => {
+    // advance used `equipmentGroupId ?? cycle.equipmentGroupId`, so a client could
+    // override the bound group and the readings were checked against the wrong
+    // group's instruments and ranges — and recorded as if they belonged to it.
+    const blk = await fx.node('BLOCK', 'BMIS');
+    const ahu = await fx.node('AHU', 'AHUMIS', blk);
+    const bound = await fx.equipmentGroup(blk, 'GMIS1', [{ stageKey: 'WASH_IN' }]);
+    const other = await fx.equipmentGroup(blk, 'GMIS2', [{ stageKey: 'WASH_IN' }]);
+    const f = await fx.filter('MIS', ahu, FP_MAIN);
+    const c = await start(f, { equipmentGroupId: bound.id });
+    const wrong = await advance(f, { targetState: 'WASH_IN', equipmentGroupId: other.id, instrumentReadings: { [other.instruments[0].id]: 12 } });
+    expect([wrong.statusCode, wrong.json().error]).toEqual([409, 'EQUIPMENT_GROUP_MISMATCH']);
+    expect(await events(f, 'STATE_TRANSITION')).toEqual([]);
+    expect((await prisma.cleaningCycle.findUnique({ where: { id: c.id } }))!.equipmentGroupId).toBe(bound.id);
+    const own = await advance(f, { targetState: 'WASH_IN', equipmentGroupId: bound.id, instrumentReadings: { [bound.instruments[0].id]: 12 } });
+    expect(own.statusCode).toBe(200);
+    const implicit = await fx.filter('MIS2', ahu, FP_MAIN);
+    await start(implicit, { equipmentGroupId: bound.id });
+    const noId = await advance(implicit, { targetState: 'WASH_IN', instrumentReadings: { [bound.instruments[0].id]: 12 } });
+    expect(noId.statusCode).toBe(200); // no id sent → the bound group, as before
+  });
 });
 
 describe('advance: the dryer', () => {

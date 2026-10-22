@@ -31,7 +31,7 @@ import type {
   ProfileNode,
   TapeInstrument,
 } from './types.js';
-import { collectChecklistsAfterStage, enabledChecklistNodes, prettyStageLabel } from './transitions.js';
+import { checklistAnsweredInCurrentEntry, collectChecklistsAfterStage, enabledChecklistNodes, prettyStageLabel } from './transitions.js';
 
 // ── Pipeline-graph helpers ────────────────────────────────────────────────
 
@@ -178,25 +178,33 @@ export function computeNextActions(
     };
   }
 
+  // 2. (computed first) Reachable stages (skipping CHECKLIST nodes).
+  const { reachableStages, leadsToEnd } = findReachable(fromNode.id, stages, connections);
+
   // 1. Pending-checklist gate.
-  // A disabled checklist is skipped wherever it sits (2026-10-12).
-  const checklistNodes = state
-    ? enabledChecklistNodes(
-        collectChecklistsAfterStage(fromNode, stages, connections),
-        ctx.disabledChecklistProfileIds,
-      )
-    : [];
-  const checklistAnswered = (afterStage: string | null): boolean => {
-    if (!afterStage) return false;
-    return ctx.events.some(
-      e =>
-        e.eventType === 'CHECKLIST_COMPLETED' &&
-        ((e.attributes as { afterStage?: string | null })?.afterStage ?? null) === afterStage,
-    );
-  };
+  // A disabled checklist is skipped wherever it sits (2026-10-12). The position
+  // is the current stage, or START before the first stage (2026-10-22: the
+  // checklists between START and the first stage are answered after start-cycle
+  // and gate the first entry). "Answered" is the server's rule for the current
+  // attempt at the stage (checklistAnsweredInCurrentEntry).
+  //
+  // A FINAL Dry In whose readings are not in yet does not offer its checklist on
+  // its own (2026-10-22): the cycle completes on SUBMIT_READINGS and the
+  // checklist rides on that call (callCompletesStageWork) — submitted alone it
+  // would complete the cycle with no dryer readings, which the server refuses.
+  const checklistNodes = enabledChecklistNodes(
+    collectChecklistsAfterStage(fromNode, stages, connections),
+    ctx.disabledChecklistProfileIds,
+  );
+  const finalDryInAwaitingReadings =
+    state === 'DRY_IN' && !cycle.dryerReadingsSubmitted && leadsToEnd && reachableStages.length === 0;
 
   let checklistsPending = false;
-  if (state && checklistNodes.length > 0 && !checklistAnswered(state)) {
+  if (
+    checklistNodes.length > 0
+    && !finalDryInAwaitingReadings
+    && !checklistAnsweredInCurrentEntry(ctx.events, state ?? null)
+  ) {
     const submits: SubmitChecklistAction[] = [];
     for (const cl of checklistNodes) {
       const checklistProfileId = (cl.configuration as { checklistProfileId?: string })
@@ -210,7 +218,7 @@ export function computeNextActions(
         params: {
           checklistProfileId,
           versionPin: resolved.version,
-          afterStage: state,
+          afterStage: state ?? null,
           questions: resolved.questions,
         },
         blocking: true,
@@ -231,9 +239,6 @@ export function computeNextActions(
     };
   }
 
-  // 2. Reachable stages (skipping CHECKLIST nodes).
-  const { reachableStages, leadsToEnd } = findReachable(fromNode.id, stages, connections);
-
   // 3. DRY_IN specials.
   let blockedByDryerHalfTime = false;
   let dryerReadingsAction: SubmitDryerReadingsAction | null = null;
@@ -248,19 +253,23 @@ export function computeNextActions(
     if (!halfElapsed) {
       blockedByDryerHalfTime = true;
     }
+    // Offered whenever the server needs it (2026-10-22): leaving Dry In — or
+    // completing out of a final Dry In — requires the readings step, with or
+    // without a Dry In instrument to read. With none, `instrumentIds` is [] and
+    // the step is the operator's "dryer done" record. It used to be offered only
+    // when the group had a Dry In instrument, so a block without one was stuck at
+    // Dry In (400 DRYER_READINGS_REQUIRED on the advance the tape offered).
     if (halfElapsed && !cycle.dryerReadingsSubmitted) {
       const dryInInsts = instrumentsForStage(equipmentGroup, 'DRY_IN');
-      if (dryInInsts.length > 0) {
-        dryerReadingsAction = {
-          type: 'SUBMIT_DRYER_READINGS',
-          label: 'Submit Dryer Readings',
-          params: { instrumentIds: dryInInsts.map(i => i.id) },
-          validations: {
-            halfDurationMs: halfMs,
-            operatingRanges: buildOperatingRanges(dryInInsts),
-          },
-        };
-      }
+      dryerReadingsAction = {
+        type: 'SUBMIT_DRYER_READINGS',
+        label: 'Submit Dryer Readings',
+        params: { instrumentIds: dryInInsts.map(i => i.id) },
+        validations: {
+          halfDurationMs: halfMs,
+          operatingRanges: buildOperatingRanges(dryInInsts),
+        },
+      };
     }
   }
 

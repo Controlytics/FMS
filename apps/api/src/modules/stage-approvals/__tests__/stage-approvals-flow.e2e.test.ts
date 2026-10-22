@@ -15,6 +15,12 @@
  *    row, so the online bypass leave-gate is not exercised here.
  *  - `createNotification`: passes through to the real function unless a test
  *    flips `notify.fail`, to show a notification failure never undoes a decision.
+ *  - `assertAhuInterlockSatisfied` (ahu-completion-gate.js): passes through
+ *    unless a test flips `ahuGate.refuse`. The AHU-completion mode lives in the
+ *    shared `system_config['ahu-completion-process']` row (and the gate reads it
+ *    from inside its own module, out of a mock's reach), so a refusal is
+ *    simulated at the export the approval calls — to show a refused completion
+ *    gate refuses the approval and writes nothing.
  *
  * queue / list are only ever called as non-SUPER_ADMIN users in this file's own
  * roles: as SUPER_ADMIN, queue() supersedes EVERY orphaned PENDING approval in
@@ -26,9 +32,24 @@ import type { FastifyInstance } from 'fastify';
 
 const cfg = vi.hoisted(() => ({ enabled: true, washOutApproverRole: 'UNSET', dryOutApproverRole: 'UNSET' }));
 const notify = vi.hoisted(() => ({ fail: false }));
+const ahuGate = vi.hoisted(() => ({ refuse: false, calls: [] as string[] }));
 vi.mock('../../filter-operations/stage-interlock.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../filter-operations/stage-interlock.js')>();
   return { ...actual, getInterlockConfig: async () => ({ ...cfg }) };
+});
+vi.mock('../../filter-operations/ahu-completion-gate.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../filter-operations/ahu-completion-gate.js')>();
+  const { AppError } = await import('../../../lib/errors.js');
+  return {
+    ...actual,
+    assertAhuInterlockSatisfied: async (params: Parameters<typeof actual.assertAhuInterlockSatisfied>[0]) => {
+      ahuGate.calls.push(params.filterId);
+      if (ahuGate.refuse) {
+        throw new AppError(422, 'AHU_INTERLOCK_PENDING', 'All filters belonging to this AHU must be ready for the final cleaning stage before submission.');
+      }
+      return actual.assertAhuInterlockSatisfied(params);
+    },
+  };
 });
 vi.mock('../../notifications/notification.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../notifications/notification.service.js')>();
@@ -131,7 +152,7 @@ afterAll(async () => {
   try { await fx.cleanup(); } finally { await app?.close(); }
 }, 60_000);
 
-beforeEach(() => { internalErrors.length = 0; cfg.enabled = true; notify.fail = false; });
+beforeEach(() => { internalErrors.length = 0; cfg.enabled = true; notify.fail = false; ahuGate.refuse = false; ahuGate.calls.length = 0; });
 
 describe('the operator side: entering a gated stage raises the gate', () => {
   let ctx: Awaited<ReturnType<typeof atWashOut>>;
@@ -428,19 +449,108 @@ describe('self-heal: a filter parked at a gated stage with no approval', () => {
   });
 });
 
+describe('a FINAL gated stage with nothing after it: the approval completes the cycle (2026-10-22)', () => {
+  /** WASH_IN → WASH_OUT (gated, last, no checklist) → END, parked at Wash Out with its approval PENDING. */
+  async function atFinalWashOut(label: string) {
+    const ahu = await fx.node('AHU', `AHU-${label}`, B1);
+    const f = await fx.filter(label, ahu, FP_TERM);
+    const cycleId = await start(f);
+    expect((await advance(f, { targetState: 'WASH_IN' })).statusCode).toBe(200);
+    // Used to be 422 INTERLOCK_TERMINAL_STAGE: such a pipeline could never complete online.
+    const entered = await advance(f, { targetState: 'WASH_OUT' });
+    expect(entered.statusCode).toBe(200);
+    expect(entered.json().currentState).toBe('WASH_OUT');
+    expect((await state(f)).interlock).toMatchObject({ status: 'PENDING', blocksLeaving: true });
+    expect((await prisma.cleaningCycle.findUnique({ where: { id: cycleId } }))!.status).toBe('IN_PROGRESS');
+    const [row] = await approvals(f);
+    expect(row).toMatchObject({ status: 'PENDING', stageKey: 'WASH_OUT' });
+    return { f, cycleId, approvalId: row.id };
+  }
+
+  it('the bare advance enters it and raises the approval; approving completes the cycle as the approver, under the approval signature', async () => {
+    const c = await atFinalWashOut('FIN');
+    const res = await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, { remarks: 'final wash ok' });
+    expect(res.statusCode).toBe(200);
+    expect(ahuGate.calls).toEqual([c.f]);
+
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+    expect(await prisma.filterDetails.findUnique({ where: { assetInstanceId: c.f } }))
+      .toMatchObject({ currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', currentCycleId: null });
+    const done = await prisma.filterEvent.findMany({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } });
+    expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({ performedBy: apr1.id });
+    expect(done[0].attributes).toMatchObject({ approvalId: c.approvalId });
+
+    // The completion's audit row is the approver's and carries the approval's
+    // signature (the same REAUTH_SUCCESS row as the approval decision itself).
+    const decision = await prisma.auditTrail.findFirst({ where: { action: 'STAGE_APPROVAL_APPROVED', targetId: c.approvalId } });
+    const completion = await prisma.auditTrail.findFirst({ where: { action: 'CYCLE_COMPLETED', targetId: c.f } });
+    expect(decision!.signatureAuditId).toBeTruthy();
+    expect(completion).toMatchObject({ userId: apr1.username, signatureAuditId: decision!.signatureAuditId });
+    expect(completion!.afterValue).toMatchObject({ cycleId: c.cycleId, finalStage: 'WASH_OUT' });
+    const sig = await prisma.auditTrail.findUnique({ where: { id: decision!.signatureAuditId! } });
+    expect(sig).toMatchObject({ action: 'REAUTH_SUCCESS', userId: apr1.username });
+
+    const note = await prisma.notification.findFirst({ where: { forUserId: op.username, type: 'STAGE_APPROVAL_APPROVED', metadata: { path: ['stageApprovalId'], equals: c.approvalId } } });
+    expect(note!.message).toContain('The cleaning cycle is complete.');
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('a refused AHU-completion gate (422) refuses the approval and writes nothing', async () => {
+    const c = await atFinalWashOut('FINAHU');
+    ahuGate.refuse = true;
+    const res = await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, { remarks: 'try to finish' });
+    expect([res.statusCode, res.json().error]).toEqual([422, 'AHU_INTERLOCK_PENDING']);
+    expect(await prisma.cleaningStageApproval.findUnique({ where: { id: c.approvalId } })).toMatchObject({ status: 'PENDING', decidedBy: null });
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
+    expect(await prisma.filterDetails.findUnique({ where: { assetInstanceId: c.f } })).toMatchObject({ currentLifecycleState: 'WASH_OUT', currentCycleId: c.cycleId });
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: { in: ['APPROVAL_GRANTED', 'CYCLE_COMPLETED'] } } })).toBe(0);
+    expect(await prisma.auditTrail.count({ where: { action: 'STAGE_APPROVAL_APPROVED', targetId: c.approvalId } })).toBe(0);
+
+    // Once the AHU is ready the same approval goes through and completes.
+    ahuGate.refuse = false;
+    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+  });
+
+  it('bulk-decide (the page\'s select-all) completes it the same way', async () => {
+    const c = await atFinalWashOut('FINBULK');
+    const res = await signed('/api/stage-approvals/bulk-decide', apr1H, { ids: [c.approvalId], action: 'approve' });
+    expect(res.json().results).toEqual([{ id: c.approvalId, status: 'ok' }]);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
+  });
+
+  it('a gated stage with more stages after it is NOT completed by its approval (the operator is released, as before)', async () => {
+    const c = await atWashOut('MIDFIN');
+    expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
+    expect(ahuGate.calls).toEqual([]);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(0);
+  });
+
+  it('the composed advance-with-checklist into a final gated stage keeps its 422 (the checklist waits for QA)', async () => {
+    const ahu = await fx.node('AHU', 'AHU-CLWO-C', B1);
+    const f = await fx.filter('CLWOC', ahu, FP_CLWO);
+    await start(f);
+    expect((await advance(f, { targetState: 'WASH_IN' })).statusCode).toBe(200);
+    const res = await signed(`/api/filters/${f}/advance-with-checklist`, opH, { targetState: 'WASH_OUT', answers: { [CLQ]: 'YES' }, tapeVersion: (await state(f)).tapeVersion });
+    expect([res.statusCode, res.json().error]).toEqual([422, 'INTERLOCK_TERMINAL_STAGE']);
+  });
+});
+
 describe('interlock exemptions recorded on offline work', () => {
-  it('an online advance that would complete the cycle out of a gated stage is refused (422); offline it is applied and recorded', async () => {
+  it('offline, an advance into a final gated stage completes the cycle and records the skipped gate', async () => {
     const ahu = await fx.node('AHU', 'AHU-TRM', B1);
     const f = await fx.filter('TRM', ahu, FP_TERM);
     await start(f);
     expect((await advance(f, { targetState: 'WASH_IN' })).statusCode).toBe(200);
-    const online = await advance(f, { targetState: 'WASH_OUT' });
-    expect([online.statusCode, online.json().error]).toEqual([422, 'INTERLOCK_TERMINAL_STAGE']);
     const off = await replay(f, 'advance', { targetState: 'WASH_OUT' });
     expect(off.statusCode).toBe(200);
     const ev = await prisma.filterEvent.findFirst({ where: { filterId: f, toState: 'WASH_OUT' } });
     expect((ev!.attributes as any).replayExemptGates).toEqual(['REAUTH', 'INTERLOCK_TERMINAL']);
     expect((await prisma.filterDetails.findUnique({ where: { assetInstanceId: f } }))!.currentLifecycleState).toBe('CLEANING_CYCLE_COMPLETED');
+    expect(await approvals(f)).toEqual([]);
   });
 
   it('a final checklist after Wash Out: online it waits for QA, then completes; offline it records the skipped leave-gate', async () => {

@@ -260,6 +260,9 @@ function setupBaseline(txOverride?: (tx: any) => void) {
       filterEvent: {
         create: vi.fn().mockResolvedValue({}),
         findFirst: vi.fn().mockResolvedValue(null),
+        // The stage's events, for the latest ENTRY (shared isEntryIntoStage,
+        // 2026-10-22): none here, so every CHECKLIST_COMPLETED row counts.
+        findMany: vi.fn().mockResolvedValue([]),
       },
     };
     if (txOverride) txOverride(tx);

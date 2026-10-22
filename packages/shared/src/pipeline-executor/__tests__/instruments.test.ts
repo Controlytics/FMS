@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  assertEquipmentGroupMatchesCycle,
   assertAllInstrumentReadings,
   assertEquipmentGroupSelected,
   assertEquipmentGroupValid,
@@ -162,6 +163,19 @@ describe('assertEquipmentGroupVersionExists', () => {
     expect(assertEquipmentGroupVersionExists(ctx, 3, null, false)).toMatchObject({
       ok: false,
       code: 'GROUP_VERSION_MISSING',
+    });
+  });
+});
+
+describe('assertEquipmentGroupMatchesCycle (2026-10-22)', () => {
+  it('no id, or the bound one, or an unbound cycle → ok', () => {
+    expect(assertEquipmentGroupMatchesCycle(ctx, undefined, 'g1')).toEqual({ ok: true });
+    expect(assertEquipmentGroupMatchesCycle(ctx, 'g1', 'g1')).toEqual({ ok: true });
+    expect(assertEquipmentGroupMatchesCycle(ctx, 'g2', null)).toEqual({ ok: true });
+  });
+  it('another group on a bound cycle → EQUIPMENT_GROUP_MISMATCH naming the bound group', () => {
+    expect(assertEquipmentGroupMatchesCycle(ctx, 'g2', 'g1')).toMatchObject({
+      ok: false, code: 'EQUIPMENT_GROUP_MISMATCH', details: { boundEquipmentGroupId: 'g1' },
     });
   });
 });

@@ -5,6 +5,9 @@
  * interlock stage (see filter-operations/advance.ts). Here the configured
  * approver re-authenticates (the digital signature) and either:
  *   - APPROVE → the operator is released to continue per the cleaning-profile graph.
+ *               When the gated stage is the LAST one and no enabled checklist
+ *               follows it, the approval is the stage's completing act and it
+ *               completes the cycle in the same transaction (2026-10-22).
  *   - REJECT  → the filter's currentLifecycleState moves back (WASH_OUT→WASH_IN,
  *               DRY_OUT→DRY_IN); a deviation FilterEvent is logged; for a DRY_OUT
  *               reject the cycle's dryer fields are cleared so the operator must
@@ -24,8 +27,12 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { computeChecksum } from '../filter-operations/helpers.js';
+import * as executor from '@digilog/shared';
+import { computeChecksum, activeChecklistIdsAfterStage } from '../filter-operations/helpers.js';
 import { lockAndVerifyFilterState } from '../filter-operations/cycle-write/locking.js';
+import { completeCycleTx } from '../filter-operations/cycle-write/complete-cycle.js';
+import { loadLocalContext } from '../filter-operations/local-context.js';
+import { assertAhuInterlockSatisfied } from '../filter-operations/ahu-completion-gate.js';
 import { prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
@@ -215,6 +222,32 @@ async function supersedeOrphan(
   });
 }
 
+/**
+ * Does approving this gate COMPLETE the cycle? (2026-10-22)
+ *
+ * Yes when the gated stage is the cycle's last stage (it leads to END with no
+ * stage after it) and no ACTIVE checklist follows it — the same two facts
+ * advance() reads to decide its own completion (findReachable over the cycle's
+ * pinned profile + activeChecklistIdsAfterStage). The bare advance into such a
+ * stage now enters it and raises this approval instead of answering 422
+ * INTERLOCK_TERMINAL_STAGE, so a pipeline ending at a gated stage completes.
+ * With a checklist after the stage nothing changes: the checklist answered after
+ * approval completes the cycle, as before.
+ */
+async function approvalCompletesCycle(
+  ctx: RequestContext,
+  row: { filterId: string; cycleId: string | null; stageKey: string },
+): Promise<{ sequenceNumber: number } | null> {
+  const { ctx: localCtx, cp, rawCycle } = await loadLocalContext(row.filterId, ctx);
+  if (!cp || !rawCycle || rawCycle.id !== row.cycleId || rawCycle.status !== 'IN_PROGRESS') return null;
+  const stage = cp.stages.find((s: any) => s.stateKey === row.stageKey);
+  if (!stage) return null;
+  const reach = executor.findReachable(stage.id, localCtx.profile.nodes, localCtx.profile.edges);
+  if (!reach.hasEndNext || reach.reachableStages.length > 0) return null;
+  if ((await activeChecklistIdsAfterStage(stage, cp.stages, cp.connections)).length > 0) return null;
+  return { sequenceNumber: rawCycle.sequenceNumber };
+}
+
 export const stageApprovalService = {
   /**
    * PENDING items the current user can act on (their role, or all for SUPER_ADMIN).
@@ -317,7 +350,21 @@ export const stageApprovalService = {
 
     const cleanRemarks = typeof remarks === 'string' ? remarks.trim() || null : null;
 
+    // A final gated stage with nothing after it: this approval completes the
+    // cycle. The AHU-completion gate is the completion's gate, checked BEFORE the
+    // transaction like advance()/submit-checklist — a 422 refuses the approval
+    // and writes nothing (the approval stays PENDING).
+    const completion = await approvalCompletesCycle(ctx, row);
+    if (completion) {
+      await assertAhuInterlockSatisfied({ filterId: row.filterId, isOfflineReplay: false });
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
+      // Completing: lock the filter and re-verify it still sits at this gate in
+      // this cycle, as every cycle write does — a terminate that landed since the
+      // checks above must not be flipped back to COMPLETED.
+      if (completion) await lockAndVerifyFilterState(tx, row.filterId, row.stageKey, row.cycleId);
+
       // The PENDING check above is a check-then-act — it reads, then this used
       // to issue an UNCONDITIONAL update. Two holders of the same approverRole
       // deciding one gate together both passed the check; the transaction merely
@@ -391,11 +438,28 @@ export const stageApprovalService = {
         },
         tx,
       );
+
+      // The approval is the final stage's completing act: the CYCLE_COMPLETED
+      // event + audit row are the approver's, in this transaction, and the audit
+      // row carries this request's signature like the approval's own row.
+      if (completion) {
+        await completeCycleTx(tx, {
+          filterId: row.filterId,
+          cycleId: row.cycleId!,
+          sequenceNumber: completion.sequenceNumber,
+          ctx,
+          finalStage: row.stageKey,
+          attributes: { approvalId: row.id },
+        });
+      }
       return u;
     });
 
+    const filterLabel = (row.detailsSnapshot as any)?.filterName ?? row.filterId;
     await notifyOperator(row, 'STAGE_APPROVAL_APPROVED', 'Cleaning stage approved',
-      `${prettyStage(row.stageKey)} for "${(row.detailsSnapshot as any)?.filterName ?? row.filterId}" was approved by ${ctx.userId}. You can continue cleaning.`, ctx);
+      completion
+        ? `${prettyStage(row.stageKey)} for "${filterLabel}" was approved by ${ctx.userId}. The cleaning cycle is complete.`
+        : `${prettyStage(row.stageKey)} for "${filterLabel}" was approved by ${ctx.userId}. You can continue cleaning.`, ctx);
 
     return updated;
   },

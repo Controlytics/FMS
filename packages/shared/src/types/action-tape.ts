@@ -167,7 +167,8 @@ export interface SubmitChecklistAction {
   params: {
     checklistProfileId: string;
     versionPin: number;
-    afterStage: string;
+    /** The stage the checklist follows; null = START (before the first stage, 2026-10-22). */
+    afterStage: string | null;
     questions: TapeQuestion[];
   };
   blocking: true;

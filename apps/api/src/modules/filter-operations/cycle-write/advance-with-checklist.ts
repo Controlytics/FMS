@@ -72,6 +72,9 @@ export async function advanceWithChecklistImpl(
   const clPrep = await prepareChecklist(service, ctx, filterId, data, {
     stateOverride: targetState,
     skipDedup: true, // deduped once, above, on the shared clientOpId
+    // At a final Dry In the checklist rides on the readings (2026-10-22): the
+    // advance half above records them in this same transaction.
+    dryerReadingsInThisCall: data.dryerAction === 'SUBMIT_READINGS',
   });
   /* c8 ignore next */
   if (clPrep.kind === 'dedup') return service.getCurrentState(ctx, filterId); // unreachable: skipDedup
