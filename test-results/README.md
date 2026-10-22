@@ -25,6 +25,10 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | A-03 / A-06 SoD | Stage-approval "different approver" switch REMOVED (always required); filter approval step: only the approver may approve or reject |
 | A-08 / A-09 | Tablet cleartext HTTP and the RFID scanner's tracked signing passwords: LEFT AS IS — accepted by the operator, documented |
 | OD-01 (2026-10-22) | Audit edit / redact / delete, Filter Data Management writes, user delete, role + permission saves (incl. per-user overrides), the re-auth policy save, backup restore, user edit, and filter / hierarchy delete + manual lifecycle change ALWAYS require the password, for every user including SUPER_ADMIN (not configurable). Notification deletes stay policy-driven |
+| SEC-07 (2026-10-22) | Filter create review/approve/reject and replacement-schedule decisions stay POLICY-driven (operator ticks the roles on Config → Action Re-auth; live policy has no rows for them today). Stage approvals + report reviews remain always-on |
+| SEC-03 (2026-10-22) | `POST /api/notification-settings/send` (arbitrary e-mail/SMS, unaudited, no caller) is REMOVED; the test e-mail / test SMS buttons stay and gain an audit row |
+| D-DB-6 (2026-10-22) | Large-database recovery: ship a tested restore script + guide for the nightly pg_dump NOW, then rework in-app export/restore to stream with no row/size cap |
+| npm audit (2026-10-22) | Upgrade the vulnerable server packages now (full suites after); upgrade Capacitor in code now — reaches tablets only with the next APK build |
 
 ## Environment
 
@@ -42,9 +46,9 @@ operator-approved changes.
 | 02 | `02-requirements-traceability.md` | 1 | DONE 2026-10-21 — 206 rules; re-map after next full run |
 | 03 | `03-functional-testing.md` | 1 | waiting for UI Phase 2 + SA password |
 | 04 | `04-api-testing.md` | 1 | partial evidence: QA Phase 4/5 (2026-10-21) |
-| 05 | `05-database-testing.md` | 1 | IN PROGRESS 2026-10-22 (cov-api-core) — re-run of what changed since 10-17, incl. BR-100/101 restore evidence |
+| 05 | `05-database-testing.md` | 1 | DONE 2026-10-22 — 10 defects (D-DB-1..10) being fixed; BR-100/101 PASS (runtime) |
 | 08 | `08-coverage-and-test-quality.md` | 1 | IN PROGRESS — API wave 1 agents running |
-| 06 | `06-security-assessment.md` | 2 | IN PROGRESS 2026-10-22 (audit-phase1-2) — 2 P1 found (OD-01 decided; redaction tamper gap being fixed) |
+| 06 | `06-security-assessment.md` | 2 | DONE 2026-10-22 — P0 0 · P1 2 · P2 5 · P3 13; fixes in progress; SA-session probes pending (`QA/tests/security/sa-session-probes.mjs`) |
 | 07 | `07-performance-testing.md` | 2 | not started (needs idle PC) |
 | 09 | `09-reliability-and-recovery.md` | 3 | not started |
 | 10 | `10-deployment-readiness.md` | 3 | waiting for operator VM |
