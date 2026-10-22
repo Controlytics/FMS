@@ -283,17 +283,30 @@ export async function prepareChecklist(
   }
 
   // A checklist that completes the cycle out of a FINAL Dry In leaves Dry In, so
-  // the Dry In leave rule applies (2026-10-22, the same guard advance() uses,
-  // online and on replay): the readings must be in — recorded earlier, or
-  // carried by this composed call (advance-with-checklist, dryerAction
-  // SUBMIT_READINGS). Before, entering a final Dry In completed the cycle at
-  // dryer START and no reading was ever taken.
+  // the Dry In leave rule applies (2026-10-22, the same guard advance() uses):
+  // the readings must be in — recorded earlier, or carried by this composed call
+  // (advance-with-checklist, dryerAction SUBMIT_READINGS). Before, entering a
+  // final Dry In completed the cycle at dryer START and no reading was ever taken.
+  //
+  // Offline replay of a STANDALONE checklist that came before the readings: a
+  // tablet built before 2026-10-22 asks the checklist the moment the dryer starts
+  // and queues it ahead of the readings. Refusing it lost the answer (the sync
+  // engine's retry then fails STALE_TAPE once the readings have landed). It is
+  // recorded instead, WITHOUT completing the cycle — the stage's work is not done
+  // — and the readings complete it (stage-entry.ts counts a checklist answered in
+  // the current entry). The out-of-order answer is recorded on the event.
   if (shouldComplete && stageKey === 'DRY_IN') {
-    throwIfFailed(executor.assertDryerReadingsSubmittedBeforeLeavingDryIn(
+    const leave = executor.assertDryerReadingsSubmittedBeforeLeavingDryIn(
       { ...localCtx.cycle, dryerReadingsSubmitted: localCtx.cycle.dryerReadingsSubmitted || opts.dryerReadingsInThisCall === true },
       'DRY_IN',
       'END',
-    ));
+    );
+    if (!leave.ok && ctx.isOfflineReplay && opts.stateOverride === undefined) {
+      shouldComplete = false;
+      replayExemptGates.push('CHECKLIST_BEFORE_READINGS');
+    } else {
+      throwIfFailed(leave);
+    }
   }
 
   // Audit 2026-09-24 (F12): a checklist that COMPLETES the cycle is a leave of

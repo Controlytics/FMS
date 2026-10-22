@@ -80,9 +80,16 @@ export async function decideStageEntry(p: {
   const hasMoreStages = reachFromTarget.reachableStages.length > 0;
 
   // Defer completion when an ACTIVE checklist sits between the final stage and
-  // END: the checklist half completes the cycle (submit-checklist).
+  // END: the checklist half completes the cycle (submit-checklist) — unless it
+  // was already answered in the CURRENT entry. That happens only at a final Dry
+  // In, in place: an older tablet's offline queue answers the checklist before
+  // the readings (submit-checklist records it without completing), so the
+  // readings are what finish the stage and the cycle. The same "answered" rule
+  // as the gate and the tape (shared checklistAnsweredInCurrentEntry).
+  const inPlace = !!dryerAction && localCtx.filter.currentLifecycleState === targetState;
+  const answeredInThisEntry = inPlace && executor.checklistAnsweredInCurrentEntry(localCtx.events, targetState);
   let activePostChecklistIds: string[] = [];
-  if (leadsToEnd && !hasMoreStages) {
+  if (leadsToEnd && !hasMoreStages && !answeredInThisEntry) {
     activePostChecklistIds = await activeChecklistIdsAfterStage(targetStage, cp.stages, cp.connections);
   }
   const hasPendingChecklistAfterTarget = activePostChecklistIds.length > 0;

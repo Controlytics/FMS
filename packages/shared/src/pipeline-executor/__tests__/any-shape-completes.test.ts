@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceMustCarryChecklist,
   assertChecklistGatePassed,
+  assertNotCycleComplete,
   callCompletesStageWork,
   checklistAnsweredInCurrentEntry,
   computeNextActions,
@@ -178,5 +179,16 @@ describe('assertChecklistGatePassed at START (E)', () => {
   it('a profile with no checklist before the first stage is not gated', () => {
     const ctx = at(['WASH_IN', 'CL'], null, []);
     expect(assertChecklistGatePassed(ctx, ctx.profile!, null)).toEqual({ ok: true });
+  });
+});
+
+describe('assertNotCycleComplete at the last stage', () => {
+  it('says the cycle sits at its last stage — it is still in progress, not "complete"', () => {
+    const ctx = at(['WASH_IN', 'DRY_IN'], 'DRY_IN', []);
+    const r = assertNotCycleComplete(ctx, [], true);
+    expect(r).toMatchObject({ ok: false, code: 'CYCLE_COMPLETE' });
+    expect(r.ok ? '' : r.message).toMatch(/^Dry In is the last stage of this cleaning cycle/);
+    expect(r.ok ? '' : r.message).not.toMatch(/is complete/i);
+    expect(assertNotCycleComplete(ctx, ['DRY_OUT'], false)).toEqual({ ok: true });
   });
 });

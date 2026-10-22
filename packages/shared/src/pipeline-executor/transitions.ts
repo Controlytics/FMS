@@ -228,15 +228,19 @@ export function assertChecklistGatePassed(
  * Mirrors advance() lines 1250-1252.
  */
 export function assertNotCycleComplete(
-  _ctx: LocalContext,
+  ctx: LocalContext,
   reachableStages: string[],
   hasEndNext: boolean,
 ): GuardResult {
   if (reachableStages.length === 0 && hasEndNext) {
+    // The cycle is still IN PROGRESS here — it sits at its last stage, whose work
+    // finishes it (readings at a final Dry In, its checklist, or its QA approval).
+    // The message used to read "Cleaning cycle is complete", which a tablet
+    // showed for a cycle still waiting at a final Dry In (2026-10-22).
     return {
       ok: false,
       code: 'CYCLE_COMPLETE',
-      message: 'Cleaning cycle is complete. No more stages.',
+      message: `${prettyStageLabel(ctx.filter?.currentLifecycleState)} is the last stage of this cleaning cycle — there is no stage after it. The cycle completes when that stage's work is finished.`,
     };
   }
   return { ok: true };

@@ -525,3 +525,141 @@ describe('E: the checklist before the first stage, through the combined start-an
     expect((ev!.attributes as any).replayExemptGates).toEqual(['REAUTH', 'START_CHECKLIST']);
   });
 });
+
+// Tablets already in the field run the executor bundled before 2026-10-22. Offline, at a FINAL
+// Dry In they still behave the old way, and the sync engine later replays what they queued:
+//  - D: the readings go as a plain advance (SUBMIT_READINGS, no answers), and the old tape asks the
+//    checklist right after the dryer starts — so the checklist may be queued BEFORE the readings;
+//  - C: the old local cache completes the cycle at dryer start, so the next scan queues a second
+//    start-cycle while the server's cycle still waits for its readings.
+// The sync engine keeps a refused op pending and retries it on the next drain, with the tapeVersion
+// it stored; a STALE_TAPE on that retry fails it for good (and skips the filter's later ops that drain).
+describe('old APKs in the field (built before 2026-10-22): their offline queue at a final Dry In, replayed', () => {
+  const state = async (f: string) => (await call('GET', `/api/filters/${f}/current-state`, opH)).json();
+  const replay = async (f: string, path: string, body: Record<string, unknown>) =>
+    write(true, `/api/filters/${f}/${path}`, { tapeVersion: (await state(f)).tapeVersion, ...body });
+  const answersFor = () => Object.fromEntries((questionsByProfile.get(ENABLED_CL) ?? []).map((q) => [q, 'YES']));
+  const event = async (f: string, where: Record<string, unknown>) =>
+    prisma.filterEvent.findFirst({ where: { filterId: f, ...where }, orderBy: { performedAt: 'desc' } });
+
+  /** Offline (old client): start, Wash In (readings), Wash Out, then ENTER the final Dry In with the dryer set. */
+  async function atFinalDryIn(label: string, tokens: string[]) {
+    cfg.enabled = false;
+    internalErrors.length = 0;
+    const block = await fx.node('BLOCK', `${label}B`);
+    const ahu = await fx.node('AHU', `${label}A`, block);
+    await fx.equipmentGroup(block, 'G', [
+      { stageKey: 'WASH_IN', min: 10, max: 20 }, { stageKey: 'WASH_IN', min: 1, max: 5 }, { stageKey: 'DRY_IN', min: 60, max: 80 },
+    ]);
+    const { filterProfileId } = await buildPipeline(`old APK ${label}`, tokens);
+    const f = await fx.filter(`${label}F`, ahu, filterProfileId);
+    const started = await write(true, `/api/filters/${f}/start-cycle`, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: block });
+    expect(started.statusCode).toBe(201);
+    const cycleId = started.json().id as string;
+    let s = await state(f);
+    const wash = s.actions.find((a: any) => a.type === 'ADVANCE_TO_STAGE' && a.params.targetState === 'WASH_IN');
+    const washReadings = Object.fromEntries(wash.params.requiresInstrumentReadings.map((id: string) => [id, wash.validations.operatingRanges[id].min]));
+    expect((await replay(f, 'advance', { targetState: 'WASH_IN', instrumentReadings: washReadings, equipmentGroupId: s.equipmentGroup?.id })).statusCode).toBe(200);
+    expect((await replay(f, 'advance', { targetState: 'WASH_OUT' })).statusCode).toBe(200);
+    const entry = await replay(f, 'advance', { targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 2 });
+    expect(entry.statusCode).toBe(200);
+    // The dryer has run past half time.
+    await prisma.cleaningCycle.update({ where: { id: cycleId }, data: { dryerStartedAt: new Date(Date.now() - 3 * 60_000) } });
+    s = await state(f);
+    expect(s.currentState).toBe('DRY_IN');
+    expect(s.currentCycle?.status).toBe('IN_PROGRESS');
+    const dryReading = s.actions.find((a: any) => a.type === 'SUBMIT_DRYER_READINGS');
+    const dryReadings = Object.fromEntries(dryReading.params.instrumentIds.map((id: string) => [id, dryReading.validations.operatingRanges[id].min]));
+    return { f, cycleId, block, groupId: s.equipmentGroup?.id as string, dryReadings };
+  }
+
+  it('D, readings first: the plain readings advance is applied (TERMINAL_CHECKLIST recorded), the cycle waits for the checklist, and the queued checklist completes it', async () => {
+    const c = await atFinalDryIn('ODR', ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'CL']);
+    const readings = await replay(c.f, 'advance', { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', instrumentReadings: c.dryReadings, equipmentGroupId: c.groupId });
+    expect(readings.statusCode).toBe(200);
+    const ev = await event(c.f, { eventType: 'STATE_TRANSITION', toState: 'DRY_IN' });
+    expect((ev!.attributes as any)).toMatchObject({ action: 'DRYER_READINGS_SUBMITTED', replayExemptGates: ['REAUTH', 'TERMINAL_CHECKLIST'] });
+    // Not stranded: the cycle runs on, and its tape offers exactly the checklist that finishes it.
+    const s = await state(c.f);
+    expect(s.currentCycle?.status).toBe('IN_PROGRESS');
+    expect(s.currentCycle?.dryerReadingsSubmitted).toBe(true);
+    expect(s.actions.filter((a: any) => a.type !== 'TERMINATE_CYCLE').map((a: any) => [a.type, a.params?.afterStage ?? null]))
+      .toEqual([['SUBMIT_CHECKLIST', 'DRY_IN']]);
+    const cl = await replay(c.f, 'submit-checklist', { answers: answersFor() });
+    expect(cl.statusCode).toBe(200);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED', dryerReadingsSubmitted: true });
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CHECKLIST_COMPLETED' } })).toBe(1);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('D, checklist first (the old tape asks it as the dryer starts): both replays apply in the operator\'s order and the readings complete the cycle', async () => {
+    const c = await atFinalDryIn('ODC', ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'CL']);
+    // Queued first: the checklist, answered before the readings.
+    const cl = await replay(c.f, 'submit-checklist', { answers: answersFor() });
+    expect([cl.statusCode, cl.json().error]).toEqual([200, undefined]);
+    const clEv = await event(c.f, { eventType: 'CHECKLIST_COMPLETED' });
+    expect((clEv!.attributes as any)).toMatchObject({ afterStage: 'DRY_IN', replayExemptGates: ['REAUTH', 'CHECKLIST_BEFORE_READINGS'] });
+    // Recorded, but the stage's work is not finished: the cycle waits for its readings.
+    let s = await state(c.f);
+    expect(s.currentCycle?.status).toBe('IN_PROGRESS');
+    expect(s.actions.filter((a: any) => a.type !== 'TERMINATE_CYCLE' && a.type !== 'COMPLETE_CYCLE').map((a: any) => a.type)).toEqual(['SUBMIT_DRYER_READINGS']);
+    // Queued next: the plain readings advance — it finishes the stage, and with it the cycle.
+    const readings = await replay(c.f, 'advance', { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', instrumentReadings: c.dryReadings, equipmentGroupId: c.groupId });
+    expect(readings.statusCode).toBe(200);
+    const rEv = await event(c.f, { eventType: 'STATE_TRANSITION', toState: 'DRY_IN' });
+    expect((rEv!.attributes as any).replayExemptGates).toEqual(['REAUTH']);
+    s = await state(c.f);
+    expect(s.currentCycle).toBeNull();
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED', dryerReadingsSubmitted: true });
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CHECKLIST_COMPLETED' } })).toBe(1);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('D online: a standalone checklist before the readings is still refused (the readings carry it), nothing written', async () => {
+    const c = await atFinalDryIn('ODO', ['WASH_IN', 'WASH_OUT', 'DRY_IN', 'CL']);
+    const res = await call('POST', `/api/filters/${c.f}/submit-checklist`, opH, { answers: answersFor(), tapeVersion: (await state(c.f)).tapeVersion });
+    expect([res.statusCode, res.json().error]).toEqual([400, 'DRYER_READINGS_REQUIRED']);
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'CHECKLIST_COMPLETED' } })).toBe(0);
+  });
+
+  it('C: a second start queued after the old client finished the cycle at dryer start answers CYCLE_ACTIVE; the readings still finish the first cycle, then the start goes through', async () => {
+    const c = await atFinalDryIn('OCS', ['WASH_IN', 'WASH_OUT', 'DRY_IN']);
+    // The first cycle did NOT complete at dryer start (it waits for its readings).
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
+
+    // The old client's next scan queued a new cycle: a plain start-cycle op…
+    const start2 = await write(true, `/api/filters/${c.f}/start-cycle`, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: c.block });
+    expect([start2.statusCode, start2.json().error]).toEqual([409, 'CYCLE_ACTIVE']);
+    // …or the tablet's compound start-and-advance: its start half answers the same CYCLE_ACTIVE (the
+    // sync engine then sends the advance half), and the advance into Wash In is refused against the
+    // first cycle — nothing is written to it, and the refusal says why.
+    const adv2 = await replay(c.f, 'advance', { targetState: 'WASH_IN' });
+    expect(adv2.statusCode).toBe(400);
+    expect(adv2.json().error).toBe('CYCLE_COMPLETE');
+    expect(adv2.json().message).not.toMatch(/is complete/i);
+    expect(await prisma.filterEvent.count({ where: { cycleId: c.cycleId, eventType: 'STATE_TRANSITION', toState: 'WASH_IN' } })).toBe(1);
+
+    // The first cycle is not stranded: its readings still apply and complete it.
+    const s = await state(c.f);
+    expect(s.actions.filter((a: any) => a.type !== 'TERMINATE_CYCLE' && a.type !== 'COMPLETE_CYCLE').map((a: any) => a.type)).toEqual(['SUBMIT_DRYER_READINGS']);
+    const readings = await replay(c.f, 'advance', { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', instrumentReadings: c.dryReadings, equipmentGroupId: c.groupId });
+    expect(readings.statusCode).toBe(200);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED', dryerReadingsSubmitted: true });
+    // The sync engine retries the refused start on its next drain: it now goes through.
+    const retry = await write(true, `/api/filters/${c.f}/start-cycle`, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: c.block });
+    expect(retry.statusCode).toBe(201);
+    expect(await prisma.cleaningCycle.count({ where: { filterId: c.f } })).toBe(2);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('C, readings queued before the second start: the readings complete the first cycle, so the start goes through', async () => {
+    const c = await atFinalDryIn('OCR', ['WASH_IN', 'WASH_OUT', 'DRY_IN']);
+    const readings = await replay(c.f, 'advance', { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', instrumentReadings: c.dryReadings, equipmentGroupId: c.groupId });
+    expect(readings.statusCode).toBe(200);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+    const start2 = await write(true, `/api/filters/${c.f}/start-cycle`, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: c.block });
+    expect(start2.statusCode).toBe(201);
+  });
+});
