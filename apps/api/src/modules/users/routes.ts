@@ -44,13 +44,17 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_USER', req, reply);
-    if (!ok) return;
-
+    // D03-09 / F-42: validate BEFORE the signature — an invalid body or User ID
+    // costs no password and writes no REAUTH_* row. `_currentPassword` is not
+    // part of the schema, so parsing first is safe (zod strips unknown keys).
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+    await userService.assertCanCreate(parsed.data, buildContext(req));
+
+    const { ok } = await enforceReauth('CREATE_USER', req, reply);
+    if (!ok) return;
 
     const result = await userService.create(parsed.data, buildContext(req));
     return reply.code(201).send(result);
@@ -103,13 +107,14 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('BULK_DELETE_USERS', req, reply);
-    if (!ok) return;
-
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = bulkDeleteUsersSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+
+    const { ok } = await enforceReauthAlways('BULK_DELETE_USERS', req, reply);
+    if (!ok) return;
 
     const result = await userService.bulkDelete(parsed.data.userIds, req.user.sub, buildContext(req));
     return { success: true, ...result };
@@ -183,15 +188,14 @@ export default async function userRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'VALIDATION', message: 'Remarks are required to approve or reject a password reset request.' });
     }
 
-    const { ok } = await enforceReauth('PROCESS_RESET_REQUEST', req, reply);
-    if (!ok) return;
-
     const { id } = req.params as { id: string };
     const body = req.body as { action: 'approve' | 'reject'; newPassword?: string; notes?: string };
-
     if (!body.action || !['approve', 'reject'].includes(body.action)) {
       return reply.code(400).send({ error: 'VALIDATION', message: 'Invalid action. Must be "approve" or "reject".' });
     }
+
+    const { ok } = await enforceReauth('PROCESS_RESET_REQUEST', req, reply);
+    if (!ok) return;
 
     const result = await userService.processResetRequest(id, body.action, body.newPassword, notes, buildContext(req));
     return { success: true, ...result };
@@ -302,15 +306,17 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    // OD-01 (2026-10-22): an edit can change the user's role — always signed.
-    const { ok } = await enforceReauthAlways('UPDATE_USER', req, reply);
-    if (!ok) return;
-
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = updateUserSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+    await userService.assertCanUpdate(id, { ...parsed.data }, buildContext(req));
+
+    // OD-01 (2026-10-22): an edit can change the user's role — always signed.
+    const { ok } = await enforceReauthAlways('UPDATE_USER', req, reply);
+    if (!ok) return;
 
     return userService.update(id, parsed.data, buildContext(req));
   });
@@ -395,13 +401,14 @@ export default async function userRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, message: { type: 'string' } } }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('RESET_PASSWORD', req, reply);
-    if (!ok) return;
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = resetPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+    const { ok } = await enforceReauth('RESET_PASSWORD', req, reply);
+    if (!ok) return;
     await userService.resetPassword(id, parsed.data.newPassword, buildContext(req));
     return { success: true, message: 'Password reset successfully. User must change on next login.' };
   });

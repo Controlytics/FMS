@@ -10,7 +10,10 @@ const liveRoleNames = async () => new Set((await prisma.role.findMany({ select: 
 
 export async function tabletAccessRoutes(app: FastifyInstance) {
   app.get('/tablet-access', {
-    preHandler: [app.requirePermission('CONFIG_READ')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): this decides which roles may sign in
+    // on a tablet at all. The card has always been a Super Admin Settings card;
+    // the route took CONFIG_READ / CONFIG_UPDATE, so ADMIN could edit it by URL.
+    preHandler: [app.requireSuperAdmin()],
     schema: { tags: ['Config'], summary: 'Get tablet app access configuration' },
   }, async () => {
     const row = await prisma.systemConfig.findUnique({ where: { configKey: 'tablet-access' } });
@@ -22,7 +25,7 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
   });
 
   app.put('/tablet-access', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update tablet app access configuration',
@@ -34,9 +37,6 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     // newly registered, so it is absent from system_config['action-reauth'] and
     // the config-driven check would gate nobody — the "toggle that does
     // nothing" shape. This decides which roles may log in on the tablet at all.
-    const { ok } = await enforceReauthAlways('UPDATE_TABLET_ACCESS', req, reply);
-    if (!ok) return;
-
     const body = req.body as Record<string, unknown>;
     // A-02 (2026-10-21): this decides which roles may sign in on a tablet, and it
     // stored any object as-is (`{OPERATOR: "yes"}` included). Refuse a wrong
@@ -45,6 +45,7 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
     const roles = await liveRoleNames();
     const problems: string[] = [];
     for (const [role, features] of Object.entries(body)) {
+      if (role.startsWith('_')) continue; // `_currentPassword`: transport field, taken by the gate below
       if (role === 'SUPER_ADMIN') { problems.push('SUPER_ADMIN cannot be configured (it always has every tablet feature)'); continue; }
       if (!roles.has(role)) problems.push(`unknown role ${role}`);
       if (!Array.isArray(features) || !features.every((f) => typeof f === 'string')) { problems.push(`${role} must be a list of feature names`); continue; }
@@ -52,6 +53,10 @@ export async function tabletAccessRoutes(app: FastifyInstance) {
       if (unknown.length) problems.push(`${role}: unknown feature(s) ${unknown.join(', ')}`);
     }
     if (problems.length) throw new ValidationError(`Tablet access not saved: ${problems.join('; ')}.`, { problems });
+    // D03-09 / F-42: signed only once the body is known to be valid (the gate
+    // also strips `_currentPassword` from `body` before it is stored below).
+    const { ok } = await enforceReauthAlways('UPDATE_TABLET_ACCESS', req, reply);
+    if (!ok) return;
     const ctx = buildContext(req);
     await prisma.systemConfig.upsert({
       where: { configKey: 'tablet-access' },

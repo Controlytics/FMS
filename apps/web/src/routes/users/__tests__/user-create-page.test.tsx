@@ -23,6 +23,8 @@ function routes(opts: { reauth?: string[]; extra?: MockRoute[]; policy?: Record<
     { path: '/api/roles/SUPER_ADMIN/creatable', body: CREATABLE },
     { path: '/api/roles/ADMIN/creatable', body: CREATABLE.slice(0, 1) },
     { path: '/api/config/field-ids/current', body: [{ fieldId: 'FLD_USER_001', displayName: 'Employee ID' }] },
+    // D03-09: the form checks the User ID against the configured format first.
+    { method: 'POST', path: '/api/config/user-id/validate', body: { valid: true, errors: [] } },
   ];
 }
 
@@ -91,6 +93,24 @@ describe('Create User — form', () => {
     fill('user@example.com (optional)', 'a@b');
     fireEvent.click(screen.getByRole('button', { name: 'Create User' }));
     expect(await screen.findByText('Invalid email address')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/users')).toHaveLength(0);
+  });
+
+  it('D03-09: a User ID the configured format refuses is reported BEFORE any password prompt; nothing is created', async () => {
+    const api = mockApi(routes({
+      reauth: ['CREATE_USER'],
+      extra: [
+        { method: 'POST', path: '/api/config/user-id/validate', body: { valid: false, errors: ['User ID must be exactly 8 characters'] } },
+        { method: 'POST', path: '/api/users', status: 201, body: { id: 'new' } },
+      ],
+    }));
+    renderPage(<Page />, { route: '/users/create', user: SA, api });
+    await fillValid();
+    await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole('button', { name: 'Create User' }));
+    expect((await screen.findAllByText('User ID must be exactly 8 characters')).length).toBeGreaterThan(0);
+    expect(api.calls('POST', '/api/config/user-id/validate')[0].json).toEqual({ userId: 'emp1001' });
+    expect(screen.queryByText('Confirm Your Identity')).toBeNull();
     expect(api.calls('POST', '/api/users')).toHaveLength(0);
   });
 

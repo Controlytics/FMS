@@ -268,7 +268,13 @@ export const roleService = {
   },
 
   /** Create a new role. Validates input, checks uniqueness, audits. */
-  async create(data: unknown, ctx: RequestContext) {
+  /**
+   * Every refusal create() can give before it writes. D03-09 / F-42 (2026-10-22):
+   * the route runs it BEFORE the re-auth gate (no password spent, no REAUTH_*
+   * row, on a body that will be refused); create() runs it again. Returns the
+   * parsed body.
+   */
+  async assertCanCreate(data: unknown, ctx: RequestContext) {
     const parsed = createRoleSchema.safeParse(data);
     if (!parsed.success) {
       throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
@@ -281,6 +287,11 @@ export const roleService = {
     }
 
     await assertRoleWithinCallerPrivilege(ctx, { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions });
+    return parsed.data;
+  },
+
+  async create(data: unknown, ctx: RequestContext) {
+    const parsed = { data: await roleService.assertCanCreate(data, ctx) };
 
     const role = await roleRepository.create({
       name: parsed.data.name,
@@ -308,7 +319,8 @@ export const roleService = {
   },
 
   /** Update an existing role. System roles have restricted updates. */
-  async update(name: string, data: unknown, ctx: RequestContext, reason?: string) {
+  /** update()'s refusals, run by the route BEFORE the re-auth gate (D03-09 / F-42) and again by update(). */
+  async assertCanUpdate(name: string, data: unknown, ctx: RequestContext) {
     const parsed = updateRoleSchema.safeParse(data);
     if (!parsed.success) {
       throw new ValidationError('VALIDATION_ERROR', parsed.error.flatten());
@@ -324,6 +336,13 @@ export const roleService = {
       { hierarchyLevel: parsed.data.hierarchyLevel, permissions: parsed.data.permissions },
       { name: existing.name, hierarchyLevel: (existing as any).hierarchyLevel, permissions: ((existing as any).permissions as string[]) ?? [] },
     );
+    return { parsed: parsed.data, existing };
+  },
+
+  async update(name: string, data: unknown, ctx: RequestContext, reason?: string) {
+    const checked = await roleService.assertCanUpdate(name, data, ctx);
+    const parsed = { data: checked.parsed };
+    const existing = checked.existing;
 
     let role;
 
@@ -364,8 +383,8 @@ export const roleService = {
     return { success: true, data: role };
   },
 
-  /** Delete a role. Checks for assigned users first. */
-  async delete(name: string, ctx: RequestContext) {
+  /** delete()'s refusals, run by the route BEFORE the re-auth gate (D03-09 / F-42) and again by delete(). */
+  async assertCanDelete(name: string, ctx: RequestContext) {
     const existing = await roleRepository.findByName(name);
     if (!existing) {
       throw new NotFoundError('Role not found');
@@ -392,6 +411,12 @@ export const roleService = {
       hierarchyLevel: existing.hierarchyLevel,
       permissions: (existing.permissions as string[]) ?? [],
     });
+    return existing;
+  },
+
+  /** Delete a role. Checks for assigned users first. */
+  async delete(name: string, ctx: RequestContext) {
+    const existing = await roleService.assertCanDelete(name, ctx);
 
     await roleRepository.delete(name);
 

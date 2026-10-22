@@ -325,6 +325,9 @@ beforeAll(async () => {
   h = await createHierarchy(`OD01-${SUF}`);
   userIds.push(await createUser(SA, 'SUPER_ADMIN', SA_PW));
   await createRole(LOW_ROLE, ['ROLE_MANAGE', 'AUDIT_DELETE', 'AUDIT_READ', 'CONFIG_READ', 'ADMIN_REQUEST_APPROVE']);
+  // Above the level-1 roles it creates: a create refused for privilege (checked
+  // before the signature since D03-09) would never reach the gate.
+  await prisma.role.update({ where: { name: LOW_ROLE }, data: { hierarchyLevel: 5 } });
   await createRole(NEW_ROLE, []);
   userIds.push(await createUser(LOW, LOW_ROLE, LOW_PW));
   saToken = await login(app, SA, SA_PW);

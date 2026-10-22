@@ -68,6 +68,24 @@ export function CreateUserPage() {
 
   const onSubmit = async (data: CreateUserInput) => {
     setError('');
+    // D03-09 / F-42 (2026-10-22): check the User ID against the CONFIGURED format
+    // before asking for the password — the server's own rule (POST
+    // /api/config/user-id/validate runs validateUserId), so an invalid ID costs no
+    // signature. The server re-checks it before its gate too.
+    try {
+      const check = await apiClient.post<{ valid: boolean; errors?: string[] }>('/api/config/user-id/validate', { userId: data.username });
+      if (!check.valid) {
+        const message = (check.errors ?? []).join('. ') || `${userLabels.userId} is not valid`;
+        setError(message);
+        toast.error('User creation failed', message);
+        return;
+      }
+    } catch (err: any) {
+      const message = err?.message || `Could not check the ${userLabels.userId.toLowerCase()}`;
+      setError(message);
+      toast.error('User creation failed', message);
+      return;
+    }
     await reauth.execute('CREATE_USER', async (password?) => {
       if (password) await apiClient.postWithReauth('/api/users', data, password);
       else await apiClient.post('/api/users', data);

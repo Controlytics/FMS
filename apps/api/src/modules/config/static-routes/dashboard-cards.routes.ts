@@ -39,8 +39,6 @@ export async function dashboardCardsRoutes(app: FastifyInstance) {
   }, async (req, reply) => {
     // Audit 2026-05-04 fix #5 (web-routes review H — lower-blast config
     // surfaces). Routed through the umbrella UPDATE_CONFIG_PAGE action.
-    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
-    if (!ok) return;
     const { configValue } = req.body as { configValue: { roles?: Record<string, string[]> } };
     const ctx = buildContext(req);
 
@@ -57,6 +55,9 @@ export async function dashboardCardsRoutes(app: FastifyInstance) {
     if (invalid.length > 0) {
       return reply.code(400).send({ error: 'INVALID_CARD_KEY', message: `Unknown card key(s): ${invalid.join(', ')}` });
     }
+    // D03-09 / F-42: signed only once the body is known to be valid.
+    const { ok } = await enforceReauth('UPDATE_CONFIG_PAGE', req, reply);
+    if (!ok) return;
 
     // Audit 2026-09-24: this write bypassed configService and left no audit
     // row — the only config PUT that did. Same CONFIG_CHANGED row as the rest.

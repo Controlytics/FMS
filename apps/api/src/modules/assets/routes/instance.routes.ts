@@ -300,13 +300,14 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
-    if (!ok) return;
-
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = createAssetInstanceSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+
+    const { ok } = await enforceReauth(['CREATE_ASSET', 'CREATE_FILTER'], req, reply);
+    if (!ok) return;
 
     const instance = await instanceService.create(parsed.data, buildContext(req));
     return reply.code(201).send({ success: true, data: instance });
@@ -684,14 +685,15 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth(['UPDATE_ASSET', 'EDIT_FILTER', 'EDIT_HIERARCHY_NODE'], req, reply);
-    if (!ok) return;
-
     const { id } = req.params as { id: string };
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = updateAssetInstanceSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+
+    const { ok } = await enforceReauth(['UPDATE_ASSET', 'EDIT_FILTER', 'EDIT_HIERARCHY_NODE'], req, reply);
+    if (!ok) return;
 
     const instance = await instanceService.update(id, parsed.data, buildContext(req));
     return { success: true, data: instance };

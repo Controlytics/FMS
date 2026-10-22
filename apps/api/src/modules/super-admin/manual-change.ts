@@ -10,6 +10,10 @@ import { auditLog, type AuditTx } from '../../lib/audit.js';
  * `_changeReason` of at least MIN_REASON_LEN, and one audit row per change.
  */
 export async function requireDataEditReauth(req: FastifyRequest, reply: FastifyReply) {
+  // D03-09 / F-42: every manual write needs a `_changeReason` (each handler
+  // reads it with readChangeReason). Check it BEFORE the signature, with the same
+  // validator, so a missing reason costs no password and writes no REAUTH_* row.
+  if (readChangeReason(req, reply) === null) return;
   // OD-01 (2026-10-22): always, for every caller — a manual write rewrites or
   // destroys a §11 record, so the re-auth policy cannot switch the signature off.
   const { ok } = await enforceReauthAlways('SUPER_ADMIN_DATA_EDIT', req, reply);

@@ -103,13 +103,19 @@ export const userService = {
     return user;
   },
 
-  async create(data: {
+  /**
+   * Every refusal create() can give before it writes anything. D03-09 / F-42
+   * (2026-10-22): the route runs this BEFORE the re-auth gate, so an invalid User
+   * ID, role, duplicate or weak password costs no password and leaves no
+   * "signature applied for CREATE_USER" row with no USER_CREATED. create() calls
+   * it again — the same rules, so a request that raced past the first check is
+   * still refused.
+   */
+  async assertCanCreate(data: {
     username: string; fullName: string; email?: string; department?: string;
     role: string; password: string; status?: string;
   }, ctx: RequestContext) {
-    // Sanitize text inputs to prevent XSS
     data = sanitizeStrings(data, ['password', 'email']);
-
     // Email is optional. Store NULL (not '') when omitted so the @unique index
     // doesn't collide across multiple no-email users (Postgres treats NULLs as
     // distinct). '' is never stored, so the uniqueness probe below can pass ''
@@ -142,6 +148,16 @@ export const userService = {
 
     // Validate password complexity against active policy
     await validatePasswordPolicy(data.password, data.username);
+  },
+
+  async create(data: {
+    username: string; fullName: string; email?: string; department?: string;
+    role: string; password: string; status?: string;
+  }, ctx: RequestContext) {
+    // Sanitize text inputs to prevent XSS
+    data = sanitizeStrings(data, ['password', 'email']);
+    const email = (data.email ?? '').trim() || null;
+    await userService.assertCanCreate(data, ctx);
 
     const passwordHash = await hashPassword(data.password);
     const passwordExpiresAt = await userRepository.getPasswordExpiresAt();
@@ -201,10 +217,14 @@ export const userService = {
     };
   },
 
-  async update(id: string, data: Record<string, any>, ctx: RequestContext) {
-    // Sanitize text inputs to prevent XSS
+  /**
+   * Every refusal update() can give before it writes (existence, privilege
+   * boundary, own-role change, assignable role, duplicate email). D03-09 / F-42:
+   * the route runs it BEFORE the re-auth gate; update() runs it again. Returns
+   * the existing row.
+   */
+  async assertCanUpdate(id: string, data: Record<string, any>, ctx: RequestContext) {
     data = sanitizeStrings(data, ['password', 'passwordHash', 'email']);
-
     const existing = await userRepository.findByIdFull(id);
     if (!existing) throw new NotFoundError('User not found');
     // Privilege boundary: can't manage a target above your own role (audit C2).
@@ -233,6 +253,17 @@ export const userService = {
     if (data.email && data.email !== existing.email) {
       const dup = await userRepository.findByEmail(data.email);
       if (dup) throw new ConflictError('Email already exists');
+    }
+    return existing;
+  },
+
+  async update(id: string, data: Record<string, any>, ctx: RequestContext) {
+    // Sanitize text inputs to prevent XSS
+    data = sanitizeStrings(data, ['password', 'passwordHash', 'email']);
+    const existing = await userService.assertCanUpdate(id, data, ctx);
+    // Normalize email: store NULL (not '') when blank (mirrors assertCanUpdate).
+    if ('email' in data) {
+      data.email = (data.email ?? '').trim() || null;
     }
 
     const beforeValue = { fullName: existing.fullName, email: existing.email, department: existing.department, role: existing.role, status: existing.status };

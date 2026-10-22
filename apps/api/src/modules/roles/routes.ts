@@ -236,10 +236,12 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    const ctx = buildContext(req);
+    // D03-09 / F-42: every refusal before the signature (no password spent).
+    await roleService.assertCanCreate(req.body, ctx);
     const { ok } = await enforceReauthAlways('CREATE_ROLE', req, reply);
     if (!ok) return;
 
-    const ctx = buildContext(req);
     return roleService.create(req.body, ctx);
   });
 
@@ -299,11 +301,12 @@ export default async function roleRoutes(app: FastifyInstance) {
     // hierarchy level) needs a reason; checked before the signature.
     const body = req.body as { permissions?: unknown; hierarchyLevel?: unknown };
     const reason = body.permissions !== undefined || body.hierarchyLevel !== undefined ? requireChangeReason(req.body) : undefined;
+    const { name } = req.params as { name: string };
+    const ctx = buildContext(req);
+    await roleService.assertCanUpdate(name, req.body, ctx); // D03-09 / F-42: before the signature
     const { ok } = await enforceReauthAlways('UPDATE_ROLE', req, reply);
     if (!ok) return;
 
-    const { name } = req.params as { name: string };
-    const ctx = buildContext(req);
     return roleService.update(name, req.body, ctx, reason);
   });
 
@@ -350,13 +353,15 @@ export default async function roleRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauthAlways('DELETE_ROLE', req, reply);
-    if (!ok) return;
-
     const { name } = req.params as { name: string };
     const ctx = buildContext(req);
 
     try {
+      // D03-09 / F-42: every refusal (unknown, system role, has users, above the
+      // caller) before the signature — no password spent on a refused delete.
+      await roleService.assertCanDelete(name, ctx);
+      const { ok } = await enforceReauthAlways('DELETE_ROLE', req, reply);
+      if (!ok) return;
       return await roleService.delete(name, ctx);
     } catch (err) {
       if (err instanceof AppError && (err as any).usersCount !== undefined) {

@@ -138,13 +138,14 @@ export default async function identifierRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('CREATE_ASSET_IDENTIFIER', req, reply);
-    if (!ok) return;
-
+    // D03-09 / F-42: validate BEFORE the signature — a refused body costs no password.
     const parsed = createAssetIdentifierSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
     }
+
+    const { ok } = await enforceReauth('CREATE_ASSET_IDENTIFIER', req, reply);
+    if (!ok) return;
 
     const identifier = await identifierService.create(parsed.data, buildContext(req));
     return reply.code(201).send({ success: true, data: identifier });

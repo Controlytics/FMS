@@ -71,13 +71,6 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
         summary: `Update ${def.moduleName} config`,
       },
     }, async (req, reply) => {
-      // Reauth check
-      if (def.requiresReauth || def.reauthAction) {
-        const action = def.reauthAction ?? `UPDATE_${def.moduleKey.toUpperCase().replace(/-/g, '_')}`;
-        const { ok } = await enforceReauth(action, req, reply);
-        if (!ok) return;
-      }
-
       // 🔴 SECURITY (2026-09-04): strip underscore-prefixed TRANSPORT fields
       // before anything validates or persists this body.
       //
@@ -127,6 +120,15 @@ export default async function dynamicConfigRoutes(app: FastifyInstance) {
             message: result.errors?.join(', ') ?? 'Validation failed',
           });
         }
+      }
+
+      // Reauth check — AFTER every validation above (D03-09 / F-42): a refused
+      // body costs no password and writes no REAUTH_* row. The checks read
+      // `body`, which already excludes the `_currentPassword` transport field.
+      if (def.requiresReauth || def.reauthAction) {
+        const action = def.reauthAction ?? `UPDATE_${def.moduleKey.toUpperCase().replace(/-/g, '_')}`;
+        const { ok } = await enforceReauth(action, req, reply);
+        if (!ok) return;
       }
 
       // Preserve masked secret fields
