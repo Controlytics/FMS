@@ -449,13 +449,19 @@ describe('DELETE /filter-data/retirements/:id', () => {
     await prisma.filterEvent.create({
       data: { filterId: id, cycleId: c2.id, eventType: 'REMARK_ADDED', performedBy: saId, checksum: 'x'.repeat(64), ipAddress: '127.0.0.1' },
     });
-    await prisma.assetIdentifier.create({ data: { assetId: id, identifierType: 'QR', identifierValue: `${PREFIX}-DELHIST-QR` } });
+    // An asset holds at most ONE identifier (unique index
+    // asset_identifiers_one_per_asset, 2026-10-22), so a second tag — and with
+    // it the plural "tags" spelling — can no longer exist. The database says so:
+    await expect(prisma.assetIdentifier.create({ data: { assetId: id, identifierType: 'QR', identifierValue: `${PREFIX}-DELHIST-QR` } }))
+      .rejects.toMatchObject({ code: 'P2002' });
     const child2 = await prisma.assetInstance.create({ data: { name: `${PREFIX}-DELHIST-CHILD2`, templateId: h.blockTemplateId, parentId: id } });
     extraInstanceIds.push(child2.id);
     const res2 = await call('DELETE', `/api/super-admin/filter-data/retirements/${id}`, { _changeReason: REASON });
+    expect(res2.statusCode).toBe(409);
+    expect(res2.json().blockers).toEqual({ cycles: 2, events: 1, identifiers: 1, children: 2 });
     expect(res2.json().message).toContain('2 cleaning cycles');
     expect(res2.json().message).toContain('1 filter event,');
-    expect(res2.json().message).toContain('2 RFID/identifier tags');
+    expect(res2.json().message).toContain('1 RFID/identifier tag,');
     expect(res2.json().message).toContain('2 child records');
   });
 
