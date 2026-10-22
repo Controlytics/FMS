@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultRoles } from './default-roles.js';
 import { ensureHierarchyTemplates } from './hierarchy-templates.js';
+import { splitSqlStatements } from './sql-statements.js';
 
 const prisma = new PrismaClient();
 
@@ -54,20 +55,13 @@ async function applyInvariants() {
     console.log('  (no invariants.sql found — skipping)');
     return;
   }
-  // Strip psql meta-commands (\echo etc.) — only valid via psql CLI.
-  const cleaned = sql.split('\n').filter(l => !l.trim().startsWith('\\')).join('\n');
-  // Split on semicolons but keep PL/pgSQL function bodies intact via $$ delimiters.
-  const statements: string[] = [];
-  let buf = '';
-  let inDollar = false;
-  for (const line of cleaned.split('\n')) {
-    if (line.includes('$$')) inDollar = !inDollar;
-    buf += line + '\n';
-    if (!inDollar && /;\s*$/.test(line)) { statements.push(buf.trim()); buf = ''; }
-  }
-  if (buf.trim()) statements.push(buf.trim());
-  for (const stmt of statements) {
-    if (!stmt || stmt.startsWith('--')) continue;
+  // One statement per call. splitSqlStatements drops the comments BETWEEN
+  // statements; until 2026-10-22 they were glued to the next statement, which
+  // was then skipped as "a comment" — 5 of 17 never ran (see sql-statements.ts).
+  // Every statement is idempotent (CREATE OR REPLACE / IF NOT EXISTS /
+  // DROP IF EXISTS + CREATE) because this runs on every upgrade;
+  // src/__tests__/seed-invariants-split.test.ts holds the file to that.
+  for (const stmt of splitSqlStatements(sql)) {
     await prisma.$executeRawUnsafe(stmt);
   }
   console.log('  Applied DB invariants (Phase 5b.5)');

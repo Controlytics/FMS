@@ -7,6 +7,11 @@
 -- authoritative installer.
 --
 -- Apply after every `prisma db push`. Idempotent — safe to re-run.
+-- The seed applies this file on every install AND upgrade (seed.ts
+-- applyInvariants), so every statement must stay idempotent: CREATE OR REPLACE
+-- FUNCTION, CREATE [UNIQUE] INDEX IF NOT EXISTS, DROP TRIGGER IF EXISTS
+-- followed by its CREATE TRIGGER. src/__tests__/seed-invariants-split.test.ts
+-- enforces that.
 -- Run via:  psql -h localhost -U digilog -d digilog_db -f apps/api/prisma/sql/invariants.sql
 
 -- ─── Invariant 1: at most ONE IN_PROGRESS cycle per filter ─────────────────
@@ -312,5 +317,14 @@ CREATE TRIGGER trg_mirror_typed_to_asset_instance
   AFTER INSERT OR DELETE OR UPDATE ON filters
   FOR EACH ROW EXECUTE FUNCTION public.fn_mirror_typed_to_asset_instance();
 
+-- ─── Invariant 6: one ACTIVE asset per name, case-insensitive (2026-09-25) ──
+-- Created by migration 20260925091000_active_name_unique; repeated here
+-- (2026-10-22) so a `db push` database gets it too, per the rule that
+-- prisma/sql/* carries every raw object. IF NOT EXISTS: a no-op on every
+-- migrated database. It fails on a database already holding two ACTIVE rows
+-- with one name — which is the invariant doing its job.
+CREATE UNIQUE INDEX IF NOT EXISTS asset_instances_active_name_key
+  ON asset_instances (lower(name)) WHERE is_active;
+
 -- Confirmation log (visible when run via psql)
-\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete + trg_mirror_asset_instance_iud + trg_mirror_typed_to_asset_instance'
+\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete + trg_mirror_asset_instance_iud + trg_mirror_typed_to_asset_instance + asset_instances_active_name_key'
