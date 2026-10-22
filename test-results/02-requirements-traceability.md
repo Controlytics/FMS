@@ -18,6 +18,7 @@ server was touched and no test was run for this report.
 | `AUTO-SHARED` | The asserting test is in `packages/shared`, which was **not** in the 10-21 numbers. Last recorded green: 2026-10-19, 361 passed (CHANGELOG) — CARRIED FORWARD. `permission-tree.test.ts` and `roles.test.ts` changed on 10-21 and are unverified. |
 | `AUTO-NEW` | A test exists only in the working tree (written by the coverage agents after the 7cb6dba run). It has not been verified by any recorded run. |
 | `PROBE <date>` | Only a black-box probe (`QA/tests/…`) covers it, with a results file in `QA/results/…` — CARRIED FORWARD from that date. Probes run before a 10-21 fix record the pre-fix behaviour; the row says so. |
+| `EXECUTED <date>` | No automated suite test, but a recorded runtime run in a campaign deliverable exercised the rule against a disposable database; the row cites the deliverable section (e.g. `05-database-testing.md` §3.4). Counted with the tested rows. |
 | `PARTIAL` | A test covers part of the rule; the uncovered part is named after `GAP:` and has a `TR-` ID with steps. |
 | `NOT YET TESTED` | No automated test or probe result. The row carries a new `TR-` ID and steps for the functional-testing wave. `(BLOCKED: …)` = needs a device or a clean Windows VM. |
 | `…; DOCUMENTED DECISION` | The behaviour is an operator decision recorded in CLAUDE.md / CHANGELOG / memory; it is tested as such, never "fixed". |
@@ -63,51 +64,51 @@ a capacity requirement, traced as one row (NR-75) and handled by `07-performance
 
 ### Coverage per feature group
 
-| Feature | Name | Rows | AUTO-PASS | AUTO-SHARED | AUTO-NEW | PROBE | PARTIAL | NOT YET TESTED |
-|---|---|---|---|---|---|---|---|---|
-| F-01 | Login, logout, refresh, session expiry / conflict, tablet login gate | 8 | 4 |  |  |  | 3 | 1 |
-| F-02 | Password policy, change, expiry, history, forced change, lockout | 4 | 1 |  |  |  | 3 |  |
-| F-03 | Forgot password, admin requests (public create → approve/reject), contact admin, user lookup | 2 |  |  |  |  | 1 | 1 |
-| F-04 | Re-authentication (electronic signature): gates, `_currentPassword` stripping, REAUTH_* audit rows, legacy-shape health | 4 | 1 |  |  |  | 2 | 1 |
-| F-05 | Users: create / edit / disable / unlock / reset / role change / bulk delete / hierarchy guard | 4 | 3 |  |  |  | 1 |  |
-| F-06 | Roles & Access: roles CRUD, permission tree, sidebar items, role config, escalation guard | 7 | 3 |  |  |  | 2 | 2 |
-| F-07 | Access matrix, tablet access, action re-auth config pages | 4 | 2 |  |  |  | 1 | 1 |
-| F-08 | Dynamic config (38 defs): GET/PUT, `/current` public reads, secret redaction, partial merge | 5 | 5 |  |  |  |  |  |
-| F-09 | Hierarchy: Block / Area / AHU / Filter create-edit-delete, active-name uniqueness, parent must be active | 7 | 1 |  |  |  | 4 | 2 |
-| F-10 | Filter creation approval: submit → review → approve / reject → resubmit; bulk upload + validate | 7 | 1 |  |  |  | 3 | 3 |
-| F-11 | RFID identifiers: assign / unassign / re-tag = replace flow, normaliser, tag release on retired filter | 4 | 2 |  |  |  | 2 |  |
-| F-12 | Cleaning cycle engine: start / advance / checklist / dryer two-step / bypass / terminate / complete; decision tape; tape version | 23 | 9 | 7 |  |  | 3 | 4 |
-| F-13 | Stage interlock approvals (WASH_OUT / DRY_OUT), queue, approve / reject / bulk-decide, different-approver rule | 8 | 4 |  |  |  | 3 | 1 |
-| F-14 | AHU completion gate / readiness, set chooser, remaining filters | 1 | 1 |  |  |  |  |  |
-| F-15 | Bulk operate (50–100 tags): partial success, per-item tx + audit, reauth once | 1 | 1 |  |  |  |  |  |
-| F-16 | Offline queue + sync engine + offline replay (grant, token, time window, exempt gates, missed-PM write-offs) | 13 | 9 |  |  |  | 3 | 1 |
-| F-17 | Block change requests: request → approve / reject; single-use approval at cycle start; NONE/CONFIRM/APPROVAL modes | 4 |  |  |  |  | 2 | 2 |
-| F-18 | PM schedules: upload (append-only), separation rule, approve / reject / edit / resubmit, QNN | 15 | 3 |  | 8 |  | 3 | 1 |
-| F-19 | PM execution, My Tasks, due tasks, missed-PM gate + write-offs, overdue deviations (cron), deviations page | 9 | 2 |  | 2 |  | 2 | 3 |
-| F-20 | Replacement schedule: xlsx upload, approve / reject / resubmit, due / tasks / blocked, execute replacement | 3 | 1 |  |  |  | 2 |  |
-| F-21 | Retire / replace / unretire (incl. SUPER_ADMIN unretire that hard-deletes replacement history) | 4 | 1 |  | 1 |  | 2 |  |
-| F-22 | Cleaning profiles (lineage versioning), checklist profiles (disable rule, versions), filter profiles, equipment groups (3 instruments, ranges, readings fetch) | 10 | 3 |  |  |  | 5 | 2 |
-| F-23 | Cleaning record, cycles list, cycle timeline, filter traceability, lifecycle report, RFID track record, QNN page | 2 | 1 |  |  |  | 1 |  |
-| F-24 | Exports (PDF / Excel) + report-export-log gate + export limit | 4 | 2 |  |  |  | 1 | 1 |
-| F-25 | Report reviews (e-signature flow) — note: "Send for Review" button is dead on all 10 pages (C-01) | 2 |  |  |  | 1 | 1 |  |
-| F-26 | Audit trail: list / detail / visibility rules / redact / edit / hard delete / verify-chain / hash chain | 5 |  |  |  |  | 3 | 2 |
-| F-27 | Notifications (in-app), rules, email / SMS delivery, templates, logs, user groups | 7 | 4 |  | 1 |  | 1 | 1 |
-| F-28 | Backup: export (dump/json/bak/sql/csv), validate, restore with chain check + audit-row preservation | 4 |  |  | 2 |  | 1 | 1 |
-| F-29 | Filter Data Management console (SUPER_ADMIN manual CRUD with `_changeReason`) | 2 |  |  | 1 |  | 1 |  |
-| F-30 | Dashboard, dashboard cards, stats, home / module guide | 1 |  |  |  |  | 1 |  |
-| F-31 | System health, deployment check, debug traces, version history, help articles | 4 | 1 |  |  |  | 3 |  |
-| F-32 | LDAP config / test / login path | 1 |  |  |  |  |  | 1 |
-| F-33 | Guest cleaning request (public, unlimited, writes an audit row) | 1 |  |  |  |  |  | 1 |
-| F-34 | SUPER_ADMIN API lock (kill switch, fail-open on DB error) | 1 |  |  | 1 |  |  |  |
-| F-35 | Profile, photo upload (MIME + magic bytes), display settings, themes, branding | 2 | 1 |  |  |  | 1 |  |
-| F-36 | Tablet shell: server discovery, server config, login, online/offline detection, tablet access by role, Android back | 2 | 2 |  |  |  |  |  |
-| F-37 | Scheduled jobs: session sweep, password expiry, log retention, PM overdue; Windows backup task | 2 | 2 |  |  |  |  |  |
-| F-38 | Operational logging (8 channels, refusal log, redaction) | 3 | 1 |  |  |  | 2 |  |
-| F-39 | Installer / services / upgrade (WinSW, provision-db, apply-addresses, LAN cert) | 4 |  |  |  |  | 2 | 2 |
-| F-40 | Load, soak, volume (already measured 2026-10-17/19) | 1 |  |  |  |  |  | 1 |
-| F-41 | Permission governance (grant-set guard, reason on permission / sidebar saves, role-name cap, default role catalogue) | 4 | 1 | 1 |  |  | 2 |  |
-| F-42 | API error mapping and input hardening | 5 | 2 |  |  | 1 | 2 |  |
-| F-43 | Tablet certificate, per-site APK and server discovery | 2 |  |  |  |  | 2 |  |
+| Feature | Name | Rows | AUTO-PASS | AUTO-SHARED | EXECUTED | AUTO-NEW | PROBE | PARTIAL | NOT YET TESTED |
+|---|---|---|---|---|---|---|---|---|---|
+| F-01 | Login, logout, refresh, session expiry / conflict, tablet login gate | 8 | 4 |  |  |  |  | 3 | 1 |
+| F-02 | Password policy, change, expiry, history, forced change, lockout | 4 | 1 |  |  |  |  | 3 |  |
+| F-03 | Forgot password, admin requests (public create → approve/reject), contact admin, user lookup | 2 |  |  |  |  |  | 1 | 1 |
+| F-04 | Re-authentication (electronic signature): gates, `_currentPassword` stripping, REAUTH_* audit rows, legacy-shape health | 4 | 1 |  |  |  |  | 2 | 1 |
+| F-05 | Users: create / edit / disable / unlock / reset / role change / bulk delete / hierarchy guard | 4 | 3 |  |  |  |  | 1 |  |
+| F-06 | Roles & Access: roles CRUD, permission tree, sidebar items, role config, escalation guard | 7 | 3 |  |  |  |  | 2 | 2 |
+| F-07 | Access matrix, tablet access, action re-auth config pages | 4 | 2 |  |  |  |  | 1 | 1 |
+| F-08 | Dynamic config (38 defs): GET/PUT, `/current` public reads, secret redaction, partial merge | 5 | 5 |  |  |  |  |  |  |
+| F-09 | Hierarchy: Block / Area / AHU / Filter create-edit-delete, active-name uniqueness, parent must be active | 7 | 1 |  |  |  |  | 4 | 2 |
+| F-10 | Filter creation approval: submit → review → approve / reject → resubmit; bulk upload + validate | 7 | 1 |  |  |  |  | 3 | 3 |
+| F-11 | RFID identifiers: assign / unassign / re-tag = replace flow, normaliser, tag release on retired filter | 4 | 2 |  |  |  |  | 2 |  |
+| F-12 | Cleaning cycle engine: start / advance / checklist / dryer two-step / bypass / terminate / complete; decision tape; tape version | 23 | 9 | 7 |  |  |  | 3 | 4 |
+| F-13 | Stage interlock approvals (WASH_OUT / DRY_OUT), queue, approve / reject / bulk-decide, different-approver rule | 8 | 4 |  |  |  |  | 3 | 1 |
+| F-14 | AHU completion gate / readiness, set chooser, remaining filters | 1 | 1 |  |  |  |  |  |  |
+| F-15 | Bulk operate (50–100 tags): partial success, per-item tx + audit, reauth once | 1 | 1 |  |  |  |  |  |  |
+| F-16 | Offline queue + sync engine + offline replay (grant, token, time window, exempt gates, missed-PM write-offs) | 13 | 9 |  |  |  |  | 3 | 1 |
+| F-17 | Block change requests: request → approve / reject; single-use approval at cycle start; NONE/CONFIRM/APPROVAL modes | 4 |  |  |  |  |  | 2 | 2 |
+| F-18 | PM schedules: upload (append-only), separation rule, approve / reject / edit / resubmit, QNN | 15 | 3 |  |  | 8 |  | 3 | 1 |
+| F-19 | PM execution, My Tasks, due tasks, missed-PM gate + write-offs, overdue deviations (cron), deviations page | 9 | 2 |  |  | 2 |  | 2 | 3 |
+| F-20 | Replacement schedule: xlsx upload, approve / reject / resubmit, due / tasks / blocked, execute replacement | 3 | 1 |  |  |  |  | 2 |  |
+| F-21 | Retire / replace / unretire (incl. SUPER_ADMIN unretire that hard-deletes replacement history) | 4 | 1 |  |  | 1 |  | 2 |  |
+| F-22 | Cleaning profiles (lineage versioning), checklist profiles (disable rule, versions), filter profiles, equipment groups (3 instruments, ranges, readings fetch) | 10 | 3 |  |  |  |  | 5 | 2 |
+| F-23 | Cleaning record, cycles list, cycle timeline, filter traceability, lifecycle report, RFID track record, QNN page | 2 | 1 |  |  |  |  | 1 |  |
+| F-24 | Exports (PDF / Excel) + report-export-log gate + export limit | 4 | 2 |  |  |  |  | 1 | 1 |
+| F-25 | Report reviews (e-signature flow) — note: "Send for Review" button is dead on all 10 pages (C-01) | 2 |  |  |  |  | 1 | 1 |  |
+| F-26 | Audit trail: list / detail / visibility rules / redact / edit / hard delete / verify-chain / hash chain | 5 |  |  |  |  |  | 3 | 2 |
+| F-27 | Notifications (in-app), rules, email / SMS delivery, templates, logs, user groups | 7 | 4 |  |  | 1 |  | 1 | 1 |
+| F-28 | Backup: export (dump/json/bak/sql/csv), validate, restore with chain check + audit-row preservation | 4 |  |  | 2 |  |  | 1 | 1 |
+| F-29 | Filter Data Management console (SUPER_ADMIN manual CRUD with `_changeReason`) | 2 |  |  |  | 1 |  | 1 |  |
+| F-30 | Dashboard, dashboard cards, stats, home / module guide | 1 |  |  |  |  |  | 1 |  |
+| F-31 | System health, deployment check, debug traces, version history, help articles | 4 | 1 |  |  |  |  | 3 |  |
+| F-32 | LDAP config / test / login path | 1 |  |  |  |  |  |  | 1 |
+| F-33 | Guest cleaning request (public, unlimited, writes an audit row) | 1 |  |  |  |  |  |  | 1 |
+| F-34 | SUPER_ADMIN API lock (kill switch, fail-open on DB error) | 1 |  |  |  | 1 |  |  |  |
+| F-35 | Profile, photo upload (MIME + magic bytes), display settings, themes, branding | 2 | 1 |  |  |  |  | 1 |  |
+| F-36 | Tablet shell: server discovery, server config, login, online/offline detection, tablet access by role, Android back | 2 | 2 |  |  |  |  |  |  |
+| F-37 | Scheduled jobs: session sweep, password expiry, log retention, PM overdue; Windows backup task | 2 | 2 |  |  |  |  |  |  |
+| F-38 | Operational logging (8 channels, refusal log, redaction) | 3 | 1 |  |  |  |  | 2 |  |
+| F-39 | Installer / services / upgrade (WinSW, provision-db, apply-addresses, LAN cert) | 4 |  |  |  |  |  | 2 | 2 |
+| F-40 | Load, soak, volume (already measured 2026-10-17/19) | 1 |  |  |  |  |  |  | 1 |
+| F-41 | Permission governance (grant-set guard, reason on permission / sidebar saves, role-name cap, default role catalogue) | 4 | 1 | 1 |  |  |  | 2 |  |
+| F-42 | API error mapping and input hardening | 5 | 2 |  |  |  | 1 | 2 |  |
+| F-43 | Tablet certificate, per-site APK and server discovery | 2 |  |  |  |  |  | 2 |  |
 
 ### Tests written after the 7cb6dba run (working tree, not verified)
 
@@ -203,18 +204,20 @@ result). **All of them must be re-mapped after the next full run.**
 |---|---|---|---|---|---|
 | AUTO-PASS | 17 | 34 | 20 | 3 | 74 |
 | AUTO-SHARED | 1 | 3 | 4 | 0 | 8 |
-| AUTO-NEW | 6 | 3 | 6 | 1 | 16 |
+| EXECUTED | 1 | 1 | 0 | 0 | 2 |
+| AUTO-NEW | 5 | 2 | 6 | 1 | 14 |
 | PROBE | 0 | 1 | 0 | 1 | 2 |
 | PARTIAL | 16 | 31 | 21 | 3 | 71 |
 | NOT YET TESTED | 3 | 21 | 9 | 2 | 35 |
 | **Total** | **43** | **93** | **60** | **10** | **206** |
 
-- **Fully covered by a test in a recorded run:** 82 of 206 (40 %) — AUTO-PASS (10-21 run) + AUTO-SHARED (10-19 run).
+- **Fully covered by a test or runtime run on record:** 84 of 206 (41 %) — AUTO-PASS (10-21 suite run) + AUTO-SHARED (10-19 shared run) + EXECUTED (campaign deliverables of 2026-10-22: BR-100 / BR-101 per `05-database-testing.md` §3.4).
 - **Partly covered:** 71 (PARTIAL — the GAP part is open).
-- **Covered only by tests that no recorded run has executed:** 16 (AUTO-NEW).
+- **Covered only by tests that no recorded run has executed:** 14 (AUTO-NEW).
 - **Covered only by a black-box probe result:** 2 (PROBE).
 - **No test at all:** 35 (NOT YET TESTED, of which 1 blocked on a device or clean VM).
 - 14 rows describe an operator decision (DOCUMENTED DECISION) and are tested as such.
+- Counts recomputed 2026-10-22 after BR-100 / BR-101 moved AUTO-NEW → NOT YET TESTED (quarantined test) → EXECUTED (05 §3.4).
 
 ---
 
@@ -533,8 +536,8 @@ the module named earlier in the same cell. Line numbers are at 7cb6dba.
 | Feature | Requirement / business rule | Test ID | Test type | Preconditions | Test data | Steps | Expected result | Actual result | Status | Severity |
 |---|---|---|---|---|---|---|---|---|---|---|
 | F-28 | BR-099 — CHANGED 10-19/21: restore refuses (a) for non-SA callers any file this server did not sign (403 BACKUP_UNSIGNED) — SA may restore unsigned JSON/SQL; `.dump` archives SA-only; (b) audit rows that fail chain verification unless `force=true` (400 BACKUP_AUDIT_CHAIN_INVALID + chainReport; forced recorded on BACKUP_RESTORED); (c) a file missing tables the DB has unless `force` (400 BACKUP_INCOMPLETE) (`backup.service.ts:621-623, 936-950`; `backup.repository.ts:497,518,549`; `backup/routes.ts:154-160`) | `apps/api/src/modules/backup/__tests__/backup.service.test.ts` › "refuses an unsigned backup for a non-SUPER_ADMIN caller (403 BACKUP_UNSIGNED)"; `backup.repository.test.ts` › "refuses a backup that omits audit_trail, naming the §11 consequence" +3; `backup-chain.test.ts` › "reports a broken chain link when a row is removed from the middle" +6 | Unit | mocked prisma / in-memory rows | in test | `npx vitest run src/modules/backup` | 403 / 400 refusals; force bypasses incomplete guard; GAP: the restore route returning 400 BACKUP_AUDIT_CHAIN_INVALID and `forced:true` on the audit row are not tested end to end | Green in the 7cb6dba full run reported by team-lead (not re-run here) | PARTIAL | Critical |
-| F-28 | BR-100 — Restore never destroys live audit rows the backup lacks (`preserveUnbackedAuditRows`, keep table `audit_trail_keep` / `digilog_keep.audit_trail`) and never writes the export sentinel `__BACKUP_STRIPPED__` over live password hashes / history (`backup.repository.ts:591-687, 721`; `backup.service.ts:653`) | AUTO-NEW `apps/api/src/e2e/backup-restore-scratch.test.ts` › "restores the data, keeps live credentials, and preserves every audit row written after the backup (F5)"; › "restores schema + data, keeps audit rows written after the dump, and the API keeps working"; TR-100 | API e2e (real pg_dump / pg_restore) | digilog_test_db (or `digilog_restore_perf`) | export JSON at T0; write 5 audit rows + change a user password at T1 | restore the T0 file as SA with password; count audit rows; log in with the T1 password | the 5 post-backup audit rows still present and chain-linked; user logs in with the T1 password (sentinel not applied); BACKUP_RESTORED row | Written after the 7cb6dba run; not verified (seen at assembly, after tracing) | AUTO-NEW | Critical |
-| F-28 | BR-101 — `.dump` restore takes a safety pg_dump first, runs `pg_restore --single-transaction --exit-on-error`, and on failure restores the safety dump; a failed rollback is reported as RESTORE_FAILED_NO_ROLLBACK and the safety file is kept (`backup.service.ts:603-675`) | AUTO-NEW `apps/api/src/e2e/backup-restore-scratch.test.ts` › "a corrupt archive is rolled back to the pre-restore state (400 RESTORE_FAILED)"; › "restore and rollback both failing is 500 RESTORE_FAILED_NO_ROLLBACK and the safety dump is kept"; › "restore: a missing pg_dump stops BEFORE anything destructive (503)"; TR-101 | API e2e (real pg_dump / pg_restore) | `digilog_restore_perf` only; pg_dump/pg_restore on PATH | a deliberately corrupt `.dump` | POST `/api/backup/restore` (SA + password) with the corrupt file | 500 RESTORE_FAILED; DB content equal to pre-restore (row counts + max chain_position); `pre-restore-safety.dump` written | Written after the 7cb6dba run; not verified (seen at assembly, after tracing) | AUTO-NEW | High |
+| F-28 | BR-100 — Restore never destroys live audit rows the backup lacks (`preserveUnbackedAuditRows`, keep table `audit_trail_keep` / `digilog_keep.audit_trail`) and never writes the export sentinel `__BACKUP_STRIPPED__` over live password hashes / history (`backup.repository.ts:591-687, 721`; `backup.service.ts:653`) | `test-results/05-database-testing.md` §3.4 (`br100-101.mts`, app's own `backup.service` in a separate tsx process on `digilog_restore_perf`) | Service+DB runtime run (real pg_dump / pg_restore) | `digilog_restore_perf` reloaded to the go-live copy; exact-name + `*_perf` guards | per format: backup, then 6 audit rows written AFTER it (3 ordinary, a `REAUTH_SUCCESS`, a row signed under it, the export's `BACKUP_CREATED`) + a marker notification | JSON, BAK and pg_dump: back up → write → restore → compare ids, positions, checksums, links, payload hashes | the post-backup audit rows survive unchanged and chain-linked; marker reverted; `BACKUP_RESTORED` chains after them | **PASS** per 05 §3.4 (EXECUTED 2026-10-22 by cov-api-core): JSON, BAK and pg_dump each 6 of 6 rows present and identical, positions unchanged, `auditRowsPreserved: 6`, chain intact, sequence = max. Password-hash half (no sentinel over live hashes) is covered only indirectly: the 05 §3.2 round trip found `users` content identical except a timestamp truncation (D-DB-5). The quarantined `e2e/backup-restore-scratch` test does not count. | EXECUTED 2026-10-22 | Critical |
+| F-28 | BR-101 — `.dump` restore takes a safety pg_dump first, runs `pg_restore --single-transaction --exit-on-error`, and on failure restores the safety dump; a failed rollback is reported as RESTORE_FAILED_NO_ROLLBACK and the safety file is kept (`backup.service.ts:603-675`) | `test-results/05-database-testing.md` §3.4 (`br100-101.mts` on `digilog_restore_perf`); TR-101b for the NO_ROLLBACK branch | Service+DB runtime run (real pg_dump / pg_restore) | `digilog_restore_perf`; 5 live audit rows written first | a valid in-app `.dump` (9.6 MB) cut to its first 60 % (interrupted transfer) | `restoreDump` with the truncated file; compare every table (count + row hash), the 3 sequences, schemas, indexes, triggers, constraints and `verifyAuditChain()` before / after | `RESTORE_FAILED` "rolled back to its pre-restore state"; database unchanged | **PASS** per 05 §3.4 (EXECUTED 2026-10-22 by cov-api-core): 61 tables 0 changed, sequences / indexes / triggers / constraints identical, the 5 live rows present, chain intact, 0 `BACKUP_RESTORED` rows. Found while testing: the failure path leaves schema `digilog_keep` (a trigger-less copy of the whole audit trail) behind — **D-DB-10**. Not exercised: the RESTORE_FAILED_NO_ROLLBACK branch (rollback itself failing; TR-101b). The quarantined `e2e/backup-restore-scratch` test does not count. | EXECUTED 2026-10-22 | High |
 | F-28 | BR-102 — Restore upload is capped at 100 MB → 413 BACKUP_TOO_LARGE (`backup/routes.ts:79,127`) | TR-102 | API e2e | SA token + password | 101 MB file | POST `/api/backup/restore` | 413 BACKUP_TOO_LARGE; nothing restored | — | NOT YET TESTED | Low |
 
 ### F-29 — Filter Data Management console (SUPER_ADMIN manual CRUD with `_changeReason`)
@@ -769,11 +772,9 @@ These need the next full run (AUTO-NEW) or a re-run of the probe on a build that
 | Critical | BR-047 | F-18 | AUTO-NEW | PM segregation of duties by USER: the submitter may not review, approve or reject; the reviewer may not approve or reject; SUPER_ADMIN NOT exempt (`assertNotOwnEntry` `pm |
 | Critical | BR-066b | F-21 | AUTO-NEW | Unretire restores the parent from body ∥ `_preRetireParentId` ∥ the replacement's parent; the parent must exist and be active → 409 `PARENT_INACTIVE` (`super-admin/routes |
 | Critical | BR-067 | F-29 | AUTO-NEW | Retirement record DELETE (FDM) refuses with 409 `HAS_HISTORY` naming every cleaning cycle, filter event, identifier and child the filter still has (`super-admin/routes.ts |
-| Critical | BR-100 | F-28 | AUTO-NEW | Restore never destroys live audit rows the backup lacks (`preserveUnbackedAuditRows`, keep table `audit_trail_keep` / `digilog_keep.audit_trail`) and never writes the exp |
 | Critical | BR-122 | F-34 | AUTO-NEW | With `super-admin-api-access` OFF a SUPER_ADMIN reaches only 7 method+path pairs (403 SUPER_ADMIN_API_LOCKED otherwise); the flip needs always-on re-auth TOGGLE_SUPER_ADM |
 | High | BR-012 | F-19 | AUTO-NEW | In the due-tasks view `skippedAt` outranks the "cleaned" credit computation (an overdue entry otherwise gets unbounded credit from any later PM cleaning) → status `skippe |
 | High | BR-040b | F-18 | AUTO-NEW | Separation enforced on schedule create (`pm-schedule-crud.ts:51`) and replace/PUT (`pm-schedule-crud.ts:139`) via `assertSetSeparation` → 409 `PM_VISIT_OVERLAP`, nothing  |
-| High | BR-101 | F-28 | AUTO-NEW | `.dump` restore takes a safety pg_dump first, runs `pg_restore --single-transaction --exit-on-error`, and on failure restores the safety dump; a failed rollback is report |
 | High | NR-27 | F-25 | PROBE | Report reviews are gated by permissions, not by role: submit `REPORT_REVIEW_SUBMIT` (+R `SUBMIT_REPORT_REVIEW`), read any of the three, review `REPORT_REVIEW` (+RA `REVIE |
 | Medium | BR-042 | F-18 | AUTO-NEW | Upload row validation: AHU must exist (`pm-import.ts:136`), `scheduled_date` YYYY-MM-DD or DD-MM-YYYY (:172), `tolerance_days` 0–365, blank → settings default (:178-186); |
 | Medium | BR-043 | F-18 | AUTO-NEW | One ACTIVE PM schedule per (AHU, year): app check `pm-schedule-crud.ts:44-46` → 409 `CONFLICT`; DB `@@unique([entityId, year, version])` `apps/api/prisma/schema.prisma:11 |
