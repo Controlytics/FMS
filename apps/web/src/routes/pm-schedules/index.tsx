@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/use-auth';
 import { useCan } from '../../hooks/use-can';
 import { useReauth } from '../../hooks/use-reauth';
 import { ReauthDialog } from '../../components/reauth-dialog';
+import { DecisionRemarksDialog } from '../../components/decision-remarks-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config';
@@ -241,6 +242,8 @@ export function PmScheduleListPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectDialog, setRejectDialog] = useState<string[] | null>(null);
+  // A review or an approval asks for remarks first (D03-13, 2026-10-22).
+  const [decideFor, setDecideFor] = useState<{ ids: string[]; step: 'review' | 'approve' } | null>(null);
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [rejectStage, setRejectStage] = useState<'review' | 'approval'>('approval');
   const [processing, setProcessing] = useState(false);
@@ -518,13 +521,14 @@ export function PmScheduleListPage() {
 
   // ─── Approval actions ───
 
-  const handleApprove = (ids: string[]) => {
+  const handleApprove = (ids: string[], remarks: string) => {
     setProcessing(true);
     reauth.execute('APPROVE_PM_SCHEDULE', async (password?: string) => {
-      if (password) await apiClient.postWithReauth('/api/pm-schedules/entries/approve', { entryIds: ids }, password);
-      else await apiClient.post('/api/pm-schedules/entries/approve', { entryIds: ids });
+      const body = { entryIds: ids, comment: remarks };
+      if (password) await apiClient.postWithReauth('/api/pm-schedules/entries/approve', body, password);
+      else await apiClient.post('/api/pm-schedules/entries/approve', body);
     }, {
-      onSuccess: () => { toast.success('Approved', `${ids.length} entry(s) approved`); setSelected(new Set()); refreshAll(); setProcessing(false); },
+      onSuccess: () => { toast.success('Approved', `${ids.length} entry(s) approved`); setDecideFor(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
       onCancel: () => setProcessing(false),
     });
@@ -545,14 +549,14 @@ export function PmScheduleListPage() {
   const ahuList = (ahuListData?.data ?? []) as Array<{ id: string; name: string }>;
 
   // Review step (3-step workflow): send a reviewed entry on to approval.
-  const handleReviewApprove = (ids: string[]) => {
+  const handleReviewApprove = (ids: string[], remarks: string) => {
     setProcessing(true);
     reauth.execute('REVIEW_PM_SCHEDULE', async (password?: string) => {
-      const body = { entryIds: ids, action: 'approve' as const };
+      const body = { entryIds: ids, action: 'approve' as const, remarks };
       if (password) await apiClient.postWithReauth('/api/pm-schedules/entries/review', body, password);
       else await apiClient.post('/api/pm-schedules/entries/review', body);
     }, {
-      onSuccess: () => { toast.success('Reviewed', `${ids.length} entry(s) sent for approval`); setSelected(new Set()); refreshAll(); setProcessing(false); },
+      onSuccess: () => { toast.success('Reviewed', `${ids.length} entry(s) sent for approval`); setDecideFor(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
       onCancel: () => setProcessing(false),
     });
@@ -904,7 +908,7 @@ export function PmScheduleListPage() {
           <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
             {selectedForReview.length > 0 && (
               <>
-                <button onClick={() => handleReviewApprove(selectedForReview)} disabled={processing}
+                <button onClick={() => setDecideFor({ ids: selectedForReview, step: 'review' })} disabled={processing}
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 disabled:opacity-50 shadow-sm transition-all">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   Review selected ({selectedForReview.length})
@@ -917,7 +921,7 @@ export function PmScheduleListPage() {
             )}
             {selectedForApproval.length > 0 && (
               <>
-                <button onClick={() => handleApprove(selectedForApproval)} disabled={processing}
+                <button onClick={() => setDecideFor({ ids: selectedForApproval, step: 'approve' })} disabled={processing}
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   Approve selected ({selectedForApproval.length})
@@ -1130,7 +1134,7 @@ export function PmScheduleListPage() {
                                   )}
                                   {isReviewable(entry) && (
                                     <>
-                                      <button onClick={() => handleReviewApprove([entry.id])} disabled={processing}
+                                      <button onClick={() => setDecideFor({ ids: [entry.id], step: 'review' })} disabled={processing}
                                         className="whitespace-nowrap px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Review ✓
                                       </button>
@@ -1152,7 +1156,7 @@ export function PmScheduleListPage() {
                                   )}
                                   {isApprovable(entry) && (
                                     <>
-                                      <button onClick={() => handleApprove([entry.id])} disabled={processing}
+                                      <button onClick={() => setDecideFor({ ids: [entry.id], step: 'approve' })} disabled={processing}
                                         className="whitespace-nowrap px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
                                         Approve
                                       </button>
@@ -1201,6 +1205,16 @@ export function PmScheduleListPage() {
           />
         )}
       </div>
+
+      {/* ─── Review / approve: remarks first (D03-13) ─── */}
+      {decideFor && (
+        <DecisionRemarksDialog
+          title={`${decideFor.step === 'review' ? 'Review' : 'Approve'} ${decideFor.ids.length === 1 ? 'Entry' : `${decideFor.ids.length} Entries`}`}
+          confirmLabel={decideFor.step === 'review' ? 'Send for approval' : 'Approve'}
+          busy={processing}
+          onCancel={() => setDecideFor(null)}
+          onConfirm={(remarks) => (decideFor.step === 'review' ? handleReviewApprove : handleApprove)(decideFor.ids, remarks)} />
+      )}
 
       {/* ─── Reject Dialog ─── */}
       {rejectDialog && (

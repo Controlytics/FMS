@@ -164,9 +164,10 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
   const submit = () => {
     if (!dlg) return;
     const { item, action } = dlg;
-    if (action === 'reject' && remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
+    // An approval says why too, not only a rejection (D03-13, 2026-10-22).
+    if (remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
     const url = `/api/stage-approvals/${item.id}/${action}`;
-    const body: Record<string, unknown> = { remarks: remarks.trim() || undefined };
+    const body: Record<string, unknown> = { remarks: remarks.trim() };
     const reauthAction = action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE';
 
     setBusy(true);
@@ -191,8 +192,8 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
     if (ids.length === 0) { setBulkDlg(null); return; }
     // Backend caps the batch at 200 — give a clear message instead of a raw 400.
     if (ids.length > 200) { toast.error('Too many selected', 'Approve/reject at most 200 at a time.'); return; }
-    if (action === 'reject' && remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
-    const cleanRemarks = remarks.trim() || undefined;
+    if (remarks.trim().length < 3) { toast.error('Remarks required', 'Add at least 3 characters.'); return; }
+    const cleanRemarks = remarks.trim();
     const reauthAction = action === 'approve' ? 'APPROVE_CLEANING_STAGE' : 'REJECT_CLEANING_STAGE';
 
     setBusy(true);
@@ -409,10 +410,10 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
                 </p>
               )}
               <div>
-                <label htmlFor="stage-decision-remarks" className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <label htmlFor="stage-decision-remarks" className="text-xs font-semibold text-slate-500">Remarks <span className="text-rose-500">*</span></label>
                 <textarea id="stage-decision-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
-                  placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
+                  placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'What was checked (required)'} />
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2 shrink-0">
@@ -450,10 +451,10 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
                 </p>
               )}
               <div>
-                <label htmlFor="stage-bulk-remarks" className="text-xs font-semibold text-slate-500">Remarks {bulkDlg === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <label htmlFor="stage-bulk-remarks" className="text-xs font-semibold text-slate-500">Remarks <span className="text-rose-500">*</span></label>
                 <textarea id="stage-bulk-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
-                  placeholder={bulkDlg === 'reject' ? 'Reason for rejection (required, applies to all)' : 'Optional remarks (applies to all)'} />
+                  placeholder={bulkDlg === 'reject' ? 'Reason for rejection (required, applies to all)' : 'What was checked (required, applies to all)'} />
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-2">

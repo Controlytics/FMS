@@ -41,6 +41,14 @@ function setup(extra: MockRoute[] = [], base: BaseRouteOpts = {}, schedules: any
 }
 
 const rowOf = (text: string) => screen.getByText(text).closest('tr')! as HTMLElement;
+// A review or an approval asks for remarks first (D03-13, 2026-10-22).
+const REMARKS = 'checked on site';
+const decisionDialog = () => screen.getByRole('dialog', { name: /^(Review|Approve) (Entry|\d+ Entries)$/ });
+const decide = (remarks = REMARKS) => {
+  const dlg = decisionDialog();
+  fireEvent.change(within(dlg).getByLabelText(/Remarks/), { target: { value: remarks } });
+  fireEvent.click(within(dlg).getByRole('button', { name: /^(Send for approval|Approve)$/ }));
+};
 
 describe('Replacement Schedule page — table', () => {
   it('shows a loading state, then grouped rows with merged AHU numbering, NA cells and chips', async () => {
@@ -164,9 +172,21 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     // approval-stage rows are not reviewable by a reviewer
     expect(within(rowOf('305x610')).queryByRole('button', { name: 'Approve' })).toBeNull();
     fireEvent.click(within(rowOf('610x610')).getByRole('button', { name: 'Review ✓' }));
+    // remarks are required: the confirm stays disabled under 3 characters, Cancel sends nothing
+    const dlg = decisionDialog();
+    const confirm = within(dlg).getByRole('button', { name: 'Send for approval' });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dlg).getByLabelText(/Remarks/), { target: { value: ' ok ' } });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Review Entry' })).toBeNull();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/review')).toHaveLength(0);
+    fireEvent.click(within(rowOf('610x610')).getByRole('button', { name: 'Review ✓' }));
+    decide('  sizes match the drawing  ');
     expect(await screen.findByText('Reviewed')).toBeInTheDocument();
     expect(screen.getByText('1 entry sent for approval')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json).toEqual({ entryIds: ['e1'], action: 'approve' });
+    expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json).toEqual({ entryIds: ['e1'], action: 'approve', remarks: 'sizes match the drawing' });
+    expect(screen.queryByRole('dialog', { name: 'Review Entry' })).toBeNull();
   });
 
   it('an approver approves one entry; a refusal is shown and the buttons re-enable', async () => {
@@ -178,14 +198,17 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     await screen.findByText('305x610');
     const approveBtn = within(rowOf('305x610')).getByRole('button', { name: 'Approve' });
     fireEvent.click(approveBtn);
+    decide();
     expect(await screen.findByText('You reviewed this entry')).toBeInTheDocument();
     expect(screen.getByText('Error')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     await waitFor(() => expect(approveBtn).toBeEnabled());
-    fireEvent.click(approveBtn);
+    // the refusal leaves the remarks dialog open with what was typed, for the retry
+    expect(within(decisionDialog()).getByLabelText(/Remarks/)).toHaveValue(REMARKS);
+    fireEvent.click(within(decisionDialog()).getByRole('button', { name: 'Approve' }));
     // no `processed` in the response -> falls back to the request size
     expect(await screen.findByText('1 entry approved')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[1].json).toEqual({ entryIds: ['e2'] });
+    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[1].json).toEqual({ entryIds: ['e2'], comment: REMARKS });
   });
 
   it('reject at review needs 3+ characters of remarks and posts action=reject with trimmed remarks', async () => {
@@ -233,8 +256,9 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     expect(screen.queryByText('1 entry selected')).toBeNull();
     fireEvent.click(within(rowOf('305x610')).getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Approve selected (1)' }));
+    decide();
     expect(await screen.findByText('1 entry approved')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[0].json).toEqual({ entryIds: ['e2'] });
+    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[0].json).toEqual({ entryIds: ['e2'], comment: REMARKS });
     // selection cleared after success
     expect(within(rowOf('305x610')).getByRole('checkbox')).not.toBeChecked();
   });
@@ -264,9 +288,12 @@ describe('Replacement Schedule page — review / approve / reject', () => {
   it('bulk as SUPER_ADMIN: Review selected sends only the review-stage rows', async () => {
     const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/review', body: { processed: 3 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Review selected (2)' }));
+    expect(screen.getByRole('dialog', { name: 'Review 2 Entries' })).toBeInTheDocument();
+    decide();
     expect(await screen.findByText('3 entries sent for approval')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json.entryIds.sort()).toEqual(['e1', 'e6']);
+    expect(api.calls('POST', '/api/replacement-schedules/entries/review')[0].json.remarks).toBe(REMARKS);
     expect(screen.queryByText('4 entries selected')).toBeNull();
     // a finished action re-enables the bulk bar: the next selection can act again
     fireEvent.click(screen.getAllByRole('checkbox')[0]);
@@ -301,8 +328,11 @@ describe('Replacement Schedule page — review / approve / reject', () => {
   it('bulk as SUPER_ADMIN: Approve selected (n) approves the approval-stage rows', async () => {
     const api = await renderBulkSa([{ method: 'POST', path: '/api/replacement-schedules/entries/approve', body: { processed: 2 } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Approve selected (2)' }));
+    expect(screen.getByRole('dialog', { name: 'Approve 2 Entries' })).toBeInTheDocument();
+    decide();
     expect(await screen.findByText('2 entries approved')).toBeInTheDocument();
     expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[0].json.entryIds.sort()).toEqual(['e2', 'e5']);
+    expect(api.calls('POST', '/api/replacement-schedules/entries/approve')[0].json.comment).toBe(REMARKS);
   });
 
   it('a gated approval prompts for the password and signs; cancelling silently re-enables the buttons', async () => {
@@ -312,15 +342,18 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     const approveBtn = within(rowOf('305x610')).getByRole('button', { name: 'Approve' });
     fireEvent.click(approveBtn);
+    decide();
     expect(await screen.findByText(/Performing "Approve Replacement Schedule" requires identity verification/)).toBeInTheDocument();
     expect(approveBtn).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const pw = screen.getByPlaceholderText('Enter your password');
+    fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(approveBtn).toBeEnabled());
     // a dismissed prompt is a choice, not a failure: no error dialog
     expect(screen.queryByText(/Cancelled/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
     expect(api.calls('POST', '/api/replacement-schedules/entries/approve')).toHaveLength(0);
-    fireEvent.click(approveBtn);
+    // the remarks dialog is still open with the remarks kept; confirming again asks for the password
+    fireEvent.click(within(decisionDialog()).getByRole('button', { name: 'Approve' }));
     await passReauth();
     expect(await screen.findByText('1 entry approved')).toBeInTheDocument();
     expectSigned(api.calls('POST', '/api/replacement-schedules/entries/approve')[0]);
@@ -333,9 +366,10 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     const reviewBtn = within(rowOf('610x610')).getByRole('button', { name: 'Review ✓' });
     fireEvent.click(reviewBtn);
-    await screen.findByPlaceholderText('Enter your password');
+    decide();
+    const pw = await screen.findByPlaceholderText('Enter your password');
     expect(reviewBtn).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(within(pw.closest('.max-w-lg') as HTMLElement).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(reviewBtn).toBeEnabled());
     expect(screen.queryByText(/Cancelled/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
@@ -375,6 +409,7 @@ describe('Replacement Schedule page — review / approve / reject', () => {
     renderPage(<ReplacementSchedulePage />, { user: MANAGER, api });
     await screen.findByText('610x610');
     fireEvent.click(within(rowOf('610x610')).getByRole('button', { name: 'Review ✓' }));
+    decide();
     await passReauth();
     expect(await screen.findByText('1 entry sent for approval')).toBeInTheDocument();
     const calls = api.calls('POST', '/api/replacement-schedules/entries/review');

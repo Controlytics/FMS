@@ -91,6 +91,9 @@ const okDialog = async (title: string, message?: string | RegExp) => {
   fireEvent.click(within(dlg).getByRole('button', { name: 'OK' }));
 };
 
+// Every decision carries remarks, approvals too (D03-13, 2026-10-22).
+const REMARKS = 'looks clean';
+
 describe('eventsForApproval', () => {
   const ev = (toState: string, kind?: string, eventType = 'STATE_TRANSITION') => ({ id: `${toState}-${kind ?? ''}`, eventType, toState, attributes: kind ? { kind } : {} });
   it('a Wash Out approval edits the Wash In + Wash Out steps, never the interlock reject row', () => {
@@ -209,6 +212,7 @@ describe('Stage Approvals — permissions and segregation of duties', () => {
     expect(await screen.findByText('2 selected')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select FLT-self' })).not.toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     const dlg = screen.getByRole('heading', { name: 'Approve 2 stages' }).closest('.bg-white') as HTMLElement;
     expect(dlg).toHaveTextContent('Your password signs all 2 approvals below.');
     expect(within(dlg).getByText('FLT-a')).toBeInTheDocument();
@@ -217,7 +221,7 @@ describe('Stage Approvals — permissions and segregation of duties', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'Approve 2' }));
     await okDialog('Done', '2 stages approved');
     const [post] = api.calls('POST', '/api/stage-approvals/bulk-decide');
-    expect(post.json).toEqual({ ids: ['a', 'b'], action: 'approve' });
+    expect(post.json).toEqual({ ids: ['a', 'b'], action: 'approve', remarks: REMARKS });
     // The queue re-reads after the decision and the selection is cleared.
     await waitFor(() => expect(api.calls('GET', '/api/stage-approvals/queue').length).toBeGreaterThan(1));
     expect(screen.getByText('Select all')).toBeInTheDocument();
@@ -250,18 +254,24 @@ describe('Stage Approvals — single decision', () => {
     const { api } = open(DECIDER, routes(undefined, undefined, [{ method: 'POST', path: '/api/stage-approvals/a/approve', body: { ok: true } }]));
     await screen.findByText('FLT-a');
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     expect(screen.getByRole('heading', { name: 'Verify & approve stage' })).toBeInTheDocument();
     expect(screen.getByText('Wash Out — FLT-a')).toBeInTheDocument();
     for (const [label, value] of [['Micron Size', '5'], ['Filter Type', 'HEPA'], ['Filter Dimensions', '610x610'], ['Filter Set', 'SET_A']]) {
       expect(screen.getByText(label).nextSibling).toHaveTextContent(value);
     }
     expect(screen.getByTestId('stage-details')).toHaveTextContent('Cleaned by');
-    expect(screen.getByPlaceholderText('Optional remarks')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('What was checked (required)')).toBeInTheDocument();
     expect(screen.queryByText(/Rejecting sends this filter back/)).toBeNull();
+    // an approval needs remarks too (D03-13): fewer than 3 characters sends nothing
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: ' ok ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await okDialog('Remarks required', 'Add at least 3 characters.');
+    expect(api.calls('POST', '/api/stage-approvals/a/approve')).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: `  ${REMARKS}  ` } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await okDialog('Done', 'Cleaning stage approved');
-    // Remarks were left blank, so none are sent.
-    expect(api.calls('POST', '/api/stage-approvals/a/approve')[0].json).toEqual({});
+    expect(api.calls('POST', '/api/stage-approvals/a/approve')[0].json).toEqual({ remarks: REMARKS });
     expect(screen.queryByRole('heading', { name: 'Verify & approve stage' })).toBeNull();
     await waitFor(() => expect(api.calls('GET', '/api/stage-approvals/queue').length).toBeGreaterThan(1));
     await waitFor(() => expect(api.calls('GET', '/api/stage-approvals').length).toBeGreaterThan(1));
@@ -293,6 +303,7 @@ describe('Stage Approvals — single decision', () => {
     ]));
     await screen.findByText('FLT-a');
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await okDialog('Failed', 'You performed this stage');
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
@@ -308,13 +319,14 @@ describe('Stage Approvals — single decision', () => {
     await waitReauthConfig(api);
     await waitFor(() => {}); // let the my-actions answer land in SWR
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
-    fireEvent.change(screen.getByPlaceholderText('Optional remarks'), { target: { value: 'ok' } });
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
+    fireEvent.change(screen.getByPlaceholderText('What was checked (required)'), { target: { value: 'checked' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await passReauth();
     await okDialog('Done', 'Cleaning stage approved');
     const [post] = api.calls('POST', '/api/stage-approvals/a/approve');
     expectSigned(post);
-    expect(post.json.remarks).toBe('ok');
+    expect(post.json.remarks).toBe('checked');
   });
 
   it('a server that demands re-auth anyway (stale config) gets the prompt retroactively', async () => {
@@ -324,6 +336,7 @@ describe('Stage Approvals — single decision', () => {
     ]));
     await screen.findByText('FLT-b');
     fireEvent.click(within(rowEl('FLT-b')).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await passReauth();
     await okDialog('Done', 'Cleaning stage approved');
@@ -354,6 +367,7 @@ describe('Stage Approvals — single decision', () => {
     open();
     await screen.findByText('FLT-a');
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     const heading = screen.getByRole('heading', { name: 'Verify & approve stage' });
     fireEvent.click(heading); // inside: stays
     expect(screen.getByRole('heading', { name: 'Verify & approve stage' })).toBeInTheDocument();
@@ -396,13 +410,15 @@ describe('Stage Approvals — bulk decisions', () => {
     await screen.findByText('FLT-a');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
-    fireEvent.change(screen.getByPlaceholderText('Optional remarks (applies to all)'), { target: { value: 'checked' } });
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
+    fireEvent.change(screen.getByPlaceholderText('What was checked (required, applies to all)'), { target: { value: 'checked' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 2' }));
     await okDialog('Partially done', '1 approved, 1 failed: FLT-b');
     expect(api.calls('POST', '/api/stage-approvals/bulk-decide')[0].json.remarks).toBe('checked');
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 2' }));
     await okDialog('Failed', 'None approved: FLT-a, FLT-b');
   });
@@ -412,6 +428,7 @@ describe('Stage Approvals — bulk decisions', () => {
     await screen.findByText('FLT-a');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select FLT-a' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 1' }));
     // ok = selected - failed = 0, so it reads as a total failure.
     await okDialog('Failed', 'None approved: ghost');
@@ -425,6 +442,7 @@ describe('Stage Approvals — bulk decisions', () => {
     await screen.findByText('FLT-a');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select FLT-a' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 1' }));
     await okDialog('Failed', 'ids too long');
     expect(screen.getByRole('heading', { name: 'Approve 1 stage' })).toBeInTheDocument();
@@ -440,6 +458,7 @@ describe('Stage Approvals — bulk decisions', () => {
     await waitFor(() => {});
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 2' }));
     await passReauth();
     await okDialog('Done', '2 stages approved');
@@ -454,6 +473,7 @@ describe('Stage Approvals — bulk decisions', () => {
     await screen.findByText('FLT-m0');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (201)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 201' }));
     await okDialog('Too many selected', 'Approve/reject at most 200 at a time.');
     expect(api.calls('POST', '/api/stage-approvals/bulk-decide')).toHaveLength(0);
@@ -464,6 +484,7 @@ describe('Stage Approvals — bulk decisions', () => {
     await screen.findByText('FLT-a');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select FLT-a' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('heading', { name: 'Approve 1 stage' }));
     expect(screen.getByRole('heading', { name: 'Approve 1 stage' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -571,6 +592,7 @@ describe('Stage Approvals — rows without a filter name, plural reject, cycle-e
     expect(await screen.findByText('f-nn')).toBeInTheDocument();
     const r = screen.getByText('f-nn').closest('div.grid') as HTMLElement;
     fireEvent.click(within(r).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     expect(screen.getByText('Wash Out — f-nn')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select f-nn' }));
@@ -588,6 +610,7 @@ describe('Stage Approvals — rows without a filter name, plural reject, cycle-e
     await screen.findByText('f-nn');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select all' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (2)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve 2' }));
     await okDialog('Partially done', '1 approved, 1 failed: f-nn');
   });
@@ -621,11 +644,14 @@ describe('Stage Approvals — tablet back button (overlayBackRef)', () => {
     expect(pressBack(ref)).toBe(false);
 
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
+
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     expect(pressBack(ref)).toBe(true);
     expect(screen.queryByRole('heading', { name: 'Verify & approve stage' })).toBeNull();
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select FLT-a' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     expect(pressBack(ref)).toBe(true);
     expect(screen.queryByRole('heading', { name: 'Approve 1 stage' })).toBeNull();
 
@@ -641,6 +667,7 @@ describe('Stage Approvals — tablet back button (overlayBackRef)', () => {
     await waitReauthConfig(api);
     await waitFor(() => {});
     fireEvent.click(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await screen.findByPlaceholderText('Enter your password');
     expect(pressBack(ref)).toBe(true);

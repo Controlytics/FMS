@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useReauth } from '@/hooks/use-reauth';
+import { DecisionRemarksDialog } from '@/components/decision-remarks-dialog';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { apiClient, apiErrorFromResponse } from '@/lib/api-client';
 import { createReport } from '@/lib/pdf-report';
@@ -118,6 +119,8 @@ export function ReplacementSchedulePage() {
   const reauth = useReauth();
   const [busy, setBusy] = useState(false);
   const [rejectFor, setRejectFor] = useState<{ ids: string[]; stage: 'review' | 'approval' } | null>(null);
+  // A review or an approval asks for remarks first (D03-13, 2026-10-22).
+  const [decideFor, setDecideFor] = useState<{ ids: string[]; step: 'review' | 'approve' } | null>(null);
   // Bulk selection (2026-10-08) — entry ids, across pages.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rejectRemarks, setRejectRemarks] = useState('');
@@ -170,23 +173,23 @@ export function ReplacementSchedulePage() {
 
   // ─── Workflow actions (reuse the PM workflow config; reauth-gated) ───
   // Each takes a LIST of entry ids — one row or a bulk selection, one signature.
-  const reviewApprove = (ids: string[]) => {
+  const reviewApprove = (ids: string[], remarks: string) => {
     setBusy(true);
     let processed = ids.length;
     reauth.execute('REVIEW_REPLACEMENT_SCHEDULE', async (pw?: string) => {
-      const body = { entryIds: ids, action: 'approve' as const };
+      const body = { entryIds: ids, action: 'approve' as const, remarks };
       const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/review', body, pw) : await apiClient.post('/api/replacement-schedules/entries/review', body);
       if (typeof res?.processed === 'number') processed = res.processed;
-    }, { onSuccess: () => done('Reviewed', `${plural(processed)} sent for approval`), onError: onActionError, onCancel: onActionCancel });
+    }, { onSuccess: () => { setDecideFor(null); done('Reviewed', `${plural(processed)} sent for approval`); }, onError: onActionError, onCancel: onActionCancel });
   };
-  const approve = (ids: string[]) => {
+  const approve = (ids: string[], remarks: string) => {
     setBusy(true);
     let processed = ids.length;
     reauth.execute('APPROVE_REPLACEMENT_SCHEDULE', async (pw?: string) => {
-      const body = { entryIds: ids };
+      const body = { entryIds: ids, comment: remarks };
       const res: any = pw ? await apiClient.postWithReauth('/api/replacement-schedules/entries/approve', body, pw) : await apiClient.post('/api/replacement-schedules/entries/approve', body);
       if (typeof res?.processed === 'number') processed = res.processed;
-    }, { onSuccess: () => done('Approved', `${plural(processed)} approved`), onError: onActionError, onCancel: onActionCancel });
+    }, { onSuccess: () => { setDecideFor(null); done('Approved', `${plural(processed)} approved`); }, onError: onActionError, onCancel: onActionCancel });
   };
   const submitReject = () => {
     if (!rejectFor || rejectRemarks.trim().length < 3) return;
@@ -380,13 +383,13 @@ export function ReplacementSchedulePage() {
               <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
                 {selectedForReview.length > 0 && (
                   <>
-                    <button onClick={() => reviewApprove(selectedForReview)} disabled={busy} className="px-3 py-1.5 bg-sky-600 text-white text-xs font-semibold rounded-lg hover:bg-sky-700 disabled:opacity-50">Review selected ({selectedForReview.length})</button>
+                    <button onClick={() => setDecideFor({ ids: selectedForReview, step: 'review' })} disabled={busy} className="px-3 py-1.5 bg-sky-600 text-white text-xs font-semibold rounded-lg hover:bg-sky-700 disabled:opacity-50">Review selected ({selectedForReview.length})</button>
                     <button onClick={() => { setRejectFor({ ids: selectedForReview, stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-3 py-1.5 bg-white text-red-700 border border-red-300 text-xs font-semibold rounded-lg hover:bg-red-50 disabled:opacity-50">Reject at review ({selectedForReview.length})</button>
                   </>
                 )}
                 {selectedForApproval.length > 0 && (
                   <>
-                    <button onClick={() => approve(selectedForApproval)} disabled={busy} className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">Approve selected ({selectedForApproval.length})</button>
+                    <button onClick={() => setDecideFor({ ids: selectedForApproval, step: 'approve' })} disabled={busy} className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 disabled:opacity-50">Approve selected ({selectedForApproval.length})</button>
                     <button onClick={() => { setRejectFor({ ids: selectedForApproval, stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50">Reject ({selectedForApproval.length})</button>
                   </>
                 )}
@@ -457,13 +460,13 @@ export function ReplacementSchedulePage() {
                       <div className="inline-flex items-center gap-1.5 justify-end">
                         {canReview && e.approvalStatus === 'PENDING_REVIEW' && (
                           <>
-                            <button onClick={() => reviewApprove([e.id])} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
+                            <button onClick={() => setDecideFor({ ids: [e.id], step: 'review' })} disabled={busy} className="px-2.5 py-1 bg-sky-500 text-white text-[11px] font-semibold rounded-md hover:bg-sky-600 disabled:opacity-50">Review ✓</button>
                             <button onClick={() => { setRejectFor({ ids: [e.id], stage: 'review' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
                           </>
                         )}
                         {canApprove && (e.approvalStatus === 'PENDING_APPROVAL' || e.approvalStatus === 'PENDING') && (
                           <>
-                            <button onClick={() => approve([e.id])} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
+                            <button onClick={() => setDecideFor({ ids: [e.id], step: 'approve' })} disabled={busy} className="px-2.5 py-1 bg-emerald-500 text-white text-[11px] font-semibold rounded-md hover:bg-emerald-600 disabled:opacity-50">Approve</button>
                             <button onClick={() => { setRejectFor({ ids: [e.id], stage: 'approval' }); setRejectRemarks(''); }} disabled={busy} className="px-2.5 py-1 bg-red-500 text-white text-[11px] font-semibold rounded-md hover:bg-red-600 disabled:opacity-50">Reject</button>
                           </>
                         )}
@@ -567,6 +570,16 @@ export function ReplacementSchedulePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Review / approve: remarks first (D03-13) */}
+      {decideFor && (
+        <DecisionRemarksDialog
+          title={`${decideFor.step === 'review' ? 'Review' : 'Approve'} ${decideFor.ids.length === 1 ? 'Entry' : `${decideFor.ids.length} Entries`}`}
+          confirmLabel={decideFor.step === 'review' ? 'Send for approval' : 'Approve'}
+          busy={busy}
+          onCancel={() => setDecideFor(null)}
+          onConfirm={(remarks) => (decideFor.step === 'review' ? reviewApprove : approve)(decideFor.ids, remarks)} />
       )}
 
       {/* Reject dialog (review or approval stage) */}

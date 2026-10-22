@@ -36,6 +36,14 @@ function open(user: any, o: PmRouteOpts = {}) {
 }
 const entryReads = (api: ReturnType<typeof pmApi>) => api.calls('GET', '/api/pm-schedules/entries').filter((r) => !r.query.get('page'));
 const tile = (label: string) => screen.getByText(label, { selector: 'p' }).nextSibling as HTMLElement;
+// A review or an approval asks for remarks first (D03-13, 2026-10-22).
+const REMARKS = 'dates checked';
+const decisionDialog = () => screen.getByRole('dialog', { name: /^(Review|Approve) (Entry|\d+ Entries)$/ });
+const decide = (remarks = REMARKS) => {
+  const dlg = decisionDialog();
+  fireEvent.change(within(dlg).getByLabelText(/Remarks/), { target: { value: remarks } });
+  fireEvent.click(within(dlg).getByRole('button', { name: /^(Send for approval|Approve)$/ }));
+};
 const rejectDlg = () => screen.getByRole('heading', { name: /^Reject \d+ Entry\(s\)$/ }).closest('.max-w-md') as HTMLElement;
 
 describe('PM list — what is shown', () => {
@@ -175,8 +183,14 @@ describe('PM list — review step (workflow ON)', () => {
   it('the configured reviewer sends an entry on to approval', async () => {
     const api = open(REVIEWER, { entries: [pendingReview()], extra: [{ method: 'POST', path: '/api/pm-schedules/entries/review', body: { ok: true } }] });
     fireEvent.click(await screen.findByRole('button', { name: 'Review ✓' }));
+    // remarks are required: under 3 characters the confirm stays off; Cancel sends nothing
+    expect(within(decisionDialog()).getByRole('button', { name: 'Send for approval' })).toBeDisabled();
+    fireEvent.click(within(decisionDialog()).getByRole('button', { name: 'Cancel' }));
+    expect(api.calls('POST', '/api/pm-schedules/entries/review')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Review ✓' }));
+    decide('  dates match the plan  ');
     await okDialog('Reviewed', '1 entry(s) sent for approval');
-    expect(api.calls('POST', '/api/pm-schedules/entries/review')[0].json).toEqual({ entryIds: ['r1'], action: 'approve' });
+    expect(api.calls('POST', '/api/pm-schedules/entries/review')[0].json).toEqual({ entryIds: ['r1'], action: 'approve', remarks: 'dates match the plan' });
     // (The re-read after it goes through swr's GLOBAL mutate: see the globalCache test below.)
   });
 
@@ -185,6 +199,7 @@ describe('PM list — review step (workflow ON)', () => {
     const api = pmApi({ entries: [pendingReview()], extra: [{ method: 'POST', path: '/api/pm-schedules/entries/review', body: { ok: true } }] });
     renderPage(<PmScheduleListPage />, { user: REVIEWER, api, globalCache: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Review ✓' }));
+    decide();
     await okDialog('Reviewed');
     await waitFor(() => expect(entryReads(api).length).toBeGreaterThan(1));
     await waitFor(() => expect(api.calls('GET', '/api/pm-schedules/entries/pending-counts').length).toBeGreaterThan(1));
@@ -286,10 +301,14 @@ describe('PM list — approval step', () => {
       ],
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    decide();
     await okDialog('Error', 'Overlap with 12th');
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    // the refusal leaves the remarks dialog open with what was typed, for the retry
+    fireEvent.click(within(decisionDialog()).getByRole('button', { name: 'Approve' }));
     await okDialog('Approved', '1 entry(s) approved');
-    expect(api.calls('POST', '/api/pm-schedules/entries/approve').map((r) => r.json)).toEqual([{ entryIds: ['a1'] }, { entryIds: ['a1'] }]);
+    expect(api.calls('POST', '/api/pm-schedules/entries/approve').map((r) => r.json)).toEqual([
+      { entryIds: ['a1'], comment: REMARKS }, { entryIds: ['a1'], comment: REMARKS },
+    ]);
   });
 
   it('D2: rejecting a DATE CHANGE says the visit stays approved; a plain entry says it was rejected', async () => {
@@ -354,6 +373,7 @@ describe('PM list — approval step', () => {
     });
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    decide();
     await passReauth();
     await okDialog('Approved');
     expectSigned(api.calls('POST', '/api/pm-schedules/entries/approve')[0]);
@@ -380,13 +400,15 @@ describe('PM list — bulk (Super Admin is reviewer and approver)', () => {
     expect(await screen.findByText('entries selected')).toBeInTheDocument();
     expect(all).toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Review selected (1)' }));
+    decide();
     await okDialog('Reviewed', '1 entry(s) sent for approval');
-    expect(api.calls('POST', '/api/pm-schedules/entries/review')[0].json).toEqual({ entryIds: ['rv'], action: 'approve' });
+    expect(api.calls('POST', '/api/pm-schedules/entries/review')[0].json).toEqual({ entryIds: ['rv'], action: 'approve', remarks: REMARKS });
 
     fireEvent.click(all);
     fireEvent.click(screen.getByRole('button', { name: 'Approve selected (1)' }));
+    decide();
     await okDialog('Approved', '1 entry(s) approved');
-    expect(api.calls('POST', '/api/pm-schedules/entries/approve')[0].json).toEqual({ entryIds: ['ap'] });
+    expect(api.calls('POST', '/api/pm-schedules/entries/approve')[0].json).toEqual({ entryIds: ['ap'], comment: REMARKS });
 
     fireEvent.click(all);
     fireEvent.click(screen.getByRole('button', { name: 'Reject at review (1)' }));
@@ -525,6 +547,7 @@ describe('PM list — every decision is signed when its re-auth row is on', () =
       { method: 'PUT', path: '/api/pm-schedules/entries/r1/review-edit', body: { ok: true } },
     ]);
     fireEvent.click(screen.getByRole('button', { name: 'Review ✓' }));
+    decide();
     await passReauth();
     await okDialog('Reviewed');
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));

@@ -40,6 +40,14 @@ function openList(user: any, o: PmRouteOpts = {}) {
 }
 const reauthReady = (api: ReturnType<typeof mockApi>) =>
   waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
+// A review or an approval asks for remarks first (D03-13, 2026-10-22).
+const REMARKS = 'dates checked';
+const decisionDialog = () => screen.getByRole('dialog', { name: /^(Review|Approve) (Entry|\d+ Entries)$/ });
+const decide = (remarks = REMARKS) => {
+  const dlg = decisionDialog();
+  fireEvent.change(within(dlg).getByLabelText(/Remarks/), { target: { value: remarks } });
+  fireEvent.click(within(dlg).getByRole('button', { name: /^(Send for approval|Approve)$/ }));
+};
 const cancelPrompt = async () => {
   await screen.findByPlaceholderText('Enter your password');
   const box = screen.getByText('Confirm Your Identity').closest('.relative') as HTMLElement;
@@ -172,10 +180,12 @@ describe('D-OPS-8 — cancelling the password prompt is silent', () => {
   it('PM list: cancelling an approval sends nothing, shows nothing, re-enables the button', async () => {
     const api = openList(APPROVER, { entries: [entry('a1', { approvalStatus: 'PENDING_APPROVAL' })], reauthActions: ['APPROVE_PM_SCHEDULE'] });
     await reauthReady(api);
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    fireEvent.click(approve);
+    decide();
     await cancelPrompt();
     noMessageDialog();
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    expect(approve).toBeEnabled();
     expect(api.calls('POST', /\/entries\/approve$/)).toHaveLength(0);
   });
 

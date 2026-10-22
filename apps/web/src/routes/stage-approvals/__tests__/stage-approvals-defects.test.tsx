@@ -42,6 +42,9 @@ const cancelPrompt = async () => {
   await waitFor(() => expect(screen.queryByText('Confirm Your Identity')).toBeNull());
 };
 
+// Every decision carries remarks, approvals too (D03-13, 2026-10-22).
+const REMARKS = 'looks clean';
+
 describe('D-OPS-6 — a failed load is an error with Retry, never the empty state', () => {
   it('the queue: error + Retry, and Retry re-reads it', async () => {
     allowConsoleError(/\[SWR Error\]/);
@@ -80,6 +83,7 @@ describe('D-OPS-8 — cancelling the password prompt is silent', () => {
     const api = open(DECIDER, queueOk([row('a')]), allOk([]), ['APPROVE_CLEANING_STAGE']);
     await waitFor(() => expect(api.calls('GET', '/api/config/action-reauth/my-actions').length).toBeGreaterThan(0));
     fireEvent.click(await screen.findByRole('button', { name: 'Verify & Approve' }));
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await cancelPrompt();
     expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
@@ -116,7 +120,8 @@ describe('3d — every control on Stage Approvals has an accessible name', () =>
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select FLT-a' }));
     fireEvent.click(screen.getByRole('button', { name: 'Approve Selected (1)' }));
-    expect(screen.getByLabelText(/Remarks/)).toHaveAttribute('placeholder', 'Optional remarks (applies to all)');
+    fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
+    expect(screen.getByLabelText(/Remarks/)).toHaveAttribute('placeholder', 'What was checked (required, applies to all)');
     expect(unnamedControls()).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit approval record (Super Admin)' })[0]);
