@@ -118,7 +118,19 @@ function effectiveLastCleaned(cycleAt: string | undefined | null, attrs: any): s
 // leaves out tags held by retired / deactivated filters, so Replace and the
 // replacement-task scan can no longer select a filter that is already gone.
 
+/**
+ * D03-10 (2026-10-22): with no session token on this tab there is nobody to
+ * read for. The shell's hooks all run before its own redirect (a component's
+ * hooks cannot be skipped), so a cold open of /m signed out fired nine reads
+ * that need a session — each a 401 and a console error — before it reached the
+ * login. Signed out, the shell is not mounted at all.
+ */
 export function MobileWrapperPage() {
+  if (!sessionStorage.getItem('access_token')) return <Navigate to="/m/login" replace />;
+  return <MobileShell />;
+}
+
+function MobileShell() {
   const { user, isLoading: authLoading, logout: authLogout } = useAuth();
   const { branding } = useBranding();
   const { formatTime, formatDate, formatDateTime, formatDayMonth, config: datetimeConfig } = useDatetimeFormat();
@@ -344,9 +356,17 @@ export function MobileWrapperPage() {
   const { data: dueTasksData, mutate: mutateDueTasks, isLoading: dueTasksLoading } =
     useSWR(dueKey, { refreshInterval: view === 'my-tasks' ? 30000 : 120000 });
 
-  // Notifications (overdue deviations etc.) — bell badge + center view.
+  // Notifications (overdue deviations etc.) — bell badge + center view. The
+  // bell needs the unread count only (every list answer carries it); the list
+  // is read a page at a time, as on the web (D03-10, 2026-10-22: the tablet
+  // read every notification, limit 1,000,000, every 60 s).
+  const [notifPage, setNotifPage] = useState(1);
+  const [notifPageSize, setNotifPageSize] = usePageSize();
+  useEffect(() => { setNotifPage(1); }, [notifPageSize]);
   const { data: notifData, mutate: mutateNotifs } =
-    useSWR<any>(shellReads ? `/api/notifications?limit=${ALL_ROWS}` : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
+    useSWR<any>(shellReads
+      ? (view === 'notifications' ? `/api/notifications?page=${notifPage}&limit=${notifPageSize}` : '/api/notifications?limit=1')
+      : null, { refreshInterval: view === 'notifications' ? 15000 : 60000 });
   const notifications: any[] = notifData?.data ?? [];
   const unreadCount: number = notifData?.unreadCount ?? 0;
   const markNotifRead = async (n: any) => {
@@ -2096,6 +2116,16 @@ export function MobileWrapperPage() {
                   </button>
                 );
               })
+            )}
+            {online && (notifData?.total ?? 0) > notifPageSize && (
+              <Pagination
+                className="bg-white rounded-2xl border border-slate-200"
+                page={notifPage}
+                pageSize={notifPageSize}
+                totalItems={notifData.total}
+                onPageChange={setNotifPage}
+                onPageSizeChange={setNotifPageSize}
+              />
             )}
           </div>
         )}

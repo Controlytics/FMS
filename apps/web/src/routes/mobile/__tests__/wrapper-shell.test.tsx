@@ -277,6 +277,21 @@ describe('access gating', () => {
     await waitFor(() => expect(currentPath()).toBe('/m/login'));
   });
 
+  // D03-10 (2026-10-22): a cold open of /m signed out fired 9 reads that need a
+  // session, each a 401 and a console error, before the redirect.
+  it('signed out, nothing that needs a session is asked for on the way to the login', async () => {
+    const { api } = renderWrapper({ signedOut: true });
+    await waitFor(() => expect(currentPath()).toBe('/m/login'));
+    await flush();
+    const needsSession = [
+      '/api/config/action-reauth/my-actions', '/api/assets/instances', '/api/assets/templates', '/api/assets/identifiers',
+      '/api/pm-schedules/due', '/api/notifications', '/api/config/pagination/current', '/api/replacement-schedules/tasks',
+      '/api/config/cleaning-profile-assignment/current',
+    ];
+    const asked = api.calls('GET', /^\/api\//).map((r: any) => r.path as string);
+    expect(asked.filter((path) => needsSession.some((n) => path.startsWith(n)))).toEqual([]);
+  });
+
   it('a configured role without "login" is sent back to the login', async () => {
     renderWrapper({ tabletAccess: { configured: true, allowed: ['my_tasks'] } });
     await waitFor(() => expect(currentPath()).toBe('/m/login'));
@@ -373,6 +388,34 @@ describe('notifications', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
     await waitFor(() => expect(api.calls('PUT', '/api/notifications/mark-all-read')).toHaveLength(1));
     expect(api.calls('PUT', /\/api\/notifications\/n2\/read/)).toHaveLength(0);
+    await flush();
+  });
+
+  // D03-10 (2026-10-22): the tablet read EVERY notification (limit 1,000,000)
+  // every 60 s for its bell. The bell needs the unread count only; the list is
+  // read a page at a time, as on the web.
+  it('the bell reads only the unread count; the list is read one page at a time', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => ({ id: `n${i}`, type: 'GENERAL', title: `Note ${i}`, message: 'm', isRead: true, createdAt: '2026-10-21T06:00:00.000Z' }));
+    const { api } = renderWrapper({
+      routes: [{
+        path: '/api/notifications',
+        body: (r: any) => {
+          const page = Number(r.query.get('page') ?? 1);
+          const limit = Number(r.query.get('limit') ?? 20);
+          return { data: all.slice((page - 1) * limit, page * limit), total: all.length, unreadCount: 3, page, limit };
+        },
+      }],
+    });
+    const bell = await screen.findByRole('button', { name: 'Notifications' });
+    await waitFor(() => expect(bell).toHaveTextContent('3'));
+    expect(api.calls('GET', '/api/notifications').every((r: any) => r.query.get('limit') === '1')).toBe(true);
+    fireEvent.click(bell);
+    expect(await screen.findByText('Note 0')).toBeInTheDocument();
+    expect(screen.queryByText('Note 10')).toBeNull();
+    expect(api.calls('GET', '/api/notifications').some((r: any) => r.query.get('page') === '1' && r.query.get('limit') === '10')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /next page/i }));
+    expect(await screen.findByText('Note 10')).toBeInTheDocument();
+    expect(api.calls('GET', '/api/notifications').some((r: any) => Number(r.query.get('limit')) > 100)).toBe(false);
     await flush();
   });
 
