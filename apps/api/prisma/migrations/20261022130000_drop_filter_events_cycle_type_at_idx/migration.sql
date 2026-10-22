@@ -1,0 +1,11 @@
+-- 2026-10-22 (operator decision): drop filter_events_cycle_type_at_idx, added
+-- by 20261022120000_volume_indexes_and_one_tag_per_filter the same day.
+--
+-- Measured on digilog_perf (6.2 M filter_events, alternating A/B): the cycles
+-- list's performer lookup took 0.22-2.18 s with it and 0.30-1.85 s without -
+-- no measurable gain. That query also orders by created_at, which the index does
+-- not carry, so every row still needs a heap fetch. The index cost 402 MB (five
+-- times filter_events_cycle_id_idx) plus write overhead on the largest table.
+-- Dropped before any installer ships it; the other two indexes of that
+-- migration stay.
+DROP INDEX IF EXISTS "filter_events_cycle_type_at_idx";

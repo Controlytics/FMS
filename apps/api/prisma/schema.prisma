@@ -1698,9 +1698,6 @@ model FilterEvent {
   @@index([cycleId])
   @@index([filterId, cycleId, eventType])
   @@index([filterId, performedAt(sort: Desc)])
-  // MIGRATION-ONLY (2026-10-22): filter_events_cycle_type_at_idx on
-  // (cycle_id, event_type, performed_at DESC) INCLUDE (performed_by) —
-  // schema.prisma cannot express INCLUDE.
   @@map("filter_events")
 }
 
