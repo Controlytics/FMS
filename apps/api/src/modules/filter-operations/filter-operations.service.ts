@@ -47,6 +47,8 @@ import { bulkOperate, type BulkOpItem } from './cycle-write/bulk-operate.js';
 // 18 s cold for a page that loads in milliseconds. A list scoped to one filter or
 // cycle counts through an index and is cheap, so it is counted fresh every time.
 const listCount = createCountCache(60_000);
+const DASHBOARD_STATS_TTL_MS = 60_000;
+let dashboardStatsSnapshot: { at: number; value: Promise<unknown> } | null = null;
 const isUnscoped = (where: Record<string, unknown>) => !('filterId' in where) && !('cycleId' in where) && !('id' in where);
 
 export class FilterOperationsService {
@@ -366,7 +368,24 @@ export class FilterOperationsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async getDashboardStats(_ctx: RequestContext) {
+  /**
+   * P-6 (2026-10-22): 21 whole-table aggregates (4.6–6.0 s at one year, all
+   * competing for the 9-connection pool), asked for by every dashboard. The
+   * answer has no per-user part, so one snapshot serves everyone for 60 s; the
+   * promise is shared, so concurrent first requests run the aggregates once. The
+   * numbers may lag a write by up to 60 s. A failed computation is not kept.
+   */
+  async getDashboardStats(ctx: RequestContext) {
+    const hit = dashboardStatsSnapshot;
+    if (hit && Date.now() - hit.at < DASHBOARD_STATS_TTL_MS) return hit.value;
+    const value = this.computeDashboardStats(ctx);
+    const entry = { at: Date.now(), value };
+    dashboardStatsSnapshot = entry;
+    value.catch(() => { if (dashboardStatsSnapshot === entry) dashboardStatsSnapshot = null; });
+    return value;
+  }
+
+  private async computeDashboardStats(_ctx: RequestContext) {
     // May 16 H20 fix (2026-05-20): 7 independent queries now run in parallel
     // via Promise.all instead of sequentially. Dashboard load drops from
     // ~7× single-query time to ~1× (limited by the slowest of the seven).

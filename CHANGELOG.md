@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] - dashboard-stats computed at most once per 60 s (P-6, 2026-10-22)
+
+- `GET /api/filters/dashboard-stats` runs 21 whole-table aggregates (4.6–6.0 s at one year,
+  all competing for the 9-connection pool) and every dashboard asks for it. The answer has no
+  per-user part, so one snapshot now serves every user for 60 s. Concurrent first requests share
+  one computation, and a failed one is not kept. **The numbers may lag a write by up to 60 s**
+  (the web's revalidation after an edit gets the same snapshot).
+- Guard: `filter-operations/__tests__/dashboard-stats-cache.test.ts`. On real queries a repeat
+  within 60 s reads no table and returns the same snapshot, a request after 60 s recomputes, and
+  three concurrent requests make the queries of one.
+
 ## [Unreleased] - "10,000+" list totals: audit trail and filter events (P-2 / P-3, 2026-10-22)
 
 - **Operator decision:** a big list counts up to 10,000 and then says **"10,000+"**. An exact
