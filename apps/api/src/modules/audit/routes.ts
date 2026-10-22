@@ -11,6 +11,7 @@ import { loadRedactionIndex, evidenceFor, redactionSnapshot, isRedactionMetaActi
 import { AppError } from '../../lib/errors.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
+import { canSeeQnn } from '../pm-schedules/qnn.js';
 
 // 2026-10-17 load test (operator decision): the dashboard card asks for the
 // audit total every 30 s per user, and COUNT(*) over 7.4 M rows took 1.8–2.0 s
@@ -38,9 +39,9 @@ async function cachedAuditCount(where: unknown): Promise<number> {
  * Replacement List, the cleaning reports) only hid the button: an ADMIN without
  * AUDIT_EXPORT got 200 here. Each entry is now the SAME gate the page's Export
  * button checks (PERMISSION_TREE `<page>.export` node, read via useCan). Reports
- * whose Export button has no gate of its own keep the page's read gate;
- * Quality Notifications was [] and now mirrors GET /api/pm-schedules/qnn (PM_READ).
- * Locked by e2e/report-export-gates.test.ts against the tree.
+ * whose Export button has no gate of its own keep the page's read gate.
+ * Quality Notifications is not here: it has no permission at all (see
+ * REPORT_EXPORT_ROLE_RULES). Locked by e2e/report-export-gates.test.ts against the tree.
  */
 const REPORT_EXPORT_GATES: Record<string, string[]> = {
   'Audit Trail': ['AUDIT_EXPORT'],                                  // audit.export
@@ -50,11 +51,24 @@ const REPORT_EXPORT_GATES: Record<string, string[]> = {
   'Deviations': ['PM_READ', 'PM_APPROVE'],
   'Filters': ['FILTER_LIST_EXPORT'],                                // filters.export
   'PM Schedule': ['PM_READ', 'PM_CREATE', 'PM_UPDATE', 'PM_DELETE', 'PM_APPROVE', 'PM_EXECUTE'],
-  'Quality Notifications': ['PM_READ'],
   'RFID Track Record': ['ASSET_VIEW', 'ASSET_READ', 'FILTER_RFID_MANAGE'],
   'Replacement List': ['REPLACEMENT_LIST_EXPORT'],                  // replacement_list.export
   'Replacement Schedule': ['REPLACEMENT_SCHEDULE_VIEW', 'REPLACEMENT_SCHEDULE_UPLOAD', 'REPLACEMENT_SCHEDULE_REVIEW', 'REPLACEMENT_SCHEDULE_APPROVE'],
   'Retirement List': ['RETIREMENT_LIST_EXPORT'],                    // retirement_list.export
+};
+
+/**
+ * Reports whose page is gated by a ROLE rule rather than a permission: the export
+ * uses the very same predicate as the page's data route, never a copy.
+ *
+ * D04-01 (deliverable 04, 2026-10-22): Quality Notifications is visible to the
+ * roles in config `qnn-notifications.visibleRoles` (+ SUPER_ADMIN), checked by
+ * canSeeQnn on GET /api/pm-schedules/qnn. Its export was gated on PM_READ, so a
+ * role refused the page (OPERATOR) could log an export, and a role shown the
+ * page but without PM_READ could not.
+ */
+const REPORT_EXPORT_ROLE_RULES: Record<string, (role?: string | null) => Promise<boolean>> = {
+  'Quality Notifications': canSeeQnn,
 };
 
 export const REPORT_EXPORT_NAMES = [
@@ -529,13 +543,19 @@ export default async function auditRoutes(app: FastifyInstance) {
     // Audit 2026-09-24 (api #13): the route had no permission gate, so any role
     // could write a REPORT_GENERATED row for any report — including ones it
     // cannot read. Each report is gated on the permission its Export button
-    // requires (REPORT_EXPORT_GATES above, P4-02).
+    // requires (REPORT_EXPORT_GATES above, P4-02) - or, for a page gated by a
+    // role rule, by that same rule (REPORT_EXPORT_ROLE_RULES, D04-01).
     const reportName = (req.body as { reportType: string }).reportType;
-    const required = REPORT_EXPORT_GATES[reportName];
-    if (req.user.role !== 'SUPER_ADMIN' && required && required.length > 0) {
-      const perms = await getRolePerms(req.user.role);
-      if (!required.some((p) => hasEffectivePermission(perms, p))) {
-        return reply.code(403).send({ error: 'FORBIDDEN', message: `You cannot export the ${reportName} report.` });
+    const refuse = () => reply.code(403).send({ error: 'FORBIDDEN', message: `You cannot export the ${reportName} report.` });
+    const roleRule = REPORT_EXPORT_ROLE_RULES[reportName];
+    if (roleRule) {
+      // The page's own rule, SUPER_ADMIN included (canSeeQnn admits it).
+      if (!(await roleRule(req.user.role))) return refuse();
+    } else {
+      const required = REPORT_EXPORT_GATES[reportName];
+      if (req.user.role !== 'SUPER_ADMIN' && required && required.length > 0) {
+        const perms = await getRolePerms(req.user.role);
+        if (!required.some((p) => hasEffectivePermission(perms, p))) return refuse();
       }
     }
     const { ok: reauthOk } = await enforceReauth((REPORT_EXPORT_ACTIONS as Record<string, string>)[reportName] ?? 'EXPORT_AUDIT_TRAIL', req, reply);
