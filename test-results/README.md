@@ -24,7 +24,7 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | BR-086 / A-02 re-auth policy | A legacy-format policy is CONVERTED to the rules it describes (prompts stay on); saving unknown action names / roles is refused |
 | A-03 / A-06 SoD | Stage-approval "different approver" switch REMOVED (always required); filter approval step: only the approver may approve or reject |
 | A-08 / A-09 | Tablet cleartext HTTP and the RFID scanner's tracked signing passwords: LEFT AS IS — accepted by the operator, documented |
-| OD-01 (2026-10-22) | Audit edit / redact / delete, Filter Data Management writes, user delete, role + permission saves and the re-auth policy save ALWAYS require the password, for every user including SUPER_ADMIN (not configurable) |
+| OD-01 (2026-10-22) | Audit edit / redact / delete, Filter Data Management writes, user delete, role + permission saves (incl. per-user overrides), the re-auth policy save, backup restore, user edit, and filter / hierarchy delete + manual lifecycle change ALWAYS require the password, for every user including SUPER_ADMIN (not configurable). Notification deletes stay policy-driven |
 
 ## Environment
 
