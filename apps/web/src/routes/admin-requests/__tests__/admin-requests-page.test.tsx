@@ -254,8 +254,9 @@ describe('Admin Requests — details panel', () => {
     fireEvent.click(within(result).getByRole('button', { name: 'Copy User ID' }));
     await waitFor(() => expect(within(result).getByRole('button', { name: 'Copy User ID' })).toHaveTextContent('Copied'));
     expect(writeText).toHaveBeenCalledWith('101012');
-    // the "Copied" state resets after the configured delay
-    await waitFor(() => expect(within(result).getByRole('button', { name: 'Copy User ID' })).toHaveTextContent('Copy'), { timeout: 3000 });
+    // The reset after CLIPBOARD_COPY_RESET_MS is covered with fake timers below
+    // ("a second copy keeps its Copied…"); waiting the real 2 s here was most of
+    // this test's run time.
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Request processed' })).toBeNull();
