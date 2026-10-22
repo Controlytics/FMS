@@ -15,6 +15,11 @@ export default defineConfig({
       // Match vite.config.ts: resolve @digilog/shared to its TS source so tests
       // run against the same code the dev server does, not a stale dist build.
       '@digilog/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      // vite-plugin-pwa generates this module at build time (the plugin is not
+      // registered here), so it cannot resolve under vitest and `vi.mock` runs too
+      // late to help. A controllable stub stands in; tsc still checks against the
+      // plugin's real declarations.
+      'virtual:pwa-register/react': path.resolve(__dirname, './src/test-utils/pwa-register-react.ts'),
     },
   },
   test: {

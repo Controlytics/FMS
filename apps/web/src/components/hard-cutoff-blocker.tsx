@@ -29,6 +29,8 @@ import { getApiBase } from '@/lib/api-base';
 export function HardCutoffBlocker() {
   const [exceeded, setExceeded] = useState<boolean>(() => isHardCutoffExceeded());
   const [retrying, setRetrying] = useState(false);
+  // A reconnect attempt that ended still locked — shown so the press visibly did something.
+  const [retryFailed, setRetryFailed] = useState(false);
   const { formatDateTime } = useDatetimeFormat();
 
   useEffect(() => {
@@ -56,6 +58,7 @@ export function HardCutoffBlocker() {
 
   const handleRetry = async () => {
     setRetrying(true);
+    setRetryFailed(false);
     try {
       // Best-effort probe via the same engine the connectivity layer uses.
       // A successful response marks contact (in connectivity.ts), which
@@ -66,11 +69,17 @@ export function HardCutoffBlocker() {
       // own probeServer) — but a deliberate apiClient GET would. Trigger
       // one to confirm reachability and mark contact in one shot.
       await import('@/lib/api-client').then(m => m.apiClient.get('/api/health')).catch(() => {});
+    } catch {
+      // Server unreachable — the case this overlay exists for. Not an error to
+      // surface as a crash: stay locked and say so below (D-L3: this used to
+      // escape the click handler as an unhandled promise rejection).
     } finally {
       setRetrying(false);
       // Re-check after the probe — if it succeeded, the listener already
       // flipped state; if it failed, we stay locked.
-      setExceeded(isHardCutoffExceeded());
+      const stillLocked = isHardCutoffExceeded();
+      setExceeded(stillLocked);
+      setRetryFailed(stillLocked);
     }
   };
 
@@ -111,6 +120,12 @@ export function HardCutoffBlocker() {
                 <div className="text-slate-500">Last successful server contact:</div>
                 <div className="font-semibold text-slate-800 mt-0.5">{formatDateTime(lastContact)}</div>
               </div>
+            )}
+
+            {retryFailed && (
+              <p role="alert" className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs font-medium text-red-700">
+                Still can't reach the server. Check the network connection and try again.
+              </p>
             )}
           </div>
 

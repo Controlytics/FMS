@@ -10,9 +10,16 @@ import { useEffect } from 'react';
  * Only inputs with data-rfid="true" attribute will receive RFID input.
  * All other inputs are protected.
  *
- * Detection: tracks keystroke timing. If 3+ characters arrive within 30ms
- * each (way faster than human typing), it's flagged as RFID input and
- * blocked from non-RFID fields.
+ * Detection: tracks keystroke timing. When the last 3 characters each arrived
+ * within SPEED_THRESHOLD (80 ms) of the previous one — readers type at 3-50 ms,
+ * people at 80-300 ms — the key is flagged as RFID input and blocked from
+ * non-RFID fields. Detection needs that history, so the first two characters
+ * of a burst still land (a limit of timing-based detection).
+ *
+ * The Enter a reader sends after the tag is blocked only when it follows a
+ * BLOCKED burst key within ENTER_AFTER_BURST_MS. It must never depend on how
+ * recently a person typed: an earlier version blocked any Enter < 200 ms after
+ * the third keystroke, which swallowed operators' own Enter on every page (WSH-RFID-2).
  */
 export function useRfidGuard() {
   useEffect(() => {
@@ -24,6 +31,10 @@ export function useRfidGuard() {
     const SPEED_THRESHOLD = 80;
     // How many consecutive fast keys to trigger blocking
     const MIN_FAST_KEYS = 3;
+    // A reader's trailing Enter arrives right after its last character.
+    const ENTER_AFTER_BURST_MS = 200;
+    // When this guard last blocked a burst character (0 = none pending).
+    let lastBlockedAt = 0;
 
     const handler = (e: KeyboardEvent) => {
       // Only track printable characters. `key` is undefined on the synthetic
@@ -55,6 +66,7 @@ export function useRfidGuard() {
           // This is RFID input — block it from non-RFID fields
           e.preventDefault();
           e.stopImmediatePropagation();
+          lastBlockedAt = now;
           return;
         }
       }
@@ -66,16 +78,13 @@ export function useRfidGuard() {
       const target = e.target as HTMLElement;
       if (target.getAttribute('data-rfid') === 'true') return;
 
-      // If recent input was RFID-fast, block this Enter too
-      if (timestamps.length >= MIN_FAST_KEYS) {
-        const now = Date.now();
-        const lastKey = timestamps[timestamps.length - 1];
-        if (now - lastKey < 200) {
-          // Enter arrived right after fast input — RFID Enter, block it
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          timestamps.length = 0;
-        }
+      // Only an Enter that immediately follows a burst this guard actually
+      // blocked is the reader's — any other Enter is a person submitting a form.
+      if (lastBlockedAt && Date.now() - lastBlockedAt < ENTER_AFTER_BURST_MS) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        timestamps.length = 0;
+        lastBlockedAt = 0;
       }
     };
 

@@ -6,6 +6,7 @@
  * React keeps the same element across re-renders and the textarea does not
  * lose focus on every keystroke.
  */
+import { useId } from 'react';
 
 /** Minimum length of the mandatory change reason — mirrors the API's checks
  *  (`super-admin/manual-change.ts` MIN_REASON_LEN, `lib/change-reason.ts`). */
@@ -14,12 +15,15 @@ export const reasonOk = (r: string) => r.trim().length >= MIN_REASON_LEN;
 
 export function ReasonBox({ value, onChange, danger, hint, placeholder }: { value: string; onChange: (v: string) => void; danger?: boolean; hint?: string; placeholder?: string }) {
   const short = MIN_REASON_LEN - value.trim().length;
+  const id = useId();
   return (
     <div className="mt-4">
-      <label className="block text-xs font-bold text-slate-500 mb-1.5">
+      <label htmlFor={id} className="block text-xs font-bold text-slate-500 mb-1.5">
         Reason for this change <span className="text-red-500">*</span>
       </label>
       <textarea
+        id={id}
+        aria-required="true"
         value={value}
         onChange={e => onChange(e.target.value)}
         rows={2}

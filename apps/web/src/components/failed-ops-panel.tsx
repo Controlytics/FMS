@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import { getAllOperations, deleteOperation, updateOperationStatus } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent } from '@/lib/sync-engine';
 
@@ -39,6 +39,7 @@ export function FailedOpsPanel() {
   const [failed, setFailed] = useState<FailedOp[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const titleId = useId();
 
   const refresh = useCallback(async () => {
     try {
@@ -102,13 +103,13 @@ export function FailedOpsPanel() {
 
       {open && (
         <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="bg-white rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-200 bg-amber-50 flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Operations that couldn’t sync</h3>
+                <h3 id={titleId} className="text-base font-bold text-slate-800">Operations that couldn’t sync</h3>
                 <p className="text-[12px] text-slate-500">Retry to send again, or dismiss if you’ll re-do the step.</p>
               </div>
-              <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setOpen(false)} aria-label="Close" className="text-slate-400 hover:text-slate-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>

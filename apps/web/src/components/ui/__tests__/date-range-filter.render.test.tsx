@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { useState } from 'react';
 import { DateRangeFilter } from '../date-range-filter';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 
 /**
  * The rendered From/To control. The ordering rule itself is covered in
@@ -184,5 +185,19 @@ describe('DateRangeFilter', () => {
     expect(screen.queryByText('Period')).toBeNull();
     rerender(<DateRangeFilter from="" to="" onFromChange={noop} onToChange={noop} />);
     expect(screen.getByLabelText('From date')).toHaveClass('h-9');
+  });
+
+  // A11Y-UI-3: the visible caption names the pair as a group; each input keeps its own name.
+  it('the caption names the From/To pair as a group, and every control has a name', () => {
+    const { container } = setup({ label: 'Period', from: '2026-10-01', to: '2026-10-05' });
+    const group = screen.getByRole('group', { name: 'Period' });
+    expect(group).toContainElement(screen.getByLabelText('From date'));
+    expect(group).toContainElement(screen.getByLabelText('To date'));
+    expectAllControlsNamed(container);
+  });
+
+  it('without a caption there is no unnamed group', () => {
+    setup();
+    expect(screen.queryByRole('group')).toBeNull();
   });
 });

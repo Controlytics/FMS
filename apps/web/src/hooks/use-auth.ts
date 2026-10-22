@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api-client';
 import { clearServerContact } from '../lib/server-contact';
+import { isNetworkFailure } from '../lib/network-error';
 
 interface User {
   id: string;
@@ -33,14 +34,15 @@ interface LoginResponse {
   };
 }
 
-/** Check if an error is a network failure (not a real API error like 401) */
+/**
+ * Check if an error is a network failure (not a real API error like 401 or a 500).
+ * The rule is shared with the SWR onError policy (lib/network-error.ts); a TypeError
+ * counts only when it is a fetch failure, never any TypeError.
+ */
 function isNetworkError(err: any): boolean {
   if (!err) return false;
-  const msg = String(err?.message || '').toLowerCase();
-  return (err instanceof TypeError && msg.includes('fetch'))
-    || msg.includes('failed to fetch') || msg.includes('networkerror')
-    || msg.includes('network request failed') || msg.includes('load failed')
-    || msg.includes('econnrefused') || msg.includes('unable to resolve host');
+  const msg = String(err?.message || '');
+  return (err instanceof TypeError && msg.toLowerCase().includes('fetch')) || isNetworkFailure(err);
 }
 
 export function useAuth() {
@@ -55,10 +57,14 @@ export function useAuth() {
     } catch { return undefined; }
   };
 
+  // No token = signed out = no user. SWR returns `fallbackData` even for a null key,
+  // so an ungated fallback handed the PREVIOUS operator's cached row to every
+  // consumer (useCan, RequireRole, useSuperAdminLock) after a tab close (D-L1).
+  const token = getToken();
   const { data: fetchedUser, error, isLoading, mutate } = useSWR<User>(
-    getToken() ? '/api/auth/me' : null,
+    token ? '/api/auth/me' : null,
     {
-      fallbackData: getCachedUser(),
+      fallbackData: token ? getCachedUser() : undefined,
       onSuccess: (data) => {
         if (data) localStorage.setItem('digilog_cached_user', JSON.stringify(data));
       },
@@ -66,7 +72,7 @@ export function useAuth() {
   );
 
   // Use fetched user when online, cached user as fallback when offline
-  const user = fetchedUser ?? (getToken() ? getCachedUser() : undefined);
+  const user = token ? (fetchedUser ?? getCachedUser()) : undefined;
 
   const login = async (username: string, password: string, force?: boolean) => {
     const res = await apiClient.post<LoginResponse>('/api/auth/login', {

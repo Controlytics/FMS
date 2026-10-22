@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { renderPage, mockApi, type MockRequest } from '@/test-utils/page-harness';
 import { SuperAdminLockdownScreen, SuperAdminApiAccessCard } from '../super-admin-api-access';
+import { expectAllControlsNamed } from './support/a11y';
 
 const SA = { role: 'SUPER_ADMIN', id: 'sa1', username: 'superadmin' };
 const LOCK = '/api/super-admin/api-lock';
@@ -71,12 +72,39 @@ describe('SuperAdminLockdownScreen', () => {
     expect(api.calls('PUT', LOCK)).toHaveLength(1);
   });
 
-  it('falls back to a generic message when the refusal carries none', async () => {
+  // L1: api-client throws REAUTH bodies RAW (code on `.error`, no `.code`), so the
+  // friendly messages keyed on `.code` never showed.
+  it('L1: a REAUTH_REQUIRED refusal with no message reads "Password is required."', async () => {
     const api = mockApi([
       { path: LOCK, body: { enabled: false } },
       { method: 'PUT', path: LOCK, status: 401, body: { error: 'REAUTH_REQUIRED' } },
     ]);
     renderPage(<SuperAdminLockdownScreen />, { api, user: SA });
+    fireEvent.change(pw(), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Super Admin APIs' }));
+    expect(await screen.findByText('Password is required.')).toBeInTheDocument();
+  });
+
+  it('L1: a REAUTH_FAILED refusal reads the friendly wrong-password text, whatever the server words', async () => {
+    const api = mockApi([
+      { path: LOCK, body: { enabled: false } },
+      { method: 'PUT', path: LOCK, status: 403, body: { error: 'REAUTH_FAILED', message: 'Invalid password' } },
+    ]);
+    renderPage(<SuperAdminLockdownScreen />, { api, user: SA });
+    fireEvent.change(pw(), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Super Admin APIs' }));
+    expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
+  });
+
+  it('falls back to a generic message when the failure carries no code and no message', async () => {
+    const api = mockApi([{ path: LOCK, body: { enabled: false } }]);
+    renderPage(<SuperAdminLockdownScreen />, { api, user: SA });
+    await waitFor(() => expect(api.calls('GET', LOCK)).toHaveLength(1));
+    const harnessFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PUT') throw {};
+      return harnessFetch(input, init);
+    }));
     fireEvent.change(pw(), { target: { value: 'x' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enable Super Admin APIs' }));
     expect(await screen.findByText('Something went wrong. Please try again.')).toBeInTheDocument();
@@ -96,8 +124,14 @@ describe('SuperAdminLockdownScreen', () => {
     expect(localStorage.getItem('digilog_cached_user')).toBeNull();
   });
 
-  // a11y finding (defects-dialogs.md A8): the lockdown Password <label> has no htmlFor/id.
-  // The test pinning that defect was removed so a fix does not turn this file red.
+  it('A8: the password field is labelled, and every control has an accessible name', async () => {
+    const api = mockApi([{ path: LOCK, body: { enabled: false } }]);
+    const { container } = renderPage(<SuperAdminLockdownScreen />, { user: SA, api });
+    expect(screen.getByLabelText('Password')).toBe(pw());
+    expectAllControlsNamed(container);
+    await waitFor(() => expect(api.calls('GET', LOCK)).toHaveLength(1));
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  });
 });
 
 describe('SuperAdminApiAccessCard', () => {
@@ -183,6 +217,12 @@ describe('SuperAdminApiAccessCard', () => {
     await act(async () => { release(); await new Promise((r) => setTimeout(r, 10)); });
     expect(screen.getByText('DISABLED')).toBeInTheDocument();
   });
-  // a11y finding (defects-dialogs.md A8): the "Confirm with your password" field is
-  // unlabeled. The test pinning that defect was removed so a fix does not turn this red.
+  it('A8: the confirm-password field is labelled, and every control has an accessible name', async () => {
+    const api = mockApi([{ path: LOCK, body: { enabled: true } }]);
+    const { container } = renderPage(<SuperAdminApiAccessCard />, { api, user: SA });
+    await settled(api);
+    fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    expect(screen.getByLabelText('Confirm with your password')).toBe(pw());
+    expectAllControlsNamed(container);
+  });
 });

@@ -317,6 +317,14 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
     if (anyReportActive) setReportsOpen(true);
   }, [anyReportActive]);
 
+  // Escape closes the open drawer — it was dismissable only by tapping the backdrop (A-L2).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   return (
     <>
       {/* Backdrop overlay — visible on viewports < 768 px when sidebar is open.
@@ -326,6 +334,7 @@ export function Sidebar({ userRole, open, onClose }: SidebarProps) {
         <div className="fixed inset-0 bg-black/30 z-40 md:hidden" onClick={onClose} />
       )}
       <aside
+        id="app-sidebar"
         className={cn(
           // Below md (768 px): fixed overlay, slides in/out via translate.
           // md and above: static in flow, always translated to 0 (always visible).

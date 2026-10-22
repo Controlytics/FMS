@@ -23,6 +23,7 @@ vi.mock('@/lib/sync-engine', () => ({
 vi.mock('@/lib/connectivity', () => ({ isOnline: () => true, onConnectivityChange: () => () => {} }));
 
 import { FailedOpsPanel } from '../failed-ops-panel';
+import { expectAllControlsNamed } from './support/a11y';
 import { queueOperation, updateOperationStatus, getAllOperations } from '@/lib/offline-store';
 
 async function failedOp(type: any, filterName: string, error?: string) {
@@ -141,10 +142,19 @@ describe('FailedOpsPanel', () => {
     expect(screen.queryByRole('heading', { name: 'Operations that couldn’t sync' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /tap to review/ }));
-    // The close (X) button has no accessible name — found structurally (finding recorded).
-    const header = screen.getByRole('heading', { name: 'Operations that couldn’t sync' }).parentElement!.parentElement!;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('heading', { name: 'Operations that couldn’t sync' })).toBeNull();
+  });
+
+  // OFF-6: the review sheet is a modal dialog named by its heading; its close control is named.
+  it('the review sheet is a named modal dialog, and every control in it is named', async () => {
+    await failedOp('advance', 'F-1', 'a');
+    render(<FailedOpsPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /tap to review/ }));
+    const dlg = screen.getByRole('dialog', { name: 'Operations that couldn’t sync' });
+    expect(dlg).toHaveAttribute('aria-modal', 'true');
+    expect(within(dlg).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expectAllControlsNamed(document.body);
   });
 
   it('re-reads the queue on every sync event', async () => {

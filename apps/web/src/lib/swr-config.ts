@@ -1,5 +1,6 @@
 import { type SWRConfiguration } from 'swr';
 import { apiClient } from './api-client';
+import { isNetworkFailure } from './network-error';
 
 /**
  * Module-level toast callback registered by ToastProvider at mount.
@@ -19,9 +20,10 @@ export const swrConfig: SWRConfiguration = {
   onError: (error: any) => {
     // Don't show toast for 401 (handled by api-client redirect)
     if (error?.status === 401 || error?.error === 'UNAUTHORIZED') return;
-    // Silently ignore network errors (offline mode)
+    // Silently ignore network errors (offline mode) — the same rule useAuth reads. An
+    // error carrying an HTTP status is a server answer and is never silenced as offline.
     const msg = String(error?.message || error || '').toLowerCase();
-    if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('network request failed') || msg.includes('load failed') || msg.includes('failed to connect') || msg.includes('unable to resolve host') || error?.name === 'TypeError') return;
+    if (isNetworkFailure(error) || error?.name === 'TypeError') return;
     // Issue #6 fix (2026-05-18) + delta-audit 2026-05-20 §2.2 tightening +
     // 2026-05-20 widen: suppress doctype responses unconditionally.
     //

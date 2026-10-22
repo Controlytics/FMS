@@ -46,9 +46,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           'appearance-none bg-no-repeat',
           sizeClasses[selectSize],
           variantClasses[variant],
-          selectSize === 'sm' ? 'bg-[length:0.875rem] bg-[right_0.5rem_center]' :
-          selectSize === 'lg' ? 'bg-[length:1.125rem] bg-[right_0.875rem_center]' :
-          'bg-[length:1rem] bg-[right_0.625rem_center]',
+          // `position:` is required: tailwind-merge reads an untyped `bg-[…]` as a
+          // background COLOUR and drops the variant's bg-white / bg-slate-100 / bg-transparent.
+          selectSize === 'sm' ? 'bg-[length:0.875rem] bg-[position:right_0.5rem_center]' :
+          selectSize === 'lg' ? 'bg-[length:1.125rem] bg-[position:right_0.875rem_center]' :
+          'bg-[length:1rem] bg-[position:right_0.625rem_center]',
           className,
         )}
         style={{

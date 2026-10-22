@@ -471,12 +471,9 @@ describe('createReport — body helpers', () => {
     // Default 7pt body font and the 2.5mm padding.
     const { settings, styles } = lastTable(r);
     expect(styles.styles.fontSize).toBe(7);
-    // Horizontal padding is fixed at 2.5mm; vertical is symmetric. (The vertical
-    // VALUE at 7pt contradicts the code's own comment — defect D-UI-1 — so it is
-    // deliberately not pinned here.)
-    expect(styles.styles.cellPadding.left).toBe(2.5);
-    expect(styles.styles.cellPadding.right).toBe(2.5);
-    expect(styles.styles.cellPadding.top).toBe(styles.styles.cellPadding.bottom);
+    // 2.5mm all round at the 7pt default — byte-identical to the fixed
+    // `cellPadding: 2.5` every report used before the font became configurable (D-UI-1).
+    expect(styles.styles.cellPadding).toEqual({ top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 });
     expect(styles.styles.lineWidth).toBeCloseTo(0.2);
     expect(styles.styles.overflow).toBe('linebreak');
     expect(styles.headStyles.fontSize).toBe(7.5);
@@ -499,6 +496,17 @@ describe('createReport — body helpers', () => {
     expect(t.headStyles.fontSize).toBe(9.5);
     expect(t.headStyles.fillColor).toEqual([1, 2, 3]);
     expect(t.columnStyles).toEqual({ 0: { cellWidth: 40 } });
+  });
+
+  it('vertical padding grows linearly above the 7pt default and never drops below 2.5mm', async () => {
+    installFetch();
+    const { createReport } = await load();
+    const r = await createReport({ title: 'T', formatDateTime: fmt });
+    const padAt = (fontSize: number) => { r.addTable({ head: ['A'], body: [['1']], fontSize }); return lastTable(r).styles.styles.cellPadding; };
+    expect(padAt(7.5).top).toBeCloseTo(2.8875); // deviations report size
+    expect(padAt(8).top).toBeCloseTo(3.275);
+    expect(padAt(6).top).toBe(2.5);
+    expect(padAt(6).bottom).toBe(2.5);
   });
 
   it('a table that would cross the page bottom starts on a new page', async () => {

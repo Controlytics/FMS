@@ -51,6 +51,7 @@ describe('swrConfig', () => {
     ['Safari "Load failed"', new Error('Load failed')],
     ['"Failed to connect"', new Error('Failed to connect to 10.0.0.2')],
     ['Android "Unable to resolve host"', new Error('Unable to resolve host "srv"')],
+    ['ECONNREFUSED (D-L2: same list as useAuth)', new Error('connect ECONNREFUSED 10.0.0.1:3000')],
     ['SPA <!doctype> fallback body', new Error('Unexpected token < in JSON at position 0: <!DOCTYPE html>')],
     ['a bare string network error', 'failed to fetch'],
   ])('is silent for %s — no toast, no console error', (_label, err) => {
@@ -63,6 +64,16 @@ describe('swrConfig', () => {
     onError(Object.assign(new Error('Database timeout'), { status: 500 }));
     expect(consoleError).toHaveBeenCalledWith('[SWR Error]', 'Database timeout');
     expect(toast).toHaveBeenCalledWith('Load Error', 'Database timeout');
+  });
+
+  // A network marker inside a SERVER's message (the backend relaying its own failed
+  // connection to LDAP / SMTP / an instrument) is not "offline": the server answered.
+  it.each([
+    ['ECONNREFUSED', 'LDAP bind failed: connect ECONNREFUSED 10.0.0.5:389'],
+    ['failed to connect', 'Failed to connect to SMTP server smtp.local:25'],
+  ])('a server answer whose message mentions %s still raises the toast', (_l, message) => {
+    onError(Object.assign(new Error(message), { status: 500 }));
+    expect(toast).toHaveBeenCalledWith('Load Error', message);
   });
 
   it('falls back to a generic message when the error has none', () => {

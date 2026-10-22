@@ -4,9 +4,11 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { Header } from '../header';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 
 type HeaderUser = React.ComponentProps<typeof Header>['user'];
 const alice: NonNullable<HeaderUser> = { fullName: 'Alice Mary Doe', role: 'QA', username: '101114', email: 'alice@site.io', department: 'Quality' };
@@ -66,10 +68,11 @@ describe('Header', () => {
 
   it('bell with unread items shows the count and says so in its name', async () => {
     await renderHeader(alice, 7);
-    // NOTE: its accessible NAME is the bare badge text "7" — finding A-L1 in defects-layout.md.
-    const bell = screen.getByTitle('7 unread notification(s)');
-    expect(bell.tagName).toBe('BUTTON');
+    // A-L1: the name is a sentence, not the bare badge digits ("7, button").
+    const bell = screen.getByRole('button', { name: '7 unread notifications' });
+    expect(bell).toHaveAttribute('title', '7 unread notification(s)');
     expect(bell).toHaveTextContent('7');
+    expect(bell.querySelector('span')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('caps the badge at 99+', async () => {
@@ -159,6 +162,53 @@ describe('Header', () => {
   it('single-word names give one initial; long names are cut to two', async () => {
     await renderHeader({ ...alice, fullName: 'operator' });
     expect(userMenuButton2('operator')).toHaveTextContent(/^O/);
+  });
+
+  // A-L2: the user menu is keyboard-dismissable and reports its state.
+  it('the user-menu button exposes aria-haspopup / aria-expanded, and Escape closes the menu', async () => {
+    await renderHeader(alice);
+    const btn = userMenuButton();
+    expect(btn).toHaveAttribute('aria-haspopup', 'true');
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: 'Logout' })).toBeNull();
+    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(btn); // focus returns to the opener
+  });
+
+  it('other keys do not close the menu, and Escape with the menu closed does nothing', async () => {
+    await renderHeader(alice);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(userMenuButton());
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument();
+  });
+
+  it('the menu toggle reports whether the drawer is open and which element it controls', async () => {
+    const api = mockApi([
+      { path: '/api/roles/active', body: [] },
+      { path: '/api/config/branding', body: {} },
+    ]);
+    // The parent owns the drawer state, as AppLayout does.
+    function Shell() {
+      const [open, setOpen] = useState(false);
+      return <Header user={undefined} onLogout={vi.fn()} onMenuToggle={() => setOpen((o) => !o)} menuOpen={open} />;
+    }
+    renderPage(<Shell />, { api });
+    const toggle = screen.getByRole('button', { name: 'Toggle menu' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', 'app-sidebar');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(api.calls('GET', '/api/config/branding')).toHaveLength(1));
+  });
+
+  it('every control has an accessible name (unread badge showing, user menu open)', async () => {
+    const { container } = await renderHeader(alice, 3);
+    fireEvent.click(userMenuButton());
+    expectAllControlsNamed(container);
   });
 });
 

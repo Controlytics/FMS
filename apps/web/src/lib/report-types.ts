@@ -15,6 +15,8 @@ export const REPORT_TYPES: ReportType[] = [
   { key: 'filters', label: 'Filters' },
   { key: 'pm-schedule', label: 'PM Schedule' },
   { key: 'quality-notifications', label: 'Quality Notifications (QNN)' },
+  { key: 'replacement-list', label: 'Replacement List' },
   { key: 'replacement-schedule', label: 'Replacement Schedule' },
+  { key: 'retirement-list', label: 'Retirement List' },
   { key: 'rfid-track-record', label: 'RFID Track Record' },
 ];

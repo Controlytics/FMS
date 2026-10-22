@@ -28,27 +28,35 @@ export function stripYear(formatted: string, dateFormat: string): string {
   }
 }
 
+// Fixed English month abbreviations. ICU's en-GB "short" month is "Sept" on
+// ICU >= 72 (and "Sep" on older Android WebViews), so the screen and the
+// server's PDFs could disagree; a table cannot (WSH-DT-2, 2026-10-21).
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 function formatDateValue(date: Date, dateFormat: string, timezone: string): string {
   try {
-    const opts: Intl.DateTimeFormatOptions = { timeZone: timezone };
+    // Year / month / day in the CONFIGURED zone — never date.getMonth(), which is
+    // the browser's zone and puts month-end instants in the wrong month.
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(date);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    const y = part('year');
+    const m = part('month'); // always 2 digits
+    const d = part('day');   // always 2 digits
+    const mmm = MONTHS_SHORT[Number(m) - 1];
 
     switch (dateFormat) {
-      case 'DD/MM/YYYY':
-        return date.toLocaleDateString('en-GB', { ...opts });
       case 'MM/DD/YYYY':
-        return date.toLocaleDateString('en-US', { ...opts });
-      case 'YYYY-MM-DD': {
-        const y = date.toLocaleString('en-US', { year: 'numeric', timeZone: timezone });
-        const m = date.toLocaleString('en-US', { month: '2-digit', timeZone: timezone });
-        const d = date.toLocaleString('en-US', { day: '2-digit', timeZone: timezone });
+        return `${m}/${d}/${y}`;
+      case 'YYYY-MM-DD':
         return `${y}-${m}-${d}`;
-      }
       case 'DD-MMM-YYYY':
-        return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', ...opts }).replace(/ /g, '-');
+        return `${d}-${mmm}-${y}`;
       case 'MMM DD, YYYY':
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', ...opts });
+        return `${mmm} ${Number(d)}, ${y}`;
+      case 'DD/MM/YYYY':
       default:
-        return date.toLocaleDateString('en-GB', { ...opts });
+        return `${d}/${m}/${y}`;
     }
   } catch {
     // Fallback to UTC if timezone is invalid

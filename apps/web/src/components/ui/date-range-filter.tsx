@@ -117,6 +117,7 @@ export function DateRangeFilter({
 }: DateRangeFilterProps) {
   const [hint, setHint] = useState('');
   const hintId = useId();
+  const captionId = useId();
   const s = SIZES[size];
 
   // Clear the hint a few seconds after it appears so it doesn't sit there
@@ -151,12 +152,17 @@ export function DateRangeFilter({
 
   const showClear = clearable && !disabled && (!!from || !!to);
 
+  // The caption names the From/To pair as a group (it was a <label> bound to no
+  // control); each input keeps its own aria-label. No caption, no group role.
   return (
-    <div className={cn('inline-flex flex-col', className)}>
+    <div
+      className={cn('inline-flex flex-col', className)}
+      {...(label ? { role: 'group', 'aria-labelledby': captionId } : {})}
+    >
       {label && (
-        <label className="mb-1 block text-xs font-semibold text-slate-500">
+        <span id={captionId} className="mb-1 block text-xs font-semibold text-slate-500">
           {label}
-        </label>
+        </span>
       )}
       <div className={cn('inline-flex flex-wrap items-center', s.gap)}>
         <svg

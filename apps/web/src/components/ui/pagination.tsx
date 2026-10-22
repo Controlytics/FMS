@@ -89,6 +89,7 @@ export function Pagination({ page, pageSize, totalItems, onPageChange, onPageSiz
                 <button
                   key={p}
                   onClick={() => onPageChange(p)}
+                  aria-current={p === safePage ? 'page' : undefined}
                   className={`min-w-8 h-8 px-2 rounded-md text-sm font-medium tabular-nums transition-colors ${
                     p === safePage ? 'text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}

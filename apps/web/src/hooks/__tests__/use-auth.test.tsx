@@ -219,7 +219,9 @@ describe('useAuth.isAuthenticated', () => {
     renderPage(<Probe />, { api });
     expect(screen.getByTestId('authed')).toHaveTextContent('false');
     expect(api.calls('GET', '/api/auth/me')).toHaveLength(0);
-    // NOTE: `user` itself is still the stale cached row here — defect D-L1 (defects-layout.md).
+    // D-L1: with no token there is no user — the previous operator's cached row must not
+    // leak to useCan / RequireRole / useSuperAdminLock.
+    expect(screen.getByTestId('user')).toHaveTextContent('-');
   });
 
   it('ignores an unparseable cached user', async () => {
@@ -250,17 +252,19 @@ describe('useAuth.isAuthenticated', () => {
     expect(localStorage.getItem('digilog_cached_user')).toBeNull();
   });
 
-  // Network failures (offline tablet) must keep the cached user signed in.
-  // `quiet` = the shared SWR onError also treats it as a network failure (no console error / toast).
-  // ECONNREFUSED is not in swr-config's list: finding D-L2 in defects-layout.md.
+  // Network failures (offline tablet) must keep the cached user signed in, AND the shared
+  // SWR onError must treat every one of them as "offline" too (no console error / toast).
+  // D-L2: both now read ONE list (lib/network-error.ts) — ECONNREFUSED used to be offline
+  // here but a visible "Load Error" in swr-config.
   it.each([
-    ['TypeError: Failed to fetch', () => new TypeError('Failed to fetch'), true],
-    ['NetworkError', () => new Error('NetworkError when attempting to fetch resource.'), true],
-    ['network request failed', () => new Error('Network request failed'), true],
-    ['Safari load failed', () => new Error('Load failed'), true],
-    ['ECONNREFUSED', () => new Error('connect ECONNREFUSED 10.0.0.1:3000'), false],
-    ['DNS', () => new Error('Unable to resolve host "api"'), true],
-  ])('stays authenticated on a network failure: %s', async (_label, makeErr, quiet) => {
+    ['TypeError: Failed to fetch', () => new TypeError('Failed to fetch')],
+    ['NetworkError', () => new Error('NetworkError when attempting to fetch resource.')],
+    ['network request failed', () => new Error('Network request failed')],
+    ['Safari load failed', () => new Error('Load failed')],
+    ['ECONNREFUSED', () => new Error('connect ECONNREFUSED 10.0.0.1:3000')],
+    ['Capacitor failed to connect', () => new Error('Failed to connect to /10.0.0.1:3000')],
+    ['DNS', () => new Error('Unable to resolve host "api"')],
+  ])('stays authenticated on a network failure, silently: %s', async (_label, makeErr) => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw makeErr(); }));
     localStorage.setItem('digilog_cached_user', JSON.stringify(meUser));
     renderPage(<Probe />, { user: meUser, api: noApi() });
@@ -269,11 +273,29 @@ describe('useAuth.isAuthenticated', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
     expect(screen.getByTestId('authed')).toHaveTextContent('true');
     expect(screen.getByTestId('user')).toHaveTextContent('alice');
-    if (quiet) expect(error).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  // The server ANSWERED (HTTP 500), so this is a server error even though its message
+  // relays a connection failure of the backend's own — it must not keep the session.
+  it('a server 500 whose message mentions ECONNREFUSED is not a network failure', async () => {
+    const api = mockApi([{ path: '/api/auth/me', status: 500, body: { error: 'INTERNAL', message: 'connect ECONNREFUSED 127.0.0.1:5432' } }]);
+    localStorage.setItem('digilog_cached_user', JSON.stringify(meUser));
+    renderPage(<Probe />, { user: meUser, api });
+    await waitFor(() => expect(screen.getByTestId('authed')).toHaveTextContent('false'));
   });
 
   it('a plain Error that is not a network failure ends authentication', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('Something unrelated'); }));
+    localStorage.setItem('digilog_cached_user', JSON.stringify(meUser));
+    renderPage(<Probe />, { user: meUser, api: noApi() });
+    await waitFor(() => expect(screen.getByTestId('authed')).toHaveTextContent('false'));
+  });
+
+  // swr-config treats ANY TypeError as offline for the toast decision; the keep-session
+  // decision deliberately does not — a programming TypeError must not keep a session alive.
+  it('a TypeError that is not a fetch failure ends authentication', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError("Cannot read properties of undefined (reading 'x')"); }));
     localStorage.setItem('digilog_cached_user', JSON.stringify(meUser));
     renderPage(<Probe />, { user: meUser, api: noApi() });
     await waitFor(() => expect(screen.getByTestId('authed')).toHaveTextContent('false'));

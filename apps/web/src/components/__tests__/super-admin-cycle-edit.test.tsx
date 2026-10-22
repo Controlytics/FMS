@@ -14,6 +14,8 @@ import useSWR, { SWRConfig } from 'swr';
 import { swrConfig } from '@/lib/swr-config';
 import { renderPage, mockApi, type MockRequest } from '@/test-utils/page-harness';
 import { SuperAdminCycleEditDialog, revalidateCycleData } from '../super-admin-cycle-edit';
+import { expectAllControlsNamed } from './support/a11y';
+import { useState } from 'react';
 
 const DT = { dateFormat: 'DD/MM/YYYY', timeFormat: '24-hour', timezone: 'UTC' };
 const USERS = { data: [{ id: 'u1', username: 'op1', fullName: 'Operator One' }, { id: 'u2', username: 'op2' }] };
@@ -147,13 +149,25 @@ describe('rendering', () => {
     expect(field('CA-1', e1)).toHaveValue(null);
   });
 
-  // Finding A9 (defects-dialogs.md): the cycle / event fields have no programmatic label.
-  // The assertions pinning that defect were removed so a fix does not turn this red;
-  // the correctly-labelled change-reason box is still checked.
-  it('the change-reason box is reachable by its label', async () => {
+  // A9: every cycle and event field is reachable by its visible label (htmlFor/id).
+  it('A9: every cycle / event field, reading and the reason box is reachable by its label', async () => {
     const { api } = open();
     await settle(api);
+    for (const name of ['Status', 'Cleaning reason', 'Started at', 'Completed at', 'Terminated at', 'Termination reason', 'Dryer duration (min)', 'Dryer started at']) {
+      expect(screen.getByLabelText(name)).toBeInTheDocument();
+    }
+    expect(screen.getAllByLabelText('Performed at')).toHaveLength(EVENTS.length);
+    expect(screen.getAllByLabelText('Performed by')).toHaveLength(EVENTS.length);
+    expect(screen.getAllByLabelText('Remarks')).toHaveLength(EVENTS.length);
+    expect(screen.getAllByLabelText('From')).toHaveLength(2); // the two STATE_TRANSITION events
+    expect(screen.getByLabelText('RO Water Pressure (bar) · manual')).toHaveValue(2.5);
     expect(reason()).toBeInTheDocument();
+  });
+
+  it('every control and the dialog itself have an accessible name', async () => {
+    const { api } = open();
+    await settle(api);
+    expectAllControlsNamed(screen.getByRole('dialog', { name: 'Edit cleaning record - F-1' }));
   });
 
   it('a manual status update (no cycle row) shows only the events; no events says so', async () => {
@@ -334,6 +348,66 @@ describe('saving', () => {
     expect(reason()).toBeDisabled();
     await act(async () => { release(); await new Promise((r) => setTimeout(r, 10)); });
     expect(props.onClose).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('D3 / D4: polling parents and partial failures', () => {
+  // Callers pass `events={detail.events ?? []}` and refetch `detail`, so the dialog
+  // gets a new events array on every parent render, and changed data after a poll.
+  it('D3: a parent re-render or a poll with changed data never wipes typed values or the reason', async () => {
+    const api = setupApi();
+    function Host() {
+      const [polls, setPolls] = useState(0);
+      const detail: any = { ...CYCLE, terminationReason: polls >= 2 ? 'set by someone else' : null, events: polls >= 1 ? EVENTS.map((e) => ({ ...e })) : undefined };
+      return (
+        <>
+          <button onClick={() => setPolls((p) => p + 1)}>poll</button>
+          <SuperAdminCycleEditDialog cycle={detail} events={detail.events ?? EVENTS} title="T" onClose={vi.fn()} />
+        </>
+      );
+    }
+    renderPage(<Host />, { api, user: { role: 'SUPER_ADMIN' } });
+    await settle(api);
+    fireEvent.change(field('Cleaning reason'), { target: { value: 'Breakdown' } });
+    fireEvent.change(field('Remarks', card(/#1 start/)), { target: { value: 'typed note' } });
+    fireEvent.change(reason(), { target: { value: 'typing a reason' } });
+    fireEvent.click(screen.getByRole('button', { name: 'poll' })); // new events array + cycle object
+    fireEvent.click(screen.getByRole('button', { name: 'poll' })); // the server's data changed
+    expect(field('Cleaning reason')).toHaveValue('Breakdown');
+    expect(field('Remarks', card(/#1 start/))).toHaveValue('typed note');
+    expect(reason()).toHaveValue('typing a reason');
+    fireEvent.click(save());
+    await waitFor(() => expect(api.calls('PUT', '/api/super-admin/data/filter-events/e1')).toHaveLength(1));
+    // Only the operator's edits are sent; the field another writer changed is not reverted.
+    expect(api.calls('PUT', '/api/super-admin/data/cleaning-cycles/c1')[0].json).toEqual({ cleaningReasonLabel: 'Breakdown', _changeReason: 'typing a reason' });
+  });
+
+  it('D4: a retry after a partial failure re-sends only what did not land, and the pages revalidate even on failure', async () => {
+    const READ = '/api/filters/cycles?d4=1';
+    const api = setupApi([], [
+      { method: 'PUT', path: '/api/super-admin/data/filter-events/e1', status: 500, body: { error: 'X', message: 'event write failed' }, times: 1 },
+      { path: '/api/filters/cycles', body: { data: [] } },
+    ]);
+    // A reader on SWR's DEFAULT cache — the one revalidateCycleData's global mutate reaches.
+    function Reader() { useSWR(READ); return null; }
+    render(<SWRConfig value={{ ...swrConfig, dedupingInterval: 0, revalidateOnFocus: false }}><Reader /></SWRConfig>);
+    await waitFor(() => expect(api.requests.filter((r) => r.url === READ)).toHaveLength(1));
+    const { props } = open({}, api);
+    await settle(api);
+    fireEvent.change(field('Cleaning reason'), { target: { value: 'Breakdown' } });
+    fireEvent.change(field('Remarks', card(/#1 start/)), { target: { value: 'gauge re-read' } });
+    fireEvent.change(reason(), { target: { value: 'Logbook correction' } });
+    fireEvent.click(save());
+    expect(await screen.findByText('event write failed')).toBeInTheDocument();
+    // The cycle PUT landed before the event failed: the pages must not keep showing the old cycle.
+    await waitFor(() => expect(api.requests.filter((r) => r.url === READ)).toHaveLength(2));
+    expect(screen.getByText('1 change(s) ready')).toBeInTheDocument(); // only the event is still pending
+
+    fireEvent.click(save());
+    await waitFor(() => expect(props.onClose).toHaveBeenCalledTimes(1));
+    expect(api.calls('PUT', '/api/super-admin/data/cleaning-cycles/c1')).toHaveLength(1);
+    expect(api.calls('PUT', '/api/super-admin/data/filter-events/e1')).toHaveLength(2);
+    expect(api.calls('PUT', '/api/super-admin/data/filter-events/e1')[1].json).toEqual({ remarks: 'gauge re-read', _changeReason: 'Logbook correction' });
   });
 });
 

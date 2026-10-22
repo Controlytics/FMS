@@ -12,6 +12,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute, type TestUser } from '@/test-utils/page-harness';
 import { Sidebar } from '../sidebar';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 
 const ALL_TOP_LEVEL = ['Home', 'Dashboard', 'Users', 'Admin Requests', 'Configuration', 'Notifications', 'Audit Trail',
   'Report Reviews', 'Stage Approvals', 'System Health', 'Debug Traces', 'Filters', 'Retirement List', 'Replacement List',
@@ -222,6 +223,32 @@ describe('Sidebar — active page and drawer', () => {
     const aside = container.querySelector('aside')!;
     expect(aside.previousElementSibling).toBeNull();
     expect(aside.className).toContain('-translate-x-full');
+  });
+
+  // A-L2: the open drawer must be dismissable from the keyboard, not only by tapping
+  // the backdrop. The drawer carries the id the header's toggle points at (aria-controls).
+  it('Escape closes the open drawer; other keys and a closed drawer are ignored', async () => {
+    const { api, onClose, container } = renderSidebar({ user: { role: 'SUPER_ADMIN' }, open: true });
+    await settled(api);
+    expect(container.querySelector('aside')).toHaveAttribute('id', 'app-sidebar');
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a closed drawer does not react to Escape', async () => {
+    const { api, onClose } = renderSidebar({ user: { role: 'SUPER_ADMIN' }, open: false });
+    await settled(api);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('every control in the open drawer has an accessible name', async () => {
+    const { api, container } = renderSidebar({ user: { role: 'SUPER_ADMIN' }, open: true });
+    await settled(api);
+    fireEvent.click(within(nav()).getByRole('button', { name: 'Reports' }));
+    expectAllControlsNamed(container);
   });
 
   it('shows the configured logo, app name and company', async () => {

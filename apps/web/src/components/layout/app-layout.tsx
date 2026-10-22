@@ -189,7 +189,7 @@ export function AppLayout() {
     <div className="flex h-screen bg-background">
       <Sidebar userRole={user?.role ?? ''} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} />
+        <Header user={user} onLogout={logout} onMenuToggle={() => setSidebarOpen(o => !o)} menuOpen={sidebarOpen} />
         <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 bg-background">
           <Outlet />
         </main>

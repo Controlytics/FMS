@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
 import { useExportOptions } from '@/hooks/use-export-options';
 import { isReauthCancelled } from '@/lib/report-export-log';
 
@@ -27,6 +27,7 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
   const { pdf, excel } = useExportOptions(surface);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panelId = useId();
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -70,7 +71,9 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
   // Both allowed -> dropdown.
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} disabled={busy} className={btnCls}>
+      {/* Disclosure pattern: the choices are plain buttons, so the trigger says
+          whether they are shown and which panel it controls (no menu role). */}
+      <button onClick={() => setOpen((o) => !o)} disabled={busy} className={btnCls} aria-expanded={open} aria-controls={panelId}>
         {DownloadIcon}
         {busy ? 'Exporting…' : 'Export'}
         <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -78,7 +81,7 @@ export function ExportMenu({ surface, onExportPdf, onExportExcel, busy, classNam
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
+        <div id={panelId} className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-30 overflow-hidden">
           <button onClick={() => { setOpen(false); run(onExportPdf); }}
             className="w-full flex items-center gap-2 text-left px-3.5 py-2.5 text-[13px] text-slate-700 hover:bg-slate-50">
             <span className="text-red-500 font-bold text-[11px]">PDF</span> Export as PDF

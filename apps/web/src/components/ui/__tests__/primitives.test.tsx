@@ -9,6 +9,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from '../badge';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../table';
 import { ReasonBox, reasonOk, MIN_REASON_LEN } from '../reason-box';
+import { ReauthDialog } from '@/components/reauth-dialog';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 
 /**
  * Shared UI primitives. Most are thin class wrappers, so the tests assert what a
@@ -109,6 +111,37 @@ describe('Dialog', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  // A3 / A11Y-UI-1: the shared Dialog is announced as a modal dialog named by its title.
+  it('is exposed as a modal dialog named by its DialogTitle; closed, there is no dialog at all', () => {
+    const { rerender } = render(
+      <Dialog open onClose={() => {}}>
+        <DialogHeader><DialogTitle>Edit record</DialogTitle></DialogHeader>
+        <button>Save</button>
+      </Dialog>,
+    );
+    const dlg = screen.getByRole('dialog', { name: 'Edit record' });
+    expect(dlg).toHaveAttribute('aria-modal', 'true');
+    expect(dlg).toContainElement(screen.getByRole('button', { name: 'Save' }));
+    expectAllControlsNamed(document.body);
+    rerender(<Dialog open={false} onClose={() => {}}><DialogTitle>Edit record</DialogTitle></Dialog>);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('two open dialogs are two named dialogs (a re-auth prompt over an edit dialog)', () => {
+    render(
+      <>
+        <Dialog open onClose={() => {}}><DialogTitle>Edit record</DialogTitle></Dialog>
+        <ReauthDialog open password="" error="" isVerifying={false} onPasswordChange={() => {}} onConfirm={() => {}} onCancel={() => {}} />
+      </>,
+    );
+    expect(screen.getAllByRole('dialog')).toHaveLength(2);
+    expect(screen.getByRole('dialog', { name: 'Edit record' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Confirm Your Identity' })).toBeInTheDocument();
+    // The two titles get distinct ids, so neither dialog borrows the other's name.
+    const ids = screen.getAllByRole('dialog').map((d) => d.getAttribute('aria-labelledby'));
+    expect(new Set(ids).size).toBe(2);
+  });
 });
 
 describe('Button', () => {
@@ -202,14 +235,23 @@ describe('Select', () => {
   });
 
   it('applies the size + variant border/sizing styling', () => {
-    // Variant BACKGROUND colours are deliberately not asserted: tailwind-merge
-    // strips them in every variant — defect D-UI-3 in the coverage report.
     const { rerender } = render(<Select aria-label="S"><option>x</option></Select>);
-    expect(screen.getByRole('combobox')).toHaveClass('h-10', 'border-slate-300', 'bg-[length:1rem]', 'bg-[right_0.625rem_center]');
+    expect(screen.getByRole('combobox')).toHaveClass('h-10', 'border-slate-300', 'bg-[length:1rem]');
     rerender(<Select aria-label="S" selectSize="sm" variant="filled"><option>x</option></Select>);
     expect(screen.getByRole('combobox')).toHaveClass('h-8', 'border-transparent', 'hover:bg-slate-200/70', 'bg-[length:0.875rem]');
     rerender(<Select aria-label="S" selectSize="lg" variant="outlined" className="w-40"><option>x</option></Select>);
     expect(screen.getByRole('combobox')).toHaveClass('h-11', 'border-slate-400', 'bg-[length:1.125rem]', 'w-40');
+  });
+
+  // D-UI-3: the chevron's background POSITION must not cost the variant its background
+  // COLOUR — tailwind-merge read an untyped `bg-[right_…]` as a colour and dropped it.
+  it.each([
+    ['default', 'md', 'bg-white', 'bg-[position:right_0.625rem_center]'],
+    ['filled', 'sm', 'bg-slate-100', 'bg-[position:right_0.5rem_center]'],
+    ['outlined', 'lg', 'bg-transparent', 'bg-[position:right_0.875rem_center]'],
+  ] as const)('%s / %s keeps its background colour %s and the chevron position', (variant, size, colour, position) => {
+    render(<Select aria-label="S" variant={variant} selectSize={size}><option>x</option></Select>);
+    expect(screen.getByRole('combobox')).toHaveClass(colour, position);
   });
 
   it('a disabled select cannot be focused for change', () => {
@@ -302,5 +344,15 @@ describe('ReasonBox', () => {
     expect(screen.getByText('*')).toHaveClass('text-red-500');
     const box = screen.getByPlaceholderText('Why delete?');
     expect(box).toHaveClass('border-red-200');
+  });
+
+  // A11Y-UI-2: the mandatory §11 change reason is named by its visible label.
+  it('the textarea is named by its "Reason for this change" label and marked required', () => {
+    const { container } = render(<><ReasonBox value="" onChange={() => {}} /><ReasonBox value="" onChange={() => {}} /></>);
+    const boxes = screen.getAllByRole('textbox', { name: /reason for this change/i });
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0].id).not.toBe(boxes[1].id); // two boxes on one page never share a label target
+    expect(boxes[0]).toHaveAttribute('aria-required', 'true');
+    expectAllControlsNamed(container);
   });
 });

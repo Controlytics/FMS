@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { Badge } from '../ui/badge';
@@ -17,13 +17,29 @@ interface HeaderProps {
   } | undefined;
   onLogout: () => void;
   onMenuToggle?: () => void;
+  /** Whether the mobile drawer (Sidebar `id="app-sidebar"`) is open — reported as aria-expanded. */
+  menuOpen?: boolean;
 }
 
-export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
+export function Header({ user, onLogout, onMenuToggle, menuOpen }: HeaderProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const { branding } = useBranding();
   const navigate = useNavigate();
   const { roleLabels } = useRoleColors();
+
+  // Escape closes the open user menu and returns focus to its button — before
+  // this the menu could only be dismissed by pointer (A-L2).
+  useEffect(() => {
+    if (!showMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setShowMenu(false);
+      menuButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showMenu]);
 
   // Fetch unread notifications count for all users
   const { data: notificationData } = useSWR<{ count: number }>(
@@ -40,6 +56,8 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
           onClick={onMenuToggle}
           className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 lg:hidden"
           aria-label="Toggle menu"
+          aria-controls="app-sidebar"
+          aria-expanded={menuOpen}
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -56,13 +74,16 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
               onClick={() => navigate('/notifications')}
               className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100"
               title={unreadCount > 0 ? `${unreadCount} unread notification(s)` : 'Notifications'}
+              // A `title` only names an element with no text; once the badge renders
+              // its digits became the whole name ("7, button") — A-L1.
+              aria-label={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
               {/* Notification badge */}
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[11px] font-semibold tabular-nums text-white bg-red-600 rounded-full ring-2 ring-white">
+                <span aria-hidden="true" className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[11px] font-semibold tabular-nums text-white bg-red-600 rounded-full ring-2 ring-white">
                   {unreadCount > 99 ? '99+' : unreadCount}
                 </span>
               )}
@@ -74,7 +95,10 @@ export function Header({ user, onLogout, onMenuToggle }: HeaderProps) {
             {/* User dropdown */}
             <div className="relative">
               <button
+                ref={menuButtonRef}
                 onClick={() => setShowMenu(!showMenu)}
+                aria-haspopup="true"
+                aria-expanded={showMenu}
                 className="flex items-center gap-2.5 py-1.5 pl-1.5 pr-2 rounded-lg hover:bg-slate-100"
               >
                 {/* Avatar/Photo */}

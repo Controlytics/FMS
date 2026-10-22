@@ -77,13 +77,14 @@ describe('REPORT_TYPES', () => {
     const keys = used(/reportKey:\s*'([a-z-]+)'/g);
     expect(keys.length).toBeGreaterThan(5);
     const registered = new Set(REPORT_TYPES.map((r) => r.key));
-    // Defect D-UI-2 (see the coverage report): the Replacement List and
-    // Retirement List PDFs pass these keys, but neither is in REPORT_TYPES, so
-    // Config -> Report Signatories offers no row for them and their PDF always
-    // prints the fallback "Printed By". Excluded here only so the guard keeps
-    // catching NEW drift; remove the exclusion when the registry is fixed.
-    const KNOWN_UNREGISTERED_D_UI_2 = ['replacement-list', 'retirement-list'];
-    expect(keys.filter((k) => !registered.has(k) && !KNOWN_UNREGISTERED_D_UI_2.includes(k))).toEqual([]);
+    expect(keys.filter((k) => !registered.has(k))).toEqual([]);
+  });
+
+  it('offers a Report Signatories row for the Retirement List and Replacement List PDFs (D-UI-2)', () => {
+    expect(REPORT_TYPES).toEqual(expect.arrayContaining([
+      { key: 'replacement-list', label: 'Replacement List' },
+      { key: 'retirement-list', label: 'Retirement List' },
+    ]));
   });
 });
 

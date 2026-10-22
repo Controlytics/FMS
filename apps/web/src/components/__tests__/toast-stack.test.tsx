@@ -13,6 +13,7 @@ import { ErrorPopup } from '@/components/ui/error-popup';
 import { MessageDialog } from '@/components/ui/message-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { swrConfig } from '@/lib/swr-config';
+import { expectAllControlsNamed } from './support/a11y';
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 let consoleWarn: ReturnType<typeof vi.spyOn>;
@@ -84,19 +85,32 @@ describe('ToastContainer / ToastEntry', () => {
     vi.useFakeTimers();
     const onDismiss = vi.fn();
     render(<ToastContainer toasts={[item({ id: 'x', duration: 60_000 })]} onDismiss={onDismiss} />);
-    // The close control is icon-only with no accessible name (finding A4) — reach it by role.
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }));
     expect(onDismiss).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(200); });
     expect(onDismiss).toHaveBeenCalledWith('x');
   });
 
-  // Finding A4/A5 (defects-dialogs.md): the toast close button has no accessible name and
-  // toasts are never announced (no status / live region). The test pinning that was removed.
   it('renders the toast title with a single dismiss control', () => {
     render(<ToastContainer toasts={[item({ title: 'Cycle saved' })]} onDismiss={vi.fn()} />);
     expect(screen.getByText('Cycle saved')).toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+
+  // A4 / A5: the close control is named, and each toast is a live status region —
+  // politely announced, errors assertively.
+  it('every toast is announced (status, assertive for errors) and its close control is named', () => {
+    const { container } = render(
+      <ToastContainer toasts={[item({ id: 'a', title: 'Cycle saved' }), item({ id: 'b', title: 'Sync failed', variant: 'error' })]} onDismiss={vi.fn()} />,
+    );
+    const [ok, err] = screen.getAllByRole('status');
+    expect(ok).toHaveTextContent('Cycle saved');
+    expect(ok).toHaveAttribute('aria-live', 'polite');
+    expect(err).toHaveTextContent('Sync failed');
+    expect(err).toHaveAttribute('aria-live', 'assertive');
+    expect(screen.getAllByRole('button', { name: 'Dismiss notification' })).toHaveLength(2);
+    expectAllControlsNamed(container);
+    expectQuietConsole();
   });
 
   it('unmounting before the timer fires never calls onDismiss', () => {
@@ -189,8 +203,12 @@ describe('MessageDialog backdrop', () => {
     expect(onDismiss).toHaveBeenCalledWith('m1');
   });
 
-  // Finding A6 (defects-dialogs.md): the modal has role=dialog but no accessible name
-  // (title not linked). The test pinning that defect was removed.
+  // A6: the modal is named by its title.
+  it('is a modal dialog named by its title, and its OK button is named', () => {
+    const { container } = render(<MessageDialog item={{ id: 'm2', variant: 'error', title: 'Save failed' }} onDismiss={vi.fn()} />);
+    expect(screen.getByRole('dialog', { name: 'Save failed' })).toHaveAttribute('aria-modal', 'true');
+    expectAllControlsNamed(container);
+  });
 
   it('removes its Escape listener when unmounted', () => {
     const onDismiss = vi.fn();

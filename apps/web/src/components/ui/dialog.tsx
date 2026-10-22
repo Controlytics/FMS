@@ -1,8 +1,12 @@
-import { useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
 // Global dialog stack: only the topmost dialog should handle Escape key
 const dialogStack: (() => void)[] = [];
+
+// The panel is `aria-labelledby` its DialogTitle; the id comes from here so every
+// open dialog (e.g. a re-auth prompt over an edit dialog) has its own.
+const DialogTitleIdContext = createContext<string | undefined>(undefined);
 
 interface DialogProps {
   open: boolean;
@@ -14,6 +18,7 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onClose, children, className, priority }: DialogProps) {
+  const titleId = useId();
   useEffect(() => {
     if (!open) return;
 
@@ -48,6 +53,9 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
         onMouseDown={(e) => e.preventDefault()}
       />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={cn(
           `relative w-full max-w-lg rounded-xl bg-white p-6`,
           zContent,
@@ -57,7 +65,7 @@ export function Dialog({ open, onClose, children, className, priority }: DialogP
           className
         )}
       >
-        {children}
+        <DialogTitleIdContext.Provider value={titleId}>{children}</DialogTitleIdContext.Provider>
       </div>
     </div>
   );
@@ -68,8 +76,10 @@ export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLD
 }
 
 export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  const titleId = useContext(DialogTitleIdContext);
   return (
     <h2
+      id={titleId}
       className={cn(
         'text-lg font-semibold text-slate-900',
         className

@@ -10,6 +10,7 @@ import { ReauthDialog } from '../reauth-dialog';
 import { ReauthPrompt } from '../reauth-prompt';
 import { useReauth } from '@/hooks/use-reauth';
 import { renderPage, mockApi } from '@/test-utils/page-harness';
+import { expectAllControlsNamed } from './support/a11y';
 
 type Props = Parameters<typeof ReauthDialog>[0];
 const baseProps = (over: Partial<Props> = {}): Props => ({
@@ -98,15 +99,13 @@ describe('ReauthDialog', () => {
 
   it('the eye button toggles the password visible, and closing resets it and drops focus', async () => {
     const p = baseProps({ password: 'abc' });
-    const { rerender, container } = render(<ReauthDialog {...p} />);
+    const { rerender } = render(<ReauthDialog {...p} />);
     await waitFor(() => expect(passwordInput().type).toBe('password'));
-    // The toggle is the only button inside the field wrapper (it has no accessible name — see findings).
-    const toggle = container.querySelector('.relative > button') as HTMLButtonElement;
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
     expect(passwordInput().type).toBe('text');
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Hide password' }));
     expect(passwordInput().type).toBe('password');
-    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' })); // left "shown" before closing
 
     passwordInput().focus();
     rerender(<ReauthDialog {...p} open={false} />);
@@ -116,9 +115,20 @@ describe('ReauthDialog', () => {
     await waitFor(() => expect(passwordInput().type).toBe('password'));
   });
 
-  // Accessibility findings A1/A2/A3 (defects-dialogs.md): the password field has no
-  // programmatic label, the eye toggle has no name, there is no dialog role. The test
-  // pinning those defects was removed so a fix does not turn this file red.
+  // A1 / A2 / A3: the §11 password prompt is a named modal dialog, its password field
+  // is named by its label, and the eye toggle says what it does and whether it is on.
+  it('is a named modal dialog with a labelled password field and a named show/hide toggle', async () => {
+    const { container } = render(<ReauthDialog {...baseProps()} />);
+    expect(screen.getByRole('dialog', { name: 'Confirm Your Identity' })).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByLabelText('Current Password')).toBe(passwordInput());
+    const toggle = screen.getByRole('button', { name: 'Show password' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => expect(passwordInput().type).toBe('password'));
+    fireEvent.click(toggle);
+    expect(passwordInput().type).toBe('text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+    expectAllControlsNamed(container.ownerDocument.body);
+  });
 });
 
 describe('ReauthPrompt (wired to the real useReauth)', () => {

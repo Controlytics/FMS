@@ -39,14 +39,19 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
   }, [toast.id, toast.duration, onDismiss]);
 
   return (
+    // A live region per toast: announced politely, errors assertively. Not role="alert",
+    // which would collide with the pages' own inline alerts.
     <div
+      role="status"
+      aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
+      aria-atomic="true"
       className={cn(
         'flex items-start gap-3 px-4 py-3 rounded-lg border border-l-4 shadow-lg max-w-sm transition-all duration-200',
         VARIANT_STYLES[toast.variant],
         visible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0',
       )}
     >
-      <span className="text-base mt-0.5">{VARIANT_ICONS[toast.variant]}</span>
+      <span className="text-base mt-0.5" aria-hidden="true">{VARIANT_ICONS[toast.variant]}</span>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold">{toast.title}</p>
         {toast.message && <p className="text-xs mt-0.5 opacity-80 whitespace-pre-line">{toast.message}</p>}
@@ -57,6 +62,7 @@ function ToastEntry({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: st
           setTimeout(() => onDismiss(toast.id), 200);
         }}
         className="shrink-0 p-0.5 rounded hover:bg-black/5 transition-colors"
+        aria-label="Dismiss notification"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

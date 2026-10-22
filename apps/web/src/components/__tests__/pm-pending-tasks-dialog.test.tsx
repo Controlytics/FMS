@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PmPendingTasksDialog, type PendingPmTask } from '../pm-pending-tasks-dialog';
+import { expectAllControlsNamed } from './support/a11y';
 
 const fmt = (d: string) => `D(${d})`;
 const task = (over: Partial<PendingPmTask> = {}): PendingPmTask => ({
@@ -106,6 +107,11 @@ describe('PmPendingTasksDialog', () => {
     rerender(<PmPendingTasksDialog tasks={[task()]} formatDate={fmt} onCancel={vi.fn()} onConfirm={vi.fn()} />);
     expect(screen.getByRole('textbox')).toHaveValue('Still here');
   });
-  // a11y finding A7 (defects-dialogs.md): the overlay has no role="dialog" / aria-modal. The
-  // assertion pinning that defect was removed so a fix does not turn this file red.
+
+  // A7: the missed-PM question is a modal dialog named by its heading.
+  it('is a modal dialog named by its heading, with every control named', () => {
+    const { container } = render(<PmPendingTasksDialog tasks={[task(), task({ entryId: 'e2', plannedDate: '2026-04-10' })]} formatDate={fmt} onCancel={vi.fn()} onConfirm={vi.fn()} />);
+    expect(screen.getByRole('dialog', { name: 'Previous scheduled PM not carried out' })).toHaveAttribute('aria-modal', 'true');
+    expectAllControlsNamed(container);
+  });
 });

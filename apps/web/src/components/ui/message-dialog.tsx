@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { themeButton } from '@/lib/theme-styles';
 
 export type DialogVariant = 'success' | 'error';
@@ -36,6 +36,7 @@ const VARIANTS: Record<DialogVariant, {
 
 export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDismiss: (id: string) => void }) {
   const v = VARIANTS[item.variant];
+  const titleId = useId();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(item.id); };
@@ -49,6 +50,7 @@ export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDism
       onClick={() => onDismiss(item.id)}
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
     >
       <div
         className="bg-white border border-slate-200 rounded-xl w-full max-w-sm overflow-hidden shadow-2xl"
@@ -60,7 +62,7 @@ export function MessageDialog({ item, onDismiss }: { item: DialogMessage; onDism
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d={v.iconPath} />
             </svg>
           </div>
-          <h2 className="text-base font-semibold text-white">{item.title}</h2>
+          <h2 id={titleId} className="text-base font-semibold text-white">{item.title}</h2>
         </div>
 
         <div className="px-6 py-5">

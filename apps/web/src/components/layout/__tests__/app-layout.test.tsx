@@ -160,10 +160,23 @@ describe('AppLayout — signed in', () => {
     await screen.findByText('child page');
     const aside = container.querySelector('aside')!;
     expect(aside.className).toContain('-translate-x-full');
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle menu' }));
+    const toggle = screen.getByRole('button', { name: 'Toggle menu' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
     expect(aside.className).toMatch(/(^|\s)translate-x-0/);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true'); // A-L2: the toggle reports the drawer state
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('link')[0]);
     expect(aside.className).toContain('-translate-x-full');
+  });
+
+  it('Escape closes the open drawer (A-L2)', async () => {
+    const { container } = renderShell(operator);
+    await screen.findByText('child page');
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle menu' }));
+    expect(container.querySelector('aside')!.className).toMatch(/(^|\s)translate-x-0/);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(container.querySelector('aside')!.className).toContain('-translate-x-full');
+    expect(screen.getByRole('button', { name: 'Toggle menu' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
 

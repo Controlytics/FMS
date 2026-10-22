@@ -8,6 +8,7 @@ import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { HardCutoffBlocker } from '../hard-cutoff-blocker';
 import { setHardCutoffMs } from '@/lib/hard-cutoff';
 import { markServerContactFromResponse } from '@/lib/server-contact';
+import { expectAllControlsNamed } from './support/a11y';
 
 const H = 3600_000;
 const lastContactAgo = (ms: number) => { const t = Date.now() - ms; localStorage.setItem('digilog_last_server_contact', String(t)); return t; };
@@ -106,13 +107,50 @@ describe('HardCutoffBlocker', () => {
     expect(api.calls('GET', '/api/health').length).toBe(2); // raw probe + apiClient GET (which marks contact)
   });
 
-  it('stays locked when the server answers 5xx to the reconnect probe', async () => {
+  it('stays locked when the server answers 5xx to the reconnect probe, and says so', async () => {
     lastContactAgo(30 * H);
     const api = blockerApi([{ path: '/api/health', status: 503, body: { error: 'DOWN', message: 'down' } }]);
     renderPage(<HardCutoffBlocker />, { api });
     fireEvent.click(screen.getByRole('button', { name: 'Try to reconnect' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Try to reconnect' })).toBeEnabled());
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent("Still can't reach the server");
+  });
+
+  // D-L3: the case the overlay exists for — the server is unreachable, so the probe's
+  // fetch REJECTS. It used to escape handleRetry as an unhandled promise rejection.
+  it('reconnecting while the server is unreachable stays locked and says so (no unhandled rejection)', async () => {
+    lastContactAgo(30 * H);
+    const api = mockApi(); // renderPage needs an api object; every request below is answered by the stub
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
+      String(input).includes('/api/config/datetime/current') ? new Promise<Response>(() => {}) : Promise.reject(new TypeError('Failed to fetch'))));
+    renderPage(<HardCutoffBlocker />, { api });
+    fireEvent.click(screen.getByRole('button', { name: 'Try to reconnect' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Try to reconnect' })).toBeEnabled());
+    expect(screen.getByRole('dialog', { name: 'Read-only Mode' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent("Still can't reach the server");
+  });
+
+  it('a new attempt clears the previous "still can\'t reach" message while it runs', async () => {
+    lastContactAgo(30 * H);
+    const api = mockApi();
+    let reject!: (e: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
+      String(input).includes('/api/config/datetime/current') ? new Promise<Response>(() => {}) : new Promise<Response>((_r, j) => { reject = j; })));
+    renderPage(<HardCutoffBlocker />, { api });
+    fireEvent.click(screen.getByRole('button', { name: 'Try to reconnect' }));
+    act(() => reject(new TypeError('Failed to fetch')));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Try to reconnect' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    await act(async () => { reject(new TypeError('Failed to fetch')); });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+  });
+
+  it('every control in the locked overlay has an accessible name', () => {
+    lastContactAgo(30 * H);
+    renderPage(<HardCutoffBlocker />, { api: blockerApi() });
+    expectAllControlsNamed(document.body);
   });
 
   it('stops listening on unmount', () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, waitFor, within, act, cleanup } from '@testing-library/react';
 import { renderPage, mockApi, type MockApi } from '@/test-utils/page-harness';
 import { Pagination } from '../pagination';
+import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
 
 /**
  * The one pagination control. Rendered through the page harness so the
@@ -151,5 +152,14 @@ describe('Pagination', () => {
   it('passes a className through', async () => {
     const { container } = await show({ className: 'border-t' });
     expect(container.firstElementChild).toHaveClass('border-t');
+  });
+
+  // A11Y-UI-4: the current page is announced, not shown by colour alone.
+  it('marks only the current page with aria-current="page", and every control has a name', async () => {
+    const { container } = await show({ page: 2, onPageSizeChange: vi.fn() });
+    expect(screen.getByRole('button', { name: '2' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: '1' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: '3' })).not.toHaveAttribute('aria-current');
+    expectAllControlsNamed(container);
   });
 });

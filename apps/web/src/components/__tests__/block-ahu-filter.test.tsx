@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { renderPage, mockApi, type MockApi } from '@/test-utils/page-harness';
 import { BlockAhuFilter, useBlockAhuScope, type ScopedRow } from '../block-ahu-filter';
+import { expectAllControlsNamed } from './support/a11y';
 
 const ROWS: (ScopedRow & { name: string })[] = [
   { name: 'F-1', blockId: 'b-cwh', ahuId: 'h-0a' },
@@ -136,13 +137,11 @@ describe('BlockAhuFilter / useBlockAhuScope', () => {
     expect(screen.getByTestId('rows')).toHaveTextContent('F-1,F-2,F-3');
   });
 
-  // Unlabeled-UI finding WSH-A11Y-1: the visible "Block" / "AHU" captions are bare
-  // <label>s with no htmlFor and do not wrap the <select>, so neither dropdown has an
-  // accessible name (getByRole('combobox', { name: 'Block' }) finds nothing). The
-  // confirming name-based query was removed; this asserts the captions are at least shown.
-  it('shows the Block and AHU captions next to the dropdowns', async () => {
-    await ready();
-    expect(screen.getByText('Block')).toBeInTheDocument();
-    expect(screen.getByText('AHU')).toBeInTheDocument();
+  // WSH-A11Y-1: each visible caption names its dropdown.
+  it('the Block and AHU captions name their dropdowns, and every control has a name', async () => {
+    const { block, ahu } = await ready();
+    expect(screen.getByRole('combobox', { name: 'Block' })).toBe(block);
+    expect(screen.getByRole('combobox', { name: 'AHU' })).toBe(ahu);
+    expectAllControlsNamed(document.body);
   });
 });

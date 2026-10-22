@@ -13,6 +13,7 @@ import { SWRConfig } from 'swr';
 import { useState, type ReactNode } from 'react';
 import { swrConfig } from '@/lib/swr-config';
 import { renderPage, mockApi } from '@/test-utils/page-harness';
+import { expectAllControlsNamed } from './support/a11y';
 import {
   SuperAdminRecordEditDialog, SuperAdminEditButton, PencilIcon, userOptions, useIsSuperAdmin, MIN_REASON_LEN,
   type EditFieldSpec, type SuperAdminRecordEditDialogProps,
@@ -292,6 +293,62 @@ describe('SuperAdminRecordEditDialog — saving', () => {
     expect(reason()).toHaveValue('');
     expect(screen.queryByText('refused')).toBeNull();
   });
+
+  // D3: every caller passes `initial={{ … }}` inline and polls every 15-30 s, so the
+  // dialog sees a new `initial` object on every parent render — and, after a poll,
+  // possibly changed CONTENTS. Neither may wipe what the Super Admin has typed.
+  it('D3: a parent re-render or a poll with changed data never wipes typed values or the reason', async () => {
+    const api = setupApi();
+    const onSave = vi.fn(async () => ({}));
+    function Host() {
+      const [polls, setPolls] = useState(0);
+      return (
+        <>
+          <button onClick={() => setPolls((p) => p + 1)}>poll</button>
+          <SuperAdminRecordEditDialog open title="T" fields={FIELDS} onSave={onSave} onClose={vi.fn()}
+            initial={{ ...INITIAL, notes: polls >= 2 ? 'changed on the server' : null }} />
+        </>
+      );
+    }
+    renderPage(<Host />, { api });
+    await settle(api);
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'F-2' } });
+    fireEvent.change(reason(), { target: { value: 'typing a reason' } });
+    fireEvent.click(screen.getByRole('button', { name: 'poll' })); // same contents, new object
+    expect(screen.getByLabelText(/^Name/)).toHaveValue('F-2');
+    expect(reason()).toHaveValue('typing a reason');
+    fireEvent.click(screen.getByRole('button', { name: 'poll' })); // the server's data changed
+    expect(screen.getByLabelText(/^Name/)).toHaveValue('F-2');
+    expect(reason()).toHaveValue('typing a reason');
+    // Only what the operator changed is sent: the field another writer changed meanwhile
+    // is not "reverted" to the value the dialog opened with.
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ name: 'F-2' }, 'typing a reason', undefined));
+  });
+
+  it('D3: the datetime fields follow the configured zone when it arrives after opening (nothing typed yet)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const api = mockApi([
+      { path: '/api/config/datetime/current', body: { ...DT, timezone: 'UTC' } },
+      { path: '/api/config/action-reauth/my-actions', body: { actions: [] } },
+    ]);
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/config/datetime/current')) await gate;
+      return realFetch(input, init);
+    });
+    renderPage(<SuperAdminRecordEditDialog open title="T" fields={FIELDS} initial={INITIAL} onSave={vi.fn()} onClose={vi.fn()} />, { api });
+    expect(screen.getByLabelText('Performed at')).toHaveValue('2026-09-05T13:30'); // the default zone (Asia/Kolkata)
+    await act(async () => { release(); await new Promise((r) => setTimeout(r, 20)); });
+    await waitFor(() => expect(screen.getByLabelText('Performed at')).toHaveValue('2026-09-05T08:00'));
+  });
+
+  it('every control and the dialog itself have an accessible name', async () => {
+    const { api, container } = open();
+    await settle(api);
+    expectAllControlsNamed(container);
+  });
 });
 
 describe('SuperAdminRecordEditDialog — re-auth', () => {
@@ -368,12 +425,20 @@ describe('useIsSuperAdmin', () => {
   );
 
   it('signed out: never asks the server who the user is', () => {
-    // NOTE (defect L2 in the coverage report): with a stale cached SUPER_ADMIN
-    // this hook still answers true while signed out — SWR hands back
-    // `fallbackData` even for a null key. Not asserted here; tracked as a finding.
     const api = mockApi([]);
     const { result } = renderHook(() => useIsSuperAdmin(), { wrapper });
     expect(result.current).toBe(false); // no cache at all → false
+    expect(api.requests).toHaveLength(0);
+  });
+
+  // L2: the cached user survives a tab close (only logout / the 401 handler clear it).
+  // Signed out, that stale SUPER_ADMIN must not count — SWR hands back `fallbackData`
+  // even for a null key, so the fallback may only be offered while a token exists.
+  it('L2: signed out with a stale cached SUPER_ADMIN is NOT a Super Admin', () => {
+    localStorage.setItem('digilog_cached_user', JSON.stringify({ role: 'SUPER_ADMIN' }));
+    const api = mockApi([]);
+    const { result } = renderHook(() => useIsSuperAdmin(), { wrapper });
+    expect(result.current).toBe(false);
     expect(api.requests).toHaveLength(0);
   });
 

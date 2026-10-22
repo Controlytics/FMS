@@ -371,6 +371,10 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       // portrait page with 8 columns that is the difference between a header
       // fitting on one line and breaking. At the 7pt default this is 2.5mm all
       // round — byte-identical to what every other report rendered before.
+      // Vertical padding runs linearly from 2.5mm at 7pt to 4.05mm at 9pt (the
+      // value the 9pt QNN / RFID reports were laid out with) and never drops
+      // below 2.5mm. The earlier `fs * 0.45` gave 3.15mm at 7pt, breaking the
+      // byte-identical promise above (D-UI-1, 2026-10-21).
       // A row is never split across a page boundary. Default 'auto' let the last
       // row on a page continue onto the next one, so a single record could be
       // read as two — worst on a wrapped cell, where the tail looked like its own
@@ -378,7 +382,7 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       rowPageBreak: 'avoid',
       styles: {
         fontSize: fs,
-        cellPadding: { top: Math.max(2.5, fs * 0.45), bottom: Math.max(2.5, fs * 0.45), left: 2.5, right: 2.5 },
+        cellPadding: { top: Math.max(2.5, 2.5 + (fs - 7) * 0.775), bottom: Math.max(2.5, 2.5 + (fs - 7) * 0.775), left: 2.5, right: 2.5 },
         // Grid lines scale with the font: exactly the original 0.2mm at the 7pt
         // default, twice that at 9pt. Hairlines that read fine under small dense
         // text look faint once the type is larger.

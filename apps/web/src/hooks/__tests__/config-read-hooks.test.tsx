@@ -116,22 +116,38 @@ describe('useDatetimeFormat', () => {
     noConsoleNoise();
   });
 
-  // MM/DD/YYYY is tested for ORDER only below, and DD-MMM-YYYY only in June: the
-  // former renders "6/15/2026" (no zero padding) and the latter "15-Sept-2026" in
-  // September (4-letter month on ICU >= 72). Defects WSH-DT-1 / WSH-DT-2 in the
-  // coverage report; the confirming exact-string assertions were removed.
-  it('MM/DD/YYYY puts the month before the day', async () => {
+  // WSH-DT-1: MM/DD/YYYY is zero-padded like the format it names (was "6/5/2026").
+  it('MM/DD/YYYY zero-pads the month and day', async () => {
     const { result } = setup({ dateFormat: 'MM/DD/YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' });
     await waitFor(() => expect(result.current.config.dateFormat).toBe('MM/DD/YYYY'));
-    const [m, d, y] = result.current.formatDate('2026-06-15T09:05:00.000Z').split('/').map(Number);
-    expect({ m, d, y }).toEqual({ m: 6, d: 15, y: 2026 });
-    const [dm, dd] = result.current.formatDayMonth('2026-06-15T09:05:00.000Z').split('/').map(Number);
-    expect({ dm, dd }).toEqual({ dm: 6, dd: 15 });
+    expect(result.current.formatDate('2026-06-05T09:05:00.000Z')).toBe('06/05/2026');
+    expect(result.current.formatDayMonth('2026-06-05T09:05:00.000Z')).toBe('06/05');
     noConsoleNoise();
+  });
+
+  // WSH-DT-2: DD-MMM-YYYY uses a fixed 3-letter month, never ICU's en-GB "Sept".
+  it('DD-MMM-YYYY uses a 3-letter month for every month of the year', async () => {
+    const { result } = setup({ dateFormat: 'DD-MMM-YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' });
+    await waitFor(() => expect(result.current.config.dateFormat).toBe('DD-MMM-YYYY'));
+    const months = Array.from({ length: 12 }, (_, i) => result.current.formatDate(new Date(Date.UTC(2026, i, 15, 6))).split('-')[1]);
+    expect(months).toEqual(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+    expect(result.current.formatDate('2026-09-15T09:05:00.000Z')).toBe('15-Sep-2026');
+    expect(result.current.formatDayMonth('2026-09-15T09:05:00.000Z')).toBe('15-Sep');
+  });
+
+  it('takes the month from the configured timezone, not the browser’s (a month-end instant)', async () => {
+    // 2026-09-30T20:00Z is 1 Oct 01:30 in Asia/Kolkata.
+    const { result } = setup({ dateFormat: 'DD-MMM-YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' });
+    await waitFor(() => expect(result.current.config.dateFormat).toBe('DD-MMM-YYYY'));
+    expect(result.current.formatDateTime('2026-09-30T20:00:00.000Z')).toBe('01-Oct-2026 01:30');
+    const year = setup({ dateFormat: 'MM/DD/YYYY', timeFormat: '24-hour', timezone: 'Asia/Kolkata' });
+    await waitFor(() => expect(year.result.current.config.dateFormat).toBe('MM/DD/YYYY'));
+    expect(year.result.current.formatDate('2026-12-31T19:00:00.000Z')).toBe('01/01/2027');
   });
 
   it.each([
     ['DD/MM/YYYY', '15/06/2026', '15/06'],
+    ['MM/DD/YYYY', '06/15/2026', '06/15'],
     ['YYYY-MM-DD', '2026-06-15', '06-15'],
     ['DD-MMM-YYYY', '15-Jun-2026', '15-Jun'],
     ['MMM DD, YYYY', 'Jun 15, 2026', 'Jun 15'],

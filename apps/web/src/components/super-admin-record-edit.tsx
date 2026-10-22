@@ -15,7 +15,7 @@
  *   - `chainWarning` prints the audit-hash-chain warning for records that ARE
  *     audit rows (RFID events, retirements, replacements).
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import useSWR from 'swr';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
@@ -34,7 +34,10 @@ export function useIsSuperAdmin(): boolean {
   const cached = (): { role?: string } | undefined => {
     try { const raw = localStorage.getItem('digilog_cached_user'); return raw ? JSON.parse(raw) : undefined; } catch { return undefined; }
   };
-  const { data } = useSWR<{ role?: string }>(token ? '/api/auth/me' : null, { fallbackData: cached() });
+  // SWR hands back `fallbackData` even for a null key, so the cached user may only
+  // be offered while a token exists: signed out, a stale cached SUPER_ADMIN (the
+  // cache survives a tab close) must not count.
+  const { data } = useSWR<{ role?: string }>(token ? '/api/auth/me' : null, token ? { fallbackData: cached() } : {});
   const user = data ?? (token ? cached() : undefined);
   return user?.role === 'SUPER_ADMIN';
 }
@@ -106,11 +109,28 @@ export function SuperAdminRecordEditDialog({
     return out;
   }, [fields, initial, tz]);
 
+  // `base` = the record as it was when the dialog opened; edits are diffed against it.
+  // Reset ONLY when the dialog opens: callers pass `initial` inline and poll, so a new
+  // `seed` arrives on every parent render (sometimes with changed data). Re-seeding
+  // then wiped the half-typed edit and reason, and diffing against the live seed sent
+  // a field another writer had just changed as if the operator had reverted it.
+  const [base, setBase] = useState<Record<string, any>>(seed);
   const [values, setValues] = useState<Record<string, any>>(seed);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) { setValues(seed); setReason(''); setError(''); setSaving(false); } }, [open, seed]);
+  const wasOpen = useRef(false);
+  const pristine = values === base && reason === '';
+  useEffect(() => {
+    const opening = open && !wasOpen.current;
+    wasOpen.current = open;
+    // While nothing is typed yet, follow the seed too: the zone config can land after
+    // opening, and datetime fields must show wall-clock time in the configured zone.
+    if (opening || (open && pristine && seed !== base)) {
+      setBase(seed); setValues(seed);
+      if (opening) { setReason(''); setError(''); setSaving(false); }
+    }
+  }, [open, seed, base, pristine]);
 
   if (!open) return null;
 
@@ -127,7 +147,7 @@ export function SuperAdminRecordEditDialog({
     for (const f of fields) {
       if (f.showWhen && !f.showWhen(values)) continue;
       const cur = values[f.key];
-      const was = seed[f.key];
+      const was = base[f.key];
       if (cur === was) continue;
       if (f.type === 'datetime') out[f.key] = cur ? toIsoIfNaiveDatetime(cur, tz) : '';
       else if (f.type === 'number') out[f.key] = cur === '' ? '' : Number(cur);

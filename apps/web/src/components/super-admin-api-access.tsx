@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
 
@@ -15,7 +15,8 @@ import { useSuperAdminLock } from '@/hooks/use-super-admin-lock';
  */
 
 function errMessage(e: unknown): string {
-  const code = (e as any)?.code;
+  // api-client throws REAUTH bodies raw: the code is on `.error` (no `.code`).
+  const code = (e as any)?.error ?? (e as any)?.code;
   if (code === 'REAUTH_FAILED') return 'Incorrect password. Please try again.';
   if (code === 'REAUTH_REQUIRED') return 'Password is required.';
   return (e as any)?.message || 'Something went wrong. Please try again.';
@@ -25,6 +26,7 @@ function errMessage(e: unknown): string {
 export function SuperAdminLockdownScreen() {
   const { logout } = useAuth();
   const { setEnabled } = useSuperAdminLock();
+  const passwordId = useId();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,8 +64,9 @@ export function SuperAdminLockdownScreen() {
             or log out so another administrator can take over.
           </p>
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1.5">Password</label>
+            <label htmlFor={passwordId} className="block text-xs font-bold text-slate-500 mb-1.5">Password</label>
             <input
+              id={passwordId}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -98,6 +101,7 @@ export function SuperAdminLockdownScreen() {
 export function SuperAdminApiAccessCard() {
   const { isSuperAdmin, enabled, setEnabled, isLoading } = useSuperAdminLock();
   const [confirming, setConfirming] = useState(false);
+  const passwordId = useId();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -155,8 +159,9 @@ export function SuperAdminApiAccessCard() {
             </div>
           )}
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1.5">Confirm with your password</label>
+            <label htmlFor={passwordId} className="block text-xs font-bold text-slate-500 mb-1.5">Confirm with your password</label>
             <input
+              id={passwordId}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

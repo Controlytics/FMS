@@ -15,7 +15,7 @@
  * `cycle` may be null for a manual status update, which is a single event
  * with no cycle row: then only the event section renders.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import useSWR, { mutate } from 'swr';
 import { api } from '@/lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
@@ -56,6 +56,8 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
   const { config } = useDatetimeFormat();
   const tz = config.timezone;
   const reauth = useReauth();
+  const uid = useId();
+  const fid = (k: string) => `${uid}-${k}`;
   const { data: usersData } = useSWR<any>(`/api/users?page=1&limit=${ALL_ROWS}`);
   const users: any[] = (usersData as any)?.data ?? [];
 
@@ -77,12 +79,28 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
     readings: ((e.attributes?.instrumentReadings ?? []) as any[]).map((r) => (r?.value == null ? '' : String(r.value))),
   })), [events, tz]);
 
+  // The record as it was when the dialog opened (`baseEvents` keeps the rows the
+  // drafts index into). Callers pass `events={detail.events ?? []}` and refetch
+  // `detail`, so new seeds arrive on every parent render - re-seeding on them wiped
+  // the half-typed edit and reason, and diffing against the live seed sent a field
+  // another writer had just changed as if the operator had reverted it. Edits are
+  // diffed against the base, which moves forward as each PUT lands (D4).
+  const recordKey = cycle?.id ?? events[0]?.id ?? '';
+  const [base, setBase] = useState({ key: recordKey, cycle: cycleSeed, events: eventSeed, rows: events });
   const [c, setC] = useState<Record<string, string> | null>(cycleSeed);
   const [ev, setEv] = useState<EventDraft[]>(eventSeed);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setC(cycleSeed); setEv(eventSeed); setReason(''); setError(''); }, [cycleSeed, eventSeed]);
+  const pristine = c === base.cycle && ev === base.events && reason === '';
+  useEffect(() => {
+    // A different record, or - while nothing is typed yet - a new seed (the zone
+    // config can land after opening; datetime fields must show its wall clock).
+    if (recordKey === base.key && (!pristine || (cycleSeed === base.cycle && eventSeed === base.events))) return;
+    setBase({ key: recordKey, cycle: cycleSeed, events: eventSeed, rows: events });
+    setC(cycleSeed); setEv(eventSeed);
+    if (recordKey !== base.key) { setReason(''); setError(''); }
+  }, [recordKey, cycleSeed, eventSeed, events, base, pristine]);
 
   const setCycleField = (k: string, v: string) => setC((prev) => (prev ? { ...prev, [k]: v } : prev));
   const setEvField = (i: number, k: keyof EventDraft, v: string) => setEv((prev) => prev.map((d, j) => (j === i ? { ...d, [k]: v } : d)));
@@ -90,20 +108,22 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
 
   // ── diff
   const cycleBody = (): Record<string, any> => {
-    if (!c || !cycleSeed) return {};
+    const was = base.cycle;
+    if (!c || !was) return {};
     const out: Record<string, any> = {};
-    for (const k of Object.keys(cycleSeed)) {
-      if (c[k] === cycleSeed[k]) continue;
+    for (const k of Object.keys(was)) {
+      if (c[k] === was[k]) continue;
       if (['startedAt', 'completedAt', 'terminatedAt', 'dryerStartedAt'].includes(k)) out[k] = c[k] ? toIsoIfNaiveDatetime(c[k], tz) : null;
       else if (k === 'dryerDurationMinutes') out[k] = c[k] === '' ? null : Number(c[k]);
       else out[k] = c[k];
     }
     return out;
   };
-  const eventBodies = (): Array<{ id: string; body: Record<string, any> }> => {
-    const out: Array<{ id: string; body: Record<string, any> }> = [];
+  const eventBodies = (): Array<{ index: number; id: string; body: Record<string, any> }> => {
+    const out: Array<{ index: number; id: string; body: Record<string, any> }> = [];
     ev.forEach((d, i) => {
-      const seed = eventSeed[i]; const e = events[i];
+      const seed = base.events[i]; const e = base.rows[i];
+      if (!seed || !e) return;
       const body: Record<string, any> = {};
       if (d.fromState !== seed.fromState) body.fromState = d.fromState || null;
       if (d.toState !== seed.toState) body.toState = d.toState || null;
@@ -121,7 +141,7 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
         return { ...r, value: n };
       });
       if (readingsChanged) body.attributes = { instrumentReadings: next };
-      if (Object.keys(body).length > 0) out.push({ id: e.id, body });
+      if (Object.keys(body).length > 0) out.push({ index: i, id: e.id, body });
     });
     return out;
   };
@@ -133,19 +153,34 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
     if (!canSave) return;
     setSaving(true); setError('');
     const put = (url: string, body: any, pw?: string) => (pw ? api.putWithReauth(url, body, pw) : api.put(url, body));
+    // The PUTs are sequential with no rollback, so each one that lands moves its part
+    // of the base forward: a retry after a later failure re-sends only what did not
+    // land (a re-sent cycle PUT wrote a second, empty audit row). Whatever landed is
+    // on the pages too, so they revalidate even when a later PUT fails.
+    const drafts = { cycle: c, events: ev };
+    let landed = 0;
     try {
       await reauth.executeWithResult('SUPER_ADMIN_DATA_EDIT', async (pw) => {
         const r = reason.trim();
-        if (cycle && Object.keys(cb).length > 0) await put(`/api/super-admin/data/cleaning-cycles/${cycle.id}`, { ...cb, _changeReason: r }, pw);
-        for (const { id, body } of ebs) await put(`/api/super-admin/data/filter-events/${id}`, { ...body, _changeReason: r }, pw);
+        if (cycle && Object.keys(cb).length > 0) {
+          await put(`/api/super-admin/data/cleaning-cycles/${cycle.id}`, { ...cb, _changeReason: r }, pw);
+          landed++;
+          setBase((b) => ({ ...b, cycle: drafts.cycle }));
+        }
+        for (const { index, id, body } of ebs) {
+          await put(`/api/super-admin/data/filter-events/${id}`, { ...body, _changeReason: r }, pw);
+          landed++;
+          setBase((b) => ({ ...b, events: b.events.map((s, j) => (j === index ? drafts.events[index] : s)) }));
+        }
       });
-      revalidateCycleData();
       onSaved?.();
       onClose();
     } catch (e: any) {
       if (e?.error === 'REAUTH_CANCELLED' || e?.error === 'REAUTH_SUPERSEDED') { setSaving(false); return; }
       setError(e?.message ?? 'Save failed');
       setSaving(false);
+    } finally {
+      if (landed > 0) revalidateCycleData();
     }
   };
 
@@ -173,26 +208,26 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
               <section className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-500">Cycle {cycle.cycleCode ? `· ${cycle.cycleCode}` : ''}</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className={labelCls}>Status</label>
-                    <select value={c.status} onChange={(e) => setCycleField('status', e.target.value)} className={inputCls}>
+                  <div><label className={labelCls} htmlFor={fid('c-status')}>Status</label>
+                    <select id={fid('c-status')} value={c.status} onChange={(e) => setCycleField('status', e.target.value)} className={inputCls}>
                       {(CYCLE_STATUSES.includes(c.status) ? CYCLE_STATUSES : [c.status, ...CYCLE_STATUSES]).map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                     </select></div>
-                  <div><label className={labelCls}>Cleaning reason</label><input value={c.cleaningReasonLabel} onChange={(e) => setCycleField('cleaningReasonLabel', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Started at</label><input type="datetime-local" step={60} value={c.startedAt} onChange={(e) => setCycleField('startedAt', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Completed at</label><input type="datetime-local" step={60} value={c.completedAt} onChange={(e) => setCycleField('completedAt', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Terminated at</label><input type="datetime-local" step={60} value={c.terminatedAt} onChange={(e) => setCycleField('terminatedAt', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Termination reason</label><input value={c.terminationReason} onChange={(e) => setCycleField('terminationReason', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Dryer duration (min)</label><input type="number" min={0} value={c.dryerDurationMinutes} onChange={(e) => setCycleField('dryerDurationMinutes', e.target.value)} className={inputCls} /></div>
-                  <div><label className={labelCls}>Dryer started at</label><input type="datetime-local" step={60} value={c.dryerStartedAt} onChange={(e) => setCycleField('dryerStartedAt', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-cleaningReasonLabel')}>Cleaning reason</label><input id={fid('c-cleaningReasonLabel')} value={c.cleaningReasonLabel} onChange={(e) => setCycleField('cleaningReasonLabel', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-startedAt')}>Started at</label><input id={fid('c-startedAt')} type="datetime-local" step={60} value={c.startedAt} onChange={(e) => setCycleField('startedAt', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-completedAt')}>Completed at</label><input id={fid('c-completedAt')} type="datetime-local" step={60} value={c.completedAt} onChange={(e) => setCycleField('completedAt', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-terminatedAt')}>Terminated at</label><input id={fid('c-terminatedAt')} type="datetime-local" step={60} value={c.terminatedAt} onChange={(e) => setCycleField('terminatedAt', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-terminationReason')}>Termination reason</label><input id={fid('c-terminationReason')} value={c.terminationReason} onChange={(e) => setCycleField('terminationReason', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-dryerDurationMinutes')}>Dryer duration (min)</label><input id={fid('c-dryerDurationMinutes')} type="number" min={0} value={c.dryerDurationMinutes} onChange={(e) => setCycleField('dryerDurationMinutes', e.target.value)} className={inputCls} /></div>
+                  <div><label className={labelCls} htmlFor={fid('c-dryerStartedAt')}>Dryer started at</label><input id={fid('c-dryerStartedAt')} type="datetime-local" step={60} value={c.dryerStartedAt} onChange={(e) => setCycleField('dryerStartedAt', e.target.value)} className={inputCls} /></div>
                 </div>
                 <p className="text-[11px] text-slate-500">Moving the status out of In Progress also clears the filter's current-cycle pointer, as Terminate does.</p>
               </section>
             )}
 
             <section className="space-y-3">
-              <h3 className="text-xs font-bold text-slate-500">Stage events ({events.length})</h3>
-              {events.length === 0 && <p className="text-sm text-slate-400">This record has no stage events.</p>}
-              {events.map((e, i) => {
+              <h3 className="text-xs font-bold text-slate-500">Stage events ({base.rows.length})</h3>
+              {base.rows.length === 0 && <p className="text-sm text-slate-400">This record has no stage events.</p>}
+              {base.rows.map((e, i) => {
                 const d = ev[i]; if (!d) return null;
                 const readings: any[] = e.attributes?.instrumentReadings ?? [];
                 const head = e.eventType === 'STATE_TRANSITION'
@@ -207,29 +242,29 @@ export function SuperAdminCycleEditDialog({ cycle, events, title, onClose, onSav
                     <div className="grid grid-cols-2 gap-3">
                       {e.eventType === 'STATE_TRANSITION' && (
                         <>
-                          <div><label className={labelCls}>From</label>
-                            <select value={d.fromState} onChange={(x) => setEvField(i, 'fromState', x.target.value)} className={inputCls}>
+                          <div><label className={labelCls} htmlFor={fid(`e${i}-fromState`)}>From</label>
+                            <select id={fid(`e${i}-fromState`)} value={d.fromState} onChange={(x) => setEvField(i, 'fromState', x.target.value)} className={inputCls}>
                               <option value="">(start)</option>
                               {stateOptions(d.fromState).map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                             </select></div>
-                          <div><label className={labelCls}>To</label>
-                            <select value={d.toState} onChange={(x) => setEvField(i, 'toState', x.target.value)} className={inputCls}>
+                          <div><label className={labelCls} htmlFor={fid(`e${i}-toState`)}>To</label>
+                            <select id={fid(`e${i}-toState`)} value={d.toState} onChange={(x) => setEvField(i, 'toState', x.target.value)} className={inputCls}>
                               <option value="">-</option>
                               {stateOptions(d.toState).map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                             </select></div>
                         </>
                       )}
-                      <div><label className={labelCls}>Performed at</label><input type="datetime-local" step={60} value={d.performedAt} onChange={(x) => setEvField(i, 'performedAt', x.target.value)} className={inputCls} /></div>
-                      <div><label className={labelCls}>Performed by</label>
-                        <select value={d.performedBy} onChange={(x) => setEvField(i, 'performedBy', x.target.value)} className={inputCls}>
+                      <div><label className={labelCls} htmlFor={fid(`e${i}-performedAt`)}>Performed at</label><input id={fid(`e${i}-performedAt`)} type="datetime-local" step={60} value={d.performedAt} onChange={(x) => setEvField(i, 'performedAt', x.target.value)} className={inputCls} /></div>
+                      <div><label className={labelCls} htmlFor={fid(`e${i}-performedBy`)}>Performed by</label>
+                        <select id={fid(`e${i}-performedBy`)} value={d.performedBy} onChange={(x) => setEvField(i, 'performedBy', x.target.value)} className={inputCls}>
                           {d.performedBy && !userLabel(d.performedBy) && <option value={d.performedBy}>{e.performedByName ?? e.performedByUsername ?? d.performedBy}</option>}
                           {!d.performedBy && <option value="">-- keep current --</option>}
                           {users.map((u) => <option key={u.id} value={u.id}>{u.fullName ?? u.username} ({u.username})</option>)}
                         </select></div>
-                      <div className="col-span-2"><label className={labelCls}>Remarks</label><input value={d.remarks} onChange={(x) => setEvField(i, 'remarks', x.target.value)} className={inputCls} /></div>
+                      <div className="col-span-2"><label className={labelCls} htmlFor={fid(`e${i}-remarks`)}>Remarks</label><input id={fid(`e${i}-remarks`)} value={d.remarks} onChange={(x) => setEvField(i, 'remarks', x.target.value)} className={inputCls} /></div>
                       {readings.map((r, k) => (
-                        <div key={k}><label className={labelCls}>{r?.description ?? r?.instrumentCode ?? 'Reading'}{r?.uom ? ` (${r.uom})` : ''}{r?.source ? ` · ${String(r.source).toLowerCase()}` : ''}</label>
-                          <input type="number" step="any" value={d.readings[k] ?? ''} onChange={(x) => setReading(i, k, x.target.value)} className={inputCls} /></div>
+                        <div key={k}><label className={labelCls} htmlFor={fid(`e${i}-r${k}`)}>{r?.description ?? r?.instrumentCode ?? 'Reading'}{r?.uom ? ` (${r.uom})` : ''}{r?.source ? ` · ${String(r.source).toLowerCase()}` : ''}</label>
+                          <input id={fid(`e${i}-r${k}`)} type="number" step="any" value={d.readings[k] ?? ''} onChange={(x) => setReading(i, k, x.target.value)} className={inputCls} /></div>
                       ))}
                     </div>
                   </div>

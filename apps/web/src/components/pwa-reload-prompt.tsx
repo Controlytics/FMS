@@ -15,8 +15,8 @@
  * on click.
  *
  * Mount once near the app root. Renders nothing until an update is
- * pending. Survives the operator dismissing it (re-shows on the next
- * SW update detected).
+ * pending. "Later" hides it for 5 minutes; it then re-shows while the
+ * update is still waiting.
  */
 import { useState, useEffect } from 'react';
 // vite-plugin-pwa auto-generates this virtual module at build time.
@@ -26,7 +26,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 
 export function PwaReloadPrompt() {
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(swUrl, r) {
@@ -111,7 +111,10 @@ export function PwaReloadPrompt() {
             </button>
             <button
               type="button"
-              onClick={() => { setDismissedAt(Date.now()); setNeedRefresh(false); }}
+              // Record the dismissal only. Clearing needRefresh here as well made the
+              // re-show effect return early, so one "Later" hid the prompt until the
+              // NEXT deploy while this update was still waiting (D-L4).
+              onClick={() => { setDismissedAt(Date.now()); }}
               className="px-3 py-1.5 text-slate-500 text-xs font-medium hover:text-slate-700"
             >
               Later

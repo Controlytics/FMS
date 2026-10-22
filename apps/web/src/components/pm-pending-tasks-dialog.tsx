@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 /**
  * "A previous scheduled PM was not carried out" (2026-08-27).
@@ -46,6 +46,7 @@ export function PmPendingTasksDialog({
   onConfirm,
 }: PmPendingTasksDialogProps) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const titleId = useId();
 
   // Reset when a different set of tasks arrives, so a reason typed for one AHU
   // can never be submitted against another.
@@ -58,7 +59,12 @@ export function PmPendingTasksDialog({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
         <div className="h-1.5 bg-gradient-to-r from-amber-500 to-orange-500" />
 
         <div className="px-6 pt-5 pb-3">
@@ -70,7 +76,7 @@ export function PmPendingTasksDialog({
               </svg>
             </div>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-bold text-slate-800">
+              <h3 id={titleId} className="text-[15px] font-bold text-slate-800">
                 Previous scheduled PM not carried out
               </h3>
               <p className="mt-0.5 text-[12px] text-slate-500">

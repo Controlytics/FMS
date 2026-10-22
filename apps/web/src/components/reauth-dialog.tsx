@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useId, useRef } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,7 @@ export function ReauthDialog({
   const [showPassword, setShowPassword] = useState(false);
   const [ready, setReady] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const passwordId = useId();
 
   useEffect(() => {
     if (open) {
@@ -81,9 +82,10 @@ export function ReauthDialog({
           </div>
         )}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-slate-700">Current Password</label>
+          <label htmlFor={passwordId} className="text-sm font-medium text-slate-700">Current Password</label>
           <div className="relative">
             <Input
+              id={passwordId}
               ref={inputRef}
               type={!ready ? 'text' : showPassword ? 'text' : 'password'}
               secureField
@@ -95,11 +97,15 @@ export function ReauthDialog({
               autoComplete="one-time-code"
               name={'reauth-' + Date.now()}
             />
+            {/* Named for assistive tech; kept out of the Tab order on purpose so Tab from
+                the password goes straight to Cancel / Verify (the prompt's keyboard path). */}
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
               tabIndex={-1}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
             >
               {showPassword ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

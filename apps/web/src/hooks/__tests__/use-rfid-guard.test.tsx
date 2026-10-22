@@ -35,11 +35,24 @@ describe('useRfidGuard', () => {
     const { remarks } = fields();
     const blocked = [...'wash ok'].map((c) => key(remarks, c, 150));
     expect(blocked.every((b) => b === false)).toBe(true);
-    // An Enter 150 ms after this human-speed typing IS blocked today — the Enter
-    // handler checks only "< 200 ms since the last key", never that those keys were
-    // reader-fast. Defect WSH-RFID-2; the confirming assertion
-    // `expect(key(remarks, 'Enter', 150)).toBe(false)` was removed.
+    // WSH-RFID-2: a person's Enter 150 ms after their own typing must reach the form
+    // (it used to be swallowed: the Enter check was only "< 200 ms since the last key").
+    expect(key(remarks, 'Enter', 150)).toBe(false);
     expect(key(remarks, 'Enter', 400)).toBe(false);
+  });
+
+  it('human typing right after a blocked burst is the operator again: their quick Enter passes', () => {
+    const { remarks } = fields();
+    for (const c of 'E2801160') key(remarks, c, 10);
+    expect(key(remarks, 'Enter', 20)).toBe(true);       // the reader's own Enter
+    for (const c of 'ok') key(remarks, c, 300);          // the operator types…
+    expect(key(remarks, 'Enter', 120)).toBe(false);      // …and presses Enter promptly
+  });
+
+  it('an Enter more than 200 ms after the last BLOCKED key passes even if fast keys came before', () => {
+    const { remarks } = fields();
+    for (const c of 'E280') key(remarks, c, 10);         // keys 3-4 blocked
+    expect(key(remarks, 'Enter', 250)).toBe(false);
   });
 
   it('blocks a reader burst in an ordinary field from the third fast key on, and the Enter that ends it', () => {

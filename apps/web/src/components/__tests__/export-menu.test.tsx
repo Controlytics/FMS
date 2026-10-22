@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 import { renderPage, mockApi, type MockApi } from '@/test-utils/page-harness';
 import { ExportMenu } from '../ExportMenu';
+import { expectAllControlsNamed } from './support/a11y';
 
 /**
  * The role-gated export control, driven by the REAL useExportOptions ->
@@ -123,5 +124,21 @@ describe('ExportMenu', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export as PDF' }));
     await act(() => new Promise((r) => setTimeout(r, 0)));
     expect(pdf).toHaveBeenCalledTimes(1);
+  });
+
+  // A11Y-UI-5: the dropdown trigger exposes its open state and what it controls
+  // (disclosure pattern — the choices stay buttons, so no menu role / haspopup).
+  it('the dropdown trigger reports aria-expanded and controls the choices panel; every control has a name', async () => {
+    const { container } = await show({}, <ExportMenu surface="audit" onExportPdf={vi.fn()} onExportExcel={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Export' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const panelId = trigger.getAttribute('aria-controls');
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)).toContainElement(screen.getByRole('button', { name: /Export as PDF/ }));
+    expectAllControlsNamed(container);
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 });
