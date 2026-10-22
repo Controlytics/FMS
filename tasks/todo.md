@@ -33,6 +33,13 @@ fall as pages get rendered before it rises.
     - [x] cov-api-filterops: bypass into the final stage completes (6.1); SET_A/SET_B choice frozen on the approval (6.2); docs + API_REFERENCE `f745d8c`. digilog_db: 0 bypass events ever → nothing stranded
     - [ ] Load-only web flakes (pass alone): drying panel exact value; admin-requests reset creds; equipment-groups paging; FDM cycles filters; replacement-schedule paging → cov-web-shared (4) + cov-web-mobile (panel)
   - [ ] OPERATOR DECISION 2026-10-22: a block with >1 active equipment group → the operator PICKS the group in the readings dialog (web Filter Operations, Dry In panel, tablet). Today the UI silently uses the oldest (API now lists every group, `874aa96`). Live data: 1 group per block. Start after cov-web-admin / cov-web-mobile land (they are in filter-operations.tsx / mobile-operations.tsx)
+- [ ] SECURITY 06 (audit-phase1-2, in progress) findings:
+  - [ ] OPERATOR DECISION 2026-10-22 (OD-01): audit edit/redact/delete, Filter Data Management writes, user delete, role + permission saves and the re-auth policy save ALWAYS require the password, for every user incl. SUPER_ADMIN (live policy listed SA on 2 of 84 actions; screens had no SA column) → cov-api-backup-notif (API + web + docs)
+  - [ ] P1 redacted audit rows escape verify-chain (hash-chain.ts checks only "payloads NULL"; who/what/when rewritable by a DB actor) → cov-api-sa
+  - [ ] P2 POST /api/notification-settings/send: arbitrary email/SMS by CONFIG_UPDATE, unaudited/unsigned → cov-api-sa (proposal)
+  - [ ] P2 hypotheses needing the VM / a probe: no ACLs on digilog.env / keys / dumps; xlsx decompression bomb
+  - [ ] SA-only dynamic probes: one script, one operator SA session at the end
+- [ ] Offline queue: same-millisecond ops replay in random order (IDB key `op-${Date.now()}-rand`) → cov-web-mobile2, approved protected fix
 - [x] API wave 1 fixes committed: SA `fc2242f`, backup/notif `419358e`, audit signature bound `b00098f`, A-05 one error handler `efa340c` (full API suite 2,427 passed / 0 failed after)
 - [ ] Final docs for the waves: CHANGELOG through fab68fc `4918581` (add the client pipeline half when it lands); root CLAUDE.md PM six doors + POST /visits done `d09dd71`; Pipeline Flow section (cov-api-filterops)
 - [ ] Stryker install (when no agent is running tests) + mutation runs on auth / rbac / reauth / audit chain / filter-ops gates
