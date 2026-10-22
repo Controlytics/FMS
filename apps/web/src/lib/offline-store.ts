@@ -129,6 +129,13 @@ export interface OfflineOperation {
   userId: string | null;
   /** Display name for the held-operations UI. Never used for authorization. */
   userName: string | null;
+  /**
+   * The order this op was queued in (2026-10-22) — the order the drain replays
+   * it in (compareQueueOrder). Strictly increasing on this device, across app
+   * restarts and clock changes (nextQueueSeq). Absent on a row queued before it
+   * existed: those drain first, oldest first.
+   */
+  seq?: number;
 }
 
 interface Tombstone {
@@ -619,7 +626,7 @@ export async function clearOfflineCycleId(filterId: string): Promise<void> {
  * `undefined` from callers that haven't been threaded through yet. The
  * persistence layer always normalizes to `number | null` (M-3 / v4).
  */
-type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount' | 'tapeVersion'> & {
+type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'status' | 'retryCount' | 'tapeVersion' | 'seq'> & {
   tapeVersion?: number | null;
   // #9 fix: the caller (use-offline) may supply the clientOpId it ALSO sent on a
   // failed online attempt, so a lost-response online commit and this queued replay
@@ -628,8 +635,60 @@ type QueueInput = Omit<OfflineOperation, 'id' | 'clientOpId' | 'createdAt' | 'st
   clientOpId?: string;
 };
 
+/**
+ * Queue order (2026-10-22). The drain replays ops in the order getPendingOperations
+ * returns them, which was the primary key `op-<ms>-<random>`: two ops queued in
+ * the same millisecond — one filter's start → checklist → advance — replayed in
+ * random order, and a refused start or checklist then took the rest with it.
+ *
+ * Each op gets the next number of a per-device sequence. It continues from the
+ * highest number in the store (read once per app run), so it keeps increasing
+ * across restarts even when the clock went back; it never falls behind the clock
+ * either (ms × 1000), so a store emptied by compaction restarts above every
+ * number it ever held.
+ */
+let lastQueueSeq: number | null = null;
+let queueSeqInit: Promise<void> | null = null;
+
+async function nextQueueSeq(db: IDBDatabase): Promise<number> {
+  if (lastQueueSeq === null) {
+    queueSeqInit ??= new Promise<void>((resolve, reject) => {
+      const req = db.transaction('operations', 'readonly').objectStore('operations').getAll();
+      req.onsuccess = () => {
+        if (lastQueueSeq === null) {
+          lastQueueSeq = ((req.result ?? []) as OfflineOperation[])
+            .reduce((max, o) => (typeof o?.seq === 'number' && o.seq > max ? o.seq : max), 0);
+        }
+        resolve();
+      };
+      req.onerror = () => { queueSeqInit = null; reject(req.error); };
+    });
+    await queueSeqInit;
+  }
+  lastQueueSeq = Math.max((lastQueueSeq ?? 0) + 1, Date.now() * 1000);
+  return lastQueueSeq;
+}
+
+/**
+ * The replay order: rows queued before `seq` existed first (oldest first, then
+ * by id — the only order they ever had), then every other row by `seq`.
+ */
+export function compareQueueOrder(
+  a: Pick<OfflineOperation, 'id' | 'createdAt' | 'seq'>,
+  b: Pick<OfflineOperation, 'id' | 'createdAt' | 'seq'>,
+): number {
+  const aSeq = typeof a.seq === 'number';
+  const bSeq = typeof b.seq === 'number';
+  if (aSeq && bSeq) return a.seq! - b.seq!;
+  if (aSeq !== bSeq) return aSeq ? 1 : -1;
+  const byTime = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  if (byTime) return byTime;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 export async function queueOperation(op: QueueInput): Promise<string> {
   const db = await openDB();
+  const seq = await nextQueueSeq(db);
   const id = `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const clientOpId = op.clientOpId ?? generateClientOpId();
   const tx = db.transaction('operations', 'readwrite');
@@ -646,6 +705,7 @@ export async function queueOperation(op: QueueInput): Promise<string> {
     status: 'pending',
     retryCount: 0,
     tapeVersion: op.tapeVersion ?? null,
+    seq,
   });
   await txCommitted(tx);
   return id;
@@ -657,7 +717,8 @@ export async function getPendingOperations(): Promise<OfflineOperation[]> {
   const index = tx.objectStore('operations').index('status');
   const req = index.getAll('pending');
   return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result ?? []);
+    // In queue order — the order the drain replays them (compareQueueOrder).
+    req.onsuccess = () => resolve(((req.result ?? []) as OfflineOperation[]).sort(compareQueueOrder));
     req.onerror = () => reject(req.error);
   });
 }
@@ -710,7 +771,7 @@ export async function getAllOperations(): Promise<OfflineOperation[]> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => {
       const ops = (req.result ?? []) as OfflineOperation[];
-      ops.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      ops.sort(compareQueueOrder);
       resolve(ops);
     };
     req.onerror = () => reject(req.error);

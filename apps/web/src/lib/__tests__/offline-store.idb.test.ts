@@ -389,6 +389,45 @@ describe('operation queue', () => {
     expect(held.map((o) => o.id)).toEqual(['theirs']);
   });
 
+  // Queue order (2026-10-22). The drain replays in getPendingOperations order,
+  // which was the primary key `op-<ms>-<random>`: two ops queued in the SAME
+  // millisecond — a filter's start → checklist → advance — replayed in random
+  // order. Each op now carries the order it was queued in (`seq`).
+  it('ops queued in the same millisecond come back in the order they were queued', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-22T08:00:00.000Z') });
+    // each later id sorts BEFORE the earlier one: 'wjjjjj' > 'i' > '3lllll'
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0.9).mockReturnValueOnce(0.5).mockReturnValueOnce(0.1);
+    for (const type of ['start-cycle', 'submit-checklist', 'advance'] as const) {
+      await queueOperation({ type, filterId: 'f-1', filterName: 'F-1', payload: {}, userId: null, userName: null });
+    }
+    const ids = idb.rows('operations').map((o) => o.id);
+    expect(ids).toEqual([...ids].sort()); // the fake store hands rows back by key, as IndexedDB does
+    expect((await getPendingOperations()).map((o) => o.type)).toEqual(['start-cycle', 'submit-checklist', 'advance']);
+    expect((await getPendingOperationsForUser(null)).syncable.map((o) => o.type)).toEqual(['start-cycle', 'submit-checklist', 'advance']);
+    expect((await getAllOperations()).map((o) => o.type)).toEqual(['start-cycle', 'submit-checklist', 'advance']);
+  });
+
+  it('rows queued before the order existed (no seq) still drain — first, oldest first — then the ordered ones', async () => {
+    await openApp();
+    idb.seed('operations', [
+      op('op-1-zzz', { type: 'start-cycle', createdAt: '2026-10-01T00:00:00.001Z' }),
+      op('op-1-aaa', { type: 'advance', createdAt: '2026-10-01T00:00:00.002Z' }),
+    ]);
+    await queueOperation({ type: 'terminate', filterId: 'f-1', filterName: 'F-1', payload: {}, userId: null, userName: null });
+    expect((await getPendingOperations()).map((o) => o.type)).toEqual(['start-cycle', 'advance', 'terminate']);
+    expect((await getAllOperations()).map((o) => o.type)).toEqual(['start-cycle', 'advance', 'terminate']);
+  });
+
+  it('the order holds across an app restart even when the clock went back', async () => {
+    await openApp();
+    // queued by an earlier session whose clock ran ahead
+    idb.seed('operations', [op('op-9-aaa', { type: 'start-cycle', seq: 9_000_000_000_000_000, createdAt: '2026-10-22T09:00:00.000Z' })]);
+    vi.resetModules();
+    const fresh = await import('../offline-store');
+    await fresh.queueOperation({ type: 'submit-checklist', filterId: 'f-1', filterName: 'F-1', payload: {}, userId: null, userName: null });
+    expect((await fresh.getPendingOperations()).map((o) => o.type)).toEqual(['start-cycle', 'submit-checklist']);
+  });
+
   it('getAllOperations returns every status, oldest first', async () => {
     await openApp();
     idb.seed('operations', [
