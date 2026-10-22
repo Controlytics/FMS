@@ -138,74 +138,80 @@ describe('useFilterOperationsOfflineCache — writing the offline cache from SWR
   });
 });
 
-describe('useFilterOperationsOfflineCache — /current-state priming', () => {
+describe('useFilterOperationsOfflineCache — priming the selected block (D03-06)', () => {
+  // D03-06 (2026-10-22): the hook GOT /current-state for EVERY active filter, one
+  // after another, on mount and after every sync drain — 121 requests in 10 s,
+  // ~4 min for 3,044 filters, per open page. It now primes only what the page can
+  // act on, the selected block, in ONE /batch-states?blockId= request.
   const STATE = (id: string) => ({ currentState: 'WASH_IN', currentCycle: { id: `c-${id}` }, tapeVersion: 3 });
+  const MANY = { data: Array.from({ length: 50 }, (_, i) => ({ id: `f${i}`, name: `FLT-${i}`, templateId: 't-filter' })) };
+  const batch = (ids: string[]) => ({ states: Object.fromEntries(ids.map((id) => [id, STATE(id)])), cachedAt: '2026-10-22T00:00:00.000Z' });
+  const batchCalls = () => api.calls('GET', '/api/filters/batch-states');
 
-  it('2 s after the first online payload, primes every live FILTER once (template set or eager templateKind) and caches each answer', async () => {
+  it('50 live filters, block selected: ONE batch request for that block (was 50 current-state GETs); every answer cached', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    serve({ path: /\/api\/filters\/[^/]+\/current-state/, body: (r: MockRequest) => STATE(r.path.split('/')[3]) });
-    const { rerender } = render({ instancesData: INSTANCES, templatesData: TEMPLATES });
-    expect(api.calls('GET', /current-state/)).toHaveLength(0);
+    serve({ path: '/api/filters/batch-states', body: batch(['f1', 'f2']) }, { path: /current-state/, body: {} });
+    render({ instancesData: MANY, templatesData: TEMPLATES, blockId: 'b1' });
+    expect(batchCalls()).toHaveLength(0); // debounced behind the first paint
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     await waitFor(() => expect(cached('filter-state-f2')).toBeDefined());
-    expect(api.calls('GET', /current-state/).map((r) => r.path)).toEqual(['/api/filters/f1/current-state', '/api/filters/f2/current-state']);
-    expect(cached('filter-state-f1')).toMatchObject({ currentState: 'WASH_IN', currentCycle: { id: 'c-f1' } });
-    // The 30 s SWR refresh hands in a NEW payload object: no second prime in the same online window.
-    rerender({ ...base, instancesData: { data: [...INSTANCES.data] }, templatesData: TEMPLATES });
-    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
-    expect(api.calls('GET', /current-state/)).toHaveLength(2);
-    // Offline → online re-opens the window and primes again.
-    rerender({ ...base, online: false, instancesData: INSTANCES, templatesData: TEMPLATES });
-    rerender({ ...base, online: true, instancesData: INSTANCES, templatesData: TEMPLATES });
-    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    await waitFor(() => expect(api.calls('GET', /current-state/)).toHaveLength(4));
+    expect(batchCalls().map((r) => r.url)).toEqual(['/api/filters/batch-states?blockId=b1']);
+    expect(api.calls('GET', /current-state/)).toHaveLength(0);
+    expect(cached('filter-state-f1')).toMatchObject({ currentState: 'WASH_IN', currentCycle: { id: 'c-f1' }, tapeVersion: 3 });
   });
 
-  it('waits for SWR: no instances yet → no prime', async () => {
+  it('no block selected: nothing is primed', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    serve({ path: /current-state/, body: {} });
-    render({ templatesData: TEMPLATES });
+    serve({ path: '/api/filters/batch-states', body: batch([]) });
+    render({ instancesData: MANY, templatesData: TEMPLATES });
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(batchCalls()).toHaveLength(0);
     expect(api.calls('GET', /current-state/)).toHaveLength(0);
   });
 
-  it('a failing /current-state stops the loop with a warning naming the filter', async () => {
+  it('once per block per online window: a new payload does not re-prime; another block does; offline → online does again', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    serve({ path: '/api/filters/f1/current-state', status: 500, body: { error: 'INTERNAL', message: 'db timeout' } }, { path: /current-state/, body: {} });
-    render({ instancesData: INSTANCES, templatesData: TEMPLATES });
+    serve({ path: '/api/filters/batch-states', body: batch(['f1']) });
+    const { rerender } = render({ instancesData: MANY, templatesData: TEMPLATES, blockId: 'b1' });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    await waitFor(() => expect(warn).toHaveBeenCalledWith('[filter-operations-offline-cache] primeFilterStates stopped at', 'FLT-1', '—', 'db timeout'));
-    expect(api.calls('GET', /current-state/).map((r) => r.path)).toEqual(['/api/filters/f1/current-state']);
-    expect(cached('filter-state-f1')).toBeUndefined();
+    await waitFor(() => expect(batchCalls()).toHaveLength(1));
+    rerender({ ...base, instancesData: { data: [...MANY.data] }, templatesData: TEMPLATES, blockId: 'b1' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(batchCalls()).toHaveLength(1);
+    rerender({ ...base, instancesData: MANY, templatesData: TEMPLATES, blockId: 'b2' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await waitFor(() => expect(batchCalls().map((r) => r.url)).toEqual(['/api/filters/batch-states?blockId=b1', '/api/filters/batch-states?blockId=b2']));
+    rerender({ ...base, online: false, instancesData: MANY, templatesData: TEMPLATES, blockId: 'b2' });
+    rerender({ ...base, online: true, instancesData: MANY, templatesData: TEMPLATES, blockId: 'b2' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await waitFor(() => expect(batchCalls()).toHaveLength(3));
   });
 
-  it('a failing filter with no name is named by id; a non-Error refusal is still logged', async () => {
+  it('a refused batch is logged with the block, and nothing is cached', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    serve({ path: /current-state/, status: 401, body: { error: 'REAUTH_REQUIRED', message: 'Re-authentication required' } });
-    render({ instancesData: { data: [{ id: 'fx', template: { templateKind: 'FILTER' } }] } });
+    serve({ path: '/api/filters/batch-states', status: 500, body: { error: 'INTERNAL', message: 'db timeout' } });
+    render({ instancesData: MANY, templatesData: TEMPLATES, blockId: 'b1' });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    await waitFor(() => expect(warn).toHaveBeenCalledWith('[filter-operations-offline-cache] primeFilterStates stopped at', 'fx', '—', expect.any(String)));
+    await waitFor(() => expect(warn).toHaveBeenCalledWith('[filter-operations-offline-cache] block prime failed for', 'b1', '—', 'db timeout'));
+    expect(idb.rows('cache').filter((r) => String(r.key).startsWith('filter-state-'))).toEqual([]);
   });
 
-  it('going offline mid-prime abandons the in-flight loop (nothing more fetched or cached)', async () => {
+  it('going offline while the batch is in flight writes nothing', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    serve({ path: /current-state/, body: (r: MockRequest) => STATE(r.path.split('/')[3]) });
+    serve({ path: '/api/filters/batch-states', body: batch(['f1']) });
     const harnessFetch = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async (input: any, init?: any) => {
-      if (String(input).includes('/f1/current-state')) await gate;
+      if (String(input).includes('/batch-states')) await gate;
       return (harnessFetch as any)(input, init);
     }));
-    const { rerender } = render({ instancesData: INSTANCES, templatesData: TEMPLATES });
+    const { rerender } = render({ instancesData: MANY, templatesData: TEMPLATES, blockId: 'b1' });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
-    await waitFor(() => expect(api.calls('GET', /current-state/)).toHaveLength(0)); // f1 is held at the gate
-    rerender({ ...base, online: false, instancesData: INSTANCES, templatesData: TEMPLATES });
+    rerender({ ...base, online: false, instancesData: MANY, templatesData: TEMPLATES, blockId: 'b1' });
     await act(async () => { release(); await vi.advanceTimersByTimeAsync(100); });
-    await waitFor(() => expect(api.calls('GET', /current-state/)).toHaveLength(1));
-    expect(api.calls('GET', /current-state/)[0].path).toBe('/api/filters/f1/current-state');
+    await waitFor(() => expect(batchCalls()).toHaveLength(1));
     expect(cached('filter-state-f1')).toBeUndefined();
   });
 });
@@ -218,6 +224,7 @@ describe('useFilterOperationsOfflineCache — after a sync drain', () => {
   const syncRoutes: MockRoute[] = [
     { method: 'POST', path: '/api/auth/refresh', body: { token: 'refreshed-token' } },
     { method: 'POST', path: /\/api\/filters\/[^/]+\/start-cycle/, body: { ok: true } },
+    { path: '/api/filters/batch-states', body: { states: { f2: { currentState: 'WASH_IN' } }, cachedAt: '2026-10-22T00:00:00.000Z' } },
     { path: /\/api\/filters\/[^/]+\/current-state/, body: { currentState: 'WASH_IN' } },
   ];
   beforeEach(() => {
@@ -226,25 +233,26 @@ describe('useFilterOperationsOfflineCache — after a sync drain', () => {
     sessionStorage.setItem('offline_replay_expires', new Date(Date.now() + 24 * 3600_000).toISOString());
   });
 
-  it('a drain that synced work re-primes /current-state from the LATEST payloads (templates may still be loading)', async () => {
+  it('a drain that synced work re-primes the selected block in ONE request (none without a block)', async () => {
     serve(...syncRoutes);
     const { syncPendingOperations } = await import('@/lib/sync-engine');
-    // offline: the mount/online prime never fires, so every current-state GET below comes from the drain
+    // offline: the mount/online prime never fires, so every batch GET below comes from the drain
     const { result, rerender } = render({ online: false });
     await waitFor(() => expect(result.current.offlineDataLoaded).toBe(true));
 
-    // 1) no instances known yet → the post-sync prime has nothing to walk
+    // 1) no block selected → the post-sync prime has nothing to prime
     queueStart('op1', 'f1');
     await act(async () => { await syncPendingOperations(); });
     expect(api.calls('POST', '/api/filters/f1/start-cycle')).toHaveLength(1);
-    expect(api.calls('GET', /current-state/)).toHaveLength(0);
+    expect(api.calls('GET', '/api/filters/batch-states')).toHaveLength(0);
 
-    // 2) instances known, templates not → classified by the eager template.templateKind only (f2)
-    rerender({ ...base, online: false, instancesData: INSTANCES });
+    // 2) a block selected → one batch request for it, its states cached
+    rerender({ ...base, online: false, instancesData: INSTANCES, blockId: 'b1' });
     queueStart('op2', 'f2');
     await act(async () => { await syncPendingOperations(); });
-    await waitFor(() => expect(api.calls('GET', /current-state/).map((r) => r.path)).toEqual(['/api/filters/f2/current-state']));
+    await waitFor(() => expect(api.calls('GET', '/api/filters/batch-states').map((r) => r.url)).toEqual(['/api/filters/batch-states?blockId=b1']));
     await waitFor(() => expect(cached('filter-state-f2')).toMatchObject({ currentState: 'WASH_IN' }));
+    expect(api.calls('GET', /current-state/)).toHaveLength(0);
   });
 
   it('a drain whose only op was refused (synced 0) does not re-prime', async () => {
@@ -252,13 +260,13 @@ describe('useFilterOperationsOfflineCache — after a sync drain', () => {
     const { syncPendingOperations, onSyncEvent } = await import('@/lib/sync-engine');
     const events: any[] = [];
     const off = onSyncEvent((e) => events.push(e));
-    const { result } = render({ online: false, instancesData: INSTANCES, templatesData: TEMPLATES });
+    const { result } = render({ online: false, instancesData: INSTANCES, templatesData: TEMPLATES, blockId: 'b1' });
     await waitFor(() => expect(result.current.offlineDataLoaded).toBe(true));
     queueStart('op3', 'f1');
     await act(async () => { await syncPendingOperations(); });
     off();
     expect(events.find((e) => e.type === 'complete')).toMatchObject({ synced: 0, total: 1 });
     expect(api.calls('POST', '/api/filters/f1/start-cycle')).toHaveLength(1);
-    expect(api.calls('GET', /current-state/)).toHaveLength(0);
+    expect(api.calls('GET', '/api/filters/batch-states')).toHaveLength(0);
   });
 });

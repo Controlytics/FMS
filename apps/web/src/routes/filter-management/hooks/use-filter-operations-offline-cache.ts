@@ -19,53 +19,40 @@ import {
   type CachedFilterTyped,
 } from '@/lib/offline-store';
 
-// Per-filter `/current-state` priming. Module-level so it can't accidentally
-// capture stale component state — all inputs are explicit args.
+// Priming the offline cache for the block the page works in (D03-06,
+// 2026-10-22). It used to GET /current-state for EVERY active filter, one after
+// another, on mount and after every sync drain — 121 requests in 10 s, ~4 min
+// for 3,044 filters, per open page. Now ONE /batch-states?blockId= request (the
+// tablet's batch endpoint, scoped to the block), and only for the selected block:
+// that is what the page can act on. A batch's filters are read live at Submit
+// (loadBatchStates), so online work never depends on this cache.
 //
-// Generation guard: caller bumps `genRef.current` and passes the new value as
-// `myGen`. The loop checks `myGen !== genRef.current` between each await and
-// bails if a newer prime started or the component went offline. Closes the
-// concurrent-loop hazard the pre-refactor code had (cleanup cleared the
-// pending timer but couldn't abort an in-flight async loop).
-async function primeFilterStates(
-  instancesData: { data?: any[] } | undefined,
-  templatesData: { data?: any[] } | undefined,
+// Module-level so it can't capture stale component state. Generation guard: the
+// caller bumps `genRef.current` and passes the new value as `myGen`; nothing is
+// written once a newer prime started or the page went offline.
+async function primeBlockStates(
+  blockId: string,
   genRef: { current: number },
   myGen: number,
 ): Promise<void> {
-  if (!instancesData?.data) return;
-  const cacheFilterTemplateIds = new Set(
-    ((templatesData?.data ?? []) as any[])
-      .filter((t: any) => t.templateKind === 'FILTER')
-      .map((t: any) => t.id),
-  );
-  const filters = instancesData.data.filter((f: any) => {
-    // Templates-loaded path: Set membership. First-paint fallback: the
-    // instance carries its eager-loaded `template.templateKind` per
-    // assets/instance.repository.ts — so we can still classify an instance
-    // before the templates SWR settles. Both branches are stable under
-    // admin renames (templateKind is the schema-stable signal, not name).
-    if (!cacheFilterTemplateIds.has(f.templateId) && f.template?.templateKind !== 'FILTER') return false;
-    return f.isActive !== false && f.status !== 'Retired';
-  });
-  for (const f of filters) {
-    if (myGen !== genRef.current) return;
-    try {
-      const st = await apiClient.get<any>(`/api/filters/${f.id}/current-state`);
+  try {
+    const res = await apiClient.get<{ states?: Record<string, any> }>(
+      `/api/filters/batch-states?blockId=${encodeURIComponent(blockId)}`,
+    );
+    for (const [filterId, st] of Object.entries(res?.states ?? {})) {
       if (myGen !== genRef.current) return;
       // Phase 8.7: route the cache write through the helper so the legacy
       // mirror field names live only in offline-cache.ts.
-      await cacheServerStateResponse(f.id, st);
-    } catch (err) {
-      // eslint-disable-next-line no-console -- intentional structured log
-      console.warn(
-        '[filter-operations-offline-cache] primeFilterStates stopped at',
-        f.name ?? f.id,
-        '—',
-        err instanceof Error ? err.message : String(err),
-      );
-      break;
+      await cacheServerStateResponse(filterId, st);
     }
+  } catch (err) {
+    // eslint-disable-next-line no-console -- intentional structured log
+    console.warn(
+      '[filter-operations-offline-cache] block prime failed for',
+      blockId,
+      '—',
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -79,6 +66,8 @@ interface UseFilterOperationsOfflineCacheInput {
   reasonsData: any | undefined;
   equipGroupsData: any | undefined;
   identifiersData: any | undefined;
+  /** The block the page works in; its filters' states are primed for offline use (D03-06). */
+  blockId?: string | null;
 }
 
 interface UseFilterOperationsOfflineCacheReturn {
@@ -120,12 +109,13 @@ interface UseFilterOperationsOfflineCacheReturn {
  *       2. templates     -> cache('templates', ...)
  *       3. reasons       -> cache('cleaning-reasons', ...)
  *       4. equipGroups   -> cache('equipment-groups', ...)
- *       5. filter-states -> per-filter /current-state pre-warm (trigger-only:
- *                           mount, online flip, post-sync — see effect 5 body)
+ *       5. filter-states -> the selected block's states, one /batch-states
+ *                           request (trigger-only: block chosen, online flip,
+ *                           post-sync — see effect 5 body)
  *       6. identifiers   -> cache('identifier-map', ...)
  *       7. mount         -> load offline filters + templates
  *       8. offline flip  -> re-load offline filters + templates
- *       9. post-sync     -> mutate('/api/assets/instances') + reprime
+ *       9. post-sync     -> mutate('/api/assets/instances') + re-prime the block
  *
  * A-01 Wave 5 migration note (2026-05-29): this hook has NO legacy
  * /api/assets/* API calls to migrate. The only legacy reference is the
@@ -145,7 +135,7 @@ interface UseFilterOperationsOfflineCacheReturn {
 export function useFilterOperationsOfflineCache(
   input: UseFilterOperationsOfflineCacheInput,
 ): UseFilterOperationsOfflineCacheReturn {
-  const { online, instancesData, templatesData, reasonsData, equipGroupsData, identifiersData } = input;
+  const { online, instancesData, templatesData, reasonsData, equipGroupsData, identifiersData, blockId } = input;
   const { cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
 
   const [offlineInstances, setOfflineInstances] = useState<any[]>([]);
@@ -157,29 +147,27 @@ export function useFilterOperationsOfflineCache(
   const [offlineFiltersTyped, setOfflineFiltersTyped] = useState<CachedFilterTyped[]>([]);
   const [offlineDataLoaded, setOfflineDataLoaded] = useState(false);
 
-  // Latest SWR payloads, mirrored to a ref so non-React-flow triggers
-  // (sync-complete event handler) can read fresh data without re-subscribing.
-  const latestDataRef = useRef<{ instances: any; templates: any }>({ instances: undefined, templates: undefined });
-  useEffect(() => {
-    latestDataRef.current = { instances: instancesData, templates: templatesData };
-  });
+  // The selected block, mirrored to a ref so the sync-complete handler primes
+  // the CURRENT block without re-subscribing.
+  const blockRef = useRef<string | null>(blockId ?? null);
+  useEffect(() => { blockRef.current = blockId ?? null; });
 
-  // Prime-loop generation counter. Bumping it tells in-flight loops to bail
-  // (concurrent-loop guard). Reset on offline flip too — keeps the in-flight
-  // loop from continuing to write IDB after the operator disconnects.
+  // Prime generation counter. Bumping it tells an in-flight prime to write
+  // nothing (concurrent-prime guard). Bumped on offline flip too — keeps an
+  // in-flight batch from writing IDB after the operator disconnects.
   const primeGenRef = useRef(0);
 
-  // Gate so the prime fires AT MOST ONCE per online window. Reset on offline
-  // flip so the next online flip re-primes. Without this gate, the prime
-  // effect would re-fire on every 30s `instancesData` SWR refresh, hammering
-  // the API with N GETs per filter for no real freshness gain (the post-sync
-  // trigger below already handles "data just changed").
-  const hasInitiallyPrimedRef = useRef(false);
+  // The block primed in this online window: each block at most once per window
+  // (reset on offline flip, so the next online flip re-primes). A refreshed SWR
+  // payload is not a reason to prime again (the post-sync trigger below handles
+  // "data just changed").
+  const primedBlockRef = useRef<string | null>(null);
 
   const triggerPrime = useCallback(() => {
+    const block = blockRef.current;
+    if (!block) return;
     primeGenRef.current += 1;
-    const myGen = primeGenRef.current;
-    void primeFilterStates(latestDataRef.current.instances, latestDataRef.current.templates, primeGenRef, myGen);
+    void primeBlockStates(block, primeGenRef, primeGenRef.current);
   }, []);
 
   // 1. Cache filter instances for offline use
@@ -196,39 +184,24 @@ export function useFilterOperationsOfflineCache(
     if (equipGroupsData) cache('equipment-groups', Array.isArray(equipGroupsData) ? equipGroupsData : equipGroupsData?.data ?? []);
   }, [equipGroupsData, cache]);
 
-  // 5. Pre-cache /current-state for every FILTER instance so offline ops have
-  //    a complete snapshot. Trigger-only: fires AT MOST ONCE per online
-  //    window (mount + each offline→online flip). The 30s SWR refresh of
-  //    `instancesData` no longer re-triggers this — `hasInitiallyPrimedRef`
-  //    guards against the re-fire after the first prime. Post-sync priming
-  //    is handled by effect 9 below, which picks up server-side changes
-  //    that landed via our own queue drain.
-  //
-  //    Pre-refactor (2026-05-14, [[filter-ops-extraction-2026-05-14]]) this
-  //    fired on every `instancesData` change — meaning every 30s for a page
-  //    sitting open, the loop fetched /current-state for every filter even
-  //    though nothing had changed. With N=50 filters that was 6000 GETs/hour
-  //    of pure waste. The original "SWR ordering bug" framing from the deep
-  //    review was wrong (no race exists — `instance.repository.ts:16`
-  //    eager-loads `template.templateKind`); the real cost was the steady
-  //    drip.
-  //
-  //    `SYNC_AFTER_ONLINE_DELAY_MS` (2s) still debounces the initial prime
-  //    so the first paint isn't competing with the other 5 SWR loads.
+  // 5. Prime the selected block's filter states for offline use, ONE batch
+  //    request (D03-06). Fires when a block is chosen and on each offline→online
+  //    flip, at most once per block per online window; a post-sync re-prime is
+  //    effect 9. `SYNC_AFTER_ONLINE_DELAY_MS` (2 s) debounces it so the first
+  //    paint isn't competing with the page's own SWR loads.
   useEffect(() => {
     if (!online) {
-      // Offline transition: reset the prime gate and abort any in-flight
-      // loop so we don't keep writing IDB after disconnect.
-      hasInitiallyPrimedRef.current = false;
+      // Offline transition: reset the window and stop an in-flight prime
+      // from writing IDB after disconnect.
+      primedBlockRef.current = null;
       primeGenRef.current += 1;
       return;
     }
-    if (hasInitiallyPrimedRef.current) return;
-    if (!instancesData?.data) return; // wait for SWR to settle
-    hasInitiallyPrimedRef.current = true;
+    if (!blockId || primedBlockRef.current === blockId) return;
+    primedBlockRef.current = blockId;
     const timer = setTimeout(triggerPrime, SYNC_AFTER_ONLINE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [online, instancesData, triggerPrime]);
+  }, [online, blockId, triggerPrime]);
 
   // 6. Build + cache identifier map (RFID tag lookup, name lookup)
   useEffect(() => {
@@ -284,10 +257,8 @@ export function useFilterOperationsOfflineCache(
   }, [online]);
 
   // 9. After a successful sync drain, force the instances SWR to refetch
-  //    so the parent re-renders, AND re-prime /current-state for every
-  //    filter so cached cycle/checklist data reflects the just-drained ops.
-  //    This is the third trigger in the trigger-only design (mount + online
-  //    flip + post-sync) — replaces the 30s drip that effect 5 used to do.
+  //    so the parent re-renders, AND re-prime the selected block so cached
+  //    cycle/checklist data reflects the just-drained ops (one batch request).
   useEffect(() => {
     const cleanup = onSyncEvent((event) => {
       if (event.type === 'complete' && event.synced && event.synced > 0) {

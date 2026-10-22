@@ -86,12 +86,28 @@ export async function getBatchStatesImpl(
   service: FilterOperationsService,
   ctx: RequestContext,
   cleaningAreaId?: string,
+  blockId?: string,
 ) {
+  // D03-06 (2026-10-22): `blockId` scopes the batch to the filters whose AHU sits
+  // in that block — directly, or under one of its areas (the web's rule,
+  // lib/ahu-block-map). The desktop primes only the block it works in; without
+  // it the batch is every active filter, which the tablet's sync relies on.
+  let scope: { id: { in: string[] } } | undefined;
+  if (blockId) {
+    const areas = await prisma.area.findMany({ where: { blockId }, select: { id: true } });
+    const ahus = await prisma.ahu.findMany({
+      where: { OR: [{ blockId }, { areaId: { in: areas.map(a => a.id) } }] },
+      select: { id: true },
+    });
+    const inBlock = await prisma.filter.findMany({ where: { ahuId: { in: ahus.map(a => a.id) } }, select: { id: true } });
+    scope = { id: { in: inBlock.map(f => f.id) } };
+  }
   const filters = await prisma.assetInstance.findMany({
     where: {
       isActive: true,
       status: { not: 'Retired' },
       template: { templateKind: 'FILTER' },
+      ...(scope ?? {}),
     },
     select: { id: true },
   });

@@ -281,14 +281,17 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           cleaningAreaId: { type: 'string', format: 'uuid' },
+          // D03-06 (2026-10-22): only this block's filters (the desktop primes
+          // the block it works in). Absent = every active filter, as before.
+          blockId: { type: 'string', format: 'uuid' },
         },
       },
       response: { 200: { type: 'object', additionalProperties: true } },
     },
   }, async (req) => {
     const ctx = buildContext(req);
-    const { cleaningAreaId } = (req.query ?? {}) as { cleaningAreaId?: string };
-    return service.getBatchStates(ctx, cleaningAreaId);
+    const { cleaningAreaId, blockId } = (req.query ?? {}) as { cleaningAreaId?: string; blockId?: string };
+    return service.getBatchStates(ctx, cleaningAreaId, blockId);
   });
 
   app.post('/:id/start-cycle', {

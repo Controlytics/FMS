@@ -77,8 +77,8 @@ export class FilterOperationsService {
    * Batch: get current-state for all active filters in the user's org.
    * Returns { states: { [filterId]: stateObject } } for offline caching.
    */
-  async getBatchStates(ctx: RequestContext, cleaningAreaId?: string) {
-    return getBatchStatesImpl(this, ctx, cleaningAreaId);
+  async getBatchStates(ctx: RequestContext, cleaningAreaId?: string, blockId?: string) {
+    return getBatchStatesImpl(this, ctx, cleaningAreaId, blockId);
   }
 
   // `cache` (M39) is passed ONLY by getBatchStates, which shares one batch-scoped

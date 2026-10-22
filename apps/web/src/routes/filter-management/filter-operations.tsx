@@ -118,7 +118,10 @@ export function FilterOperationsPage() {
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
   const ahuMode = useAhuCompletionMode();
-  const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances', { refreshInterval: online ? 30000 : 0 });
+  // No 30 s refresh (D03-06): this ~2.8 s list only feeds the legacy offline
+  // store (the page reads the typed hierarchy below). Loaded once; a sync drain
+  // revalidates it (mutate in useFilterOperationsOfflineCache).
+  const { data: instancesData, error: instancesError } = useSWR<PaginatedResponse<FilterInstance>>('/api/assets/instances');
   const { data: templatesData, error: templatesError } = useSWR<PaginatedResponse<{ id: string; name: string }>>('/api/assets/templates');
   const { data: identifiersData } = useSWR<any[]>(online ? '/api/assets/identifiers' : null);
   // A-01 cluster Step 4 (2026-05-29): primary data source is the typed
@@ -149,6 +152,7 @@ export function FilterOperationsPage() {
   const { data: reasonsData } = useSWR<any>(online ? '/api/filters/reasons' : null);
   const { data: equipGroupsData } = useSWR<any>(online ? '/api/equipment-groups' : null);
   const isMobile = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+  const [selectedBlock, setSelectedBlock] = useState<any>(null);
 
   // Phase 2 of the offline-tier extraction: offline cache state + 9 priming
   // effects live in the hook so this file isn't fighting offline-cache
@@ -168,13 +172,14 @@ export function FilterOperationsPage() {
     reasonsData,
     equipGroupsData,
     identifiersData,
+    // Only the block the operator works in is primed for offline use (D03-06).
+    blockId: selectedBlock?.id ?? null,
   });
 
   const [mode, setMode] = useState<'operations' | 'status'>('operations');
   const [activeStage, setActiveStage] = useState<typeof CLEANING_STAGES[0] | null>(null);
   const [selectedStatusStage, setSelectedStatusStage] = useState<string | null>(null);
   const [step, setStep] = useState<'block' | 'scan'>('block');
-  const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [scanValue, setScanValue] = useState('');
 
 
