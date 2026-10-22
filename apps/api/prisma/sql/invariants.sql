@@ -326,5 +326,17 @@ CREATE TRIGGER trg_mirror_typed_to_asset_instance
 CREATE UNIQUE INDEX IF NOT EXISTS asset_instances_active_name_key
   ON asset_instances (lower(name)) WHERE is_active;
 
+-- ─── Invariant 7: one identifier (RFID tag) per asset (2026-10-22, D-DB-2) ──
+-- Created by migration 20261022120000_volume_indexes_and_one_tag_per_filter;
+-- not @unique in schema.prisma (that would make the relation 1:1).
+CREATE UNIQUE INDEX IF NOT EXISTS asset_identifiers_one_per_asset
+  ON asset_identifiers (asset_id);
+
+-- ─── Index (not an invariant): cycle performer lookup (2026-10-22) ─────────
+-- Same migration. schema.prisma cannot express INCLUDE, so a `db push`
+-- database gets it only from here.
+CREATE INDEX IF NOT EXISTS filter_events_cycle_type_at_idx
+  ON filter_events (cycle_id, event_type, performed_at DESC) INCLUDE (performed_by);
+
 -- Confirmation log (visible when run via psql)
-\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete + trg_mirror_asset_instance_iud + trg_mirror_typed_to_asset_instance + asset_instances_active_name_key'
+\echo 'Invariants applied: idx_cleaning_cycles_one_in_progress_per_filter + trg_filter_event_consistency + trg_asset_relationship_pair + audit_trail_no_delete + trg_mirror_asset_instance_iud + trg_mirror_typed_to_asset_instance + asset_instances_active_name_key + asset_identifiers_one_per_asset + filter_events_cycle_type_at_idx'

@@ -15,6 +15,10 @@
 --                                    (case-insensitive); retired names reusable.
 --   idx_cleaning_cycles_one_in_progress_per_filter
 --                                    one IN_PROGRESS cleaning cycle per filter.
+--   asset_identifiers_one_per_asset  one identifier (RFID tag) per asset (2026-10-22;
+--                                    not @unique in schema.prisma on purpose).
+--   filter_events_cycle_type_at_idx  cycle performer lookup; INCLUDE cannot be
+--                                    expressed in schema.prisma (2026-10-22).
 --   audit_trail_no_delete +          21 CFR §11: audit rows cannot be deleted
 --   block_audit_trail_delete()       (the hard-delete endpoint disables it inside
 --                                    its own transaction; at rest it is enabled).
@@ -32,6 +36,10 @@ WITH expected(kind, name, def) AS (VALUES
    'CREATE UNIQUE INDEX asset_instances_active_name_key ON public.asset_instances USING btree (lower((name)::text)) WHERE is_active'),
   ('index', 'idx_cleaning_cycles_one_in_progress_per_filter',
    'CREATE UNIQUE INDEX idx_cleaning_cycles_one_in_progress_per_filter ON public.cleaning_cycles USING btree (filter_id) WHERE (status = ''IN_PROGRESS''::cleaning_cycle_status)'),
+  ('index', 'asset_identifiers_one_per_asset',
+   'CREATE UNIQUE INDEX asset_identifiers_one_per_asset ON public.asset_identifiers USING btree (asset_id)'),
+  ('index', 'filter_events_cycle_type_at_idx',
+   'CREATE INDEX filter_events_cycle_type_at_idx ON public.filter_events USING btree (cycle_id, event_type, performed_at DESC) INCLUDE (performed_by)'),
   ('trigger', 'audit_trail_no_delete',
    'CREATE TRIGGER audit_trail_no_delete BEFORE DELETE ON public.audit_trail FOR EACH ROW EXECUTE FUNCTION block_audit_trail_delete()'),
   ('trigger', 'trg_filter_event_consistency',

@@ -805,6 +805,9 @@ model AssetIdentifier {
 
   asset AssetInstance @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
+  // MIGRATION-ONLY (2026-10-22): UNIQUE index asset_identifiers_one_per_asset
+  // on (asset_id) — one identifier per asset. Not @unique here: that would make
+  // the relation 1:1 and change the client types.
   @@index([assetId])
   @@index([identifierType])
   @@map("asset_identifiers")
@@ -1695,6 +1698,9 @@ model FilterEvent {
   @@index([cycleId])
   @@index([filterId, cycleId, eventType])
   @@index([filterId, performedAt(sort: Desc)])
+  // MIGRATION-ONLY (2026-10-22): filter_events_cycle_type_at_idx on
+  // (cycle_id, event_type, performed_at DESC) INCLUDE (performed_by) —
+  // schema.prisma cannot express INCLUDE.
   @@map("filter_events")
 }
 
@@ -2021,5 +2027,7 @@ model CleaningStageApproval {
   @@index([cycleId, stageKey])
   @@index([status, approverRole])
   @@index([filterId])
+  // 2026-10-22: every list orders by requested_at DESC (1.0 M rows at one year).
+  @@index([requestedAt])
   @@map("cleaning_stage_approvals")
 }

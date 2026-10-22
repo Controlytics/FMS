@@ -43,6 +43,12 @@ async function buildTestApp(): Promise<FastifyInstance> {
   // The production handler, so a Prisma P2002 / P2025 answers exactly as it
   // would live (409 CONFLICT / 404) instead of a test-only 500.
   app.setErrorHandler(buildErrorHandler({ log: app.log, exposeInternalMessage: true }));
+  // Test-only: a write that skips identifierService's checks and locks (a raw
+  // insert, or a future unlocked path), to prove the database itself refuses.
+  app.post('/test/raw-identifier', async (req, reply) => {
+    const row = await prisma.assetIdentifier.create({ data: req.body as { assetId: string; identifierType: string; identifierValue: string } });
+    return reply.code(201).send(row);
+  });
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.ready();
@@ -121,6 +127,23 @@ describe('D-DB-2: concurrent identifier assigns keep one identifier per filter',
     try { await prisma.user.delete({ where: { id: testUserId } }); }
     catch { await prisma.user.update({ where: { id: testUserId }, data: { status: 'DISABLED', email: `disabled-${testUserId}@example.test` } }); }
     await app.close();
+  });
+
+  it('the DATABASE refuses a second identifier on one asset (asset_identifiers_one_per_asset): 409, not 500', async () => {
+    const f = await mkFilter();
+    await prisma.assetIdentifier.create({ data: { assetId: f, identifierType: 'RFID', identifierValue: tag('U1') } });
+
+    // Straight through Prisma: a unique violation on the migration-only index.
+    await expect(prisma.assetIdentifier.create({ data: { assetId: f, identifierType: 'RFID', identifierValue: tag('U2') } }))
+      .rejects.toMatchObject({ code: 'P2002' });
+    const raw = await prisma.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM pg_indexes WHERE indexname = 'asset_identifiers_one_per_asset'`;
+    expect(Number(raw[0].n)).toBe(1);
+
+    // Through a route with the production error handler: a clean 409.
+    const res = await app.inject({ method: 'POST', url: '/test/raw-identifier', headers: { authorization: `Bearer ${token}` }, payload: { assetId: f, identifierType: 'RFID', identifierValue: tag('U3') } });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).error).toBe('CONFLICT');
+    expect(await tagsOn(f)).toHaveLength(1);
   });
 
   it('two different tags on one filter at once: one 201, one 409 ENTITY_HAS_IDENTIFIER, one tag left', async () => {
