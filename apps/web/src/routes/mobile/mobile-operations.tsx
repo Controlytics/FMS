@@ -44,6 +44,8 @@ import {
   equipmentGroupChoice,
   groupHasStageInstruments,
   startChecklistProfileIds,
+  splitNewCycleBatch,
+  firstStagesFromGraph,
 } from '@/lib/filter-ops';
 import { resolveChecklistProfile } from '@/lib/local-context';
 import type { PendingChecklistBatchItem, LeftItem, PendingChecklist } from '@/lib/filter-ops';
@@ -1185,6 +1187,22 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     // once per batch submit; the gate below only uses it on the !cycleInProgress
     // (START) branch.
     const blockedIds = new Set<string>((await getCache<string[]>('blocked-filter-ids')) ?? []);
+    // A submit mixing filters IN a cycle with filters to START (2026-10-22). A
+    // start needs the reason dialog, which used to open mid-loop and return:
+    // the advances already collected for /bulk-operate were never posted and
+    // their rows were cleared (silently lost), and every later filter, in a
+    // cycle or not, rode on the dialog as a cycle START. The in-cycle filters go
+    // now; the ones to start stay queued, named, for their own submit.
+    {
+      const toStart: LeftItem[] = [];
+      let anyInCycle = false;
+      for (const q of batchQueue) {
+        const row = await getCache<any>(`filter-state-${q.filterId}`).catch(() => null);
+        if (row?.currentCycle?.id || cachedFilterById.get(q.filterId)?.currentCycleId) anyInCycle = true;
+        else toStart.push({ item: q, note: 'starts a new cleaning cycle — submit it on its own' });
+      }
+      if (anyInCycle) holdBack(toStart);
+    }
     // AHU pre-flight for the checklist-less completion case (2026-08-10). ONE
     // call for the whole queue, before the loop — the tablet submits 50–100
     // tags and the check is per-AHU, not per-filter. Pipelines that end with a
@@ -2154,8 +2172,11 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
       .map((item) => ({ item, note: 'its cleaning profile is not on this tablet — go online, then submit it again' }));
     const known = all.filter((f) => !noGraph.some((n) => n.item.filterId === f.filterId));
     const stateOf = (id: string) => states.get(id) ?? null;
-    const plan = await planStartChecklistBatch(known, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
-    const left: LeftItem[] = [...noGraph, ...plan.left];
+    // Only a filter with no cycle, whose cleaning can start at this stage, is
+    // started: sent to another, the start was written and its entry refused.
+    const startable = splitNewCycleBatch(known, stateOf, rdIn.stage, (st) => firstStagesFromGraph(st?.pipelineGraph));
+    const plan = await planStartChecklistBatch(startable.ride, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
+    const left: LeftItem[] = [...noGraph, ...startable.left, ...plan.left];
     if (plan.none.length > 0) {
       left.push(...plan.ask.map(item => ({ item, note: 'its first checklist is asked on its own — submit it again' })));
     }

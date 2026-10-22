@@ -443,6 +443,67 @@ describe('submitting the queue — online (one /bulk-operate)', () => {
   });
 });
 
+describe('a submit mixing filters in a cycle and filters to start (2026-10-22)', () => {
+  // Pre-fix, the first filter with no cycle opened the reason dialog and RETURNED
+  // mid-loop: the advances already collected for /bulk-operate were never posted
+  // and their rows were cleared from the queue (silently lost), and every later
+  // filter — in a cycle or not — rode on the reason dialog as a cycle START.
+  const NEW = { currentState: null, currentCycle: null, actions: [], pipelineGraph: graph(['WASH_OUT', 'STORAGE_IN']), homeBlock: { id: 'b1', name: 'North' }, blockChangeStatus: 'MATCH' };
+
+  it('online, in-cycle first: its advance is sent; the filter to start stays queued, named, for its own submit', async () => {
+    const { api } = await renderOps({
+      stage: 'WASH_OUT',
+      states: { f1: state('WASH_IN', [adv('WASH_OUT')]), f3: NEW },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    await scanTag('E1'); await inQueue('F-001');
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await message(/F-003: starts a new cleaning cycle — submit it on its own/)).toBeInTheDocument();
+    await dismissAll();
+    await waitFor(() => expect(bulkItems(api).map((i: any) => [i.filterId, i.kind])).toEqual([['f1', 'advance']]));
+    expect(screen.queryByText('Cleaning Reason')).toBeNull();
+    await dismissAll();
+    await inQueue('F-003');
+    expect(screen.getByRole('checkbox', { name: /F-003/ })).not.toBeChecked();
+  });
+
+  it('online, the filter to start first: the in-cycle one is advanced, never sent a cycle START', async () => {
+    const { api } = await renderOps({
+      stage: 'WASH_OUT',
+      states: { f1: state('WASH_IN', [adv('WASH_OUT')]), f3: NEW },
+      routes: [{ method: 'POST', path: '/api/filters/bulk-operate', body: bulkOk() }],
+    });
+    await scanTag('E3'); await inQueue('F-003');
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    await message(/F-003: starts a new cleaning cycle — submit it on its own/);
+    await dismissAll();
+    await waitFor(() => expect(api.calls('POST', '/api/filters/bulk-operate')).toHaveLength(1));
+    expect(bulkItems(api).map((i: any) => [i.filterId, i.kind])).toEqual([['f1', 'advance']]);
+    expect(api.calls('POST', /\/start-cycle$/)).toHaveLength(0);
+  });
+
+  it('offline: the in-cycle advance is queued; nothing is started for the other', async () => {
+    await renderOps({
+      stage: 'WASH_OUT', online: false, cachedFilters: [F1, { ...F1, id: 'f3', name: 'F-003', currentCycleId: null, currentLifecycleState: null }],
+      states: { f1: state('WASH_IN', [adv('WASH_OUT')]), f3: NEW },
+      cache: {
+        'identifier-map': { E1: { filterId: 'f1', filterName: 'F-001' }, E3: { filterId: 'f3', filterName: 'F-003' } },
+        'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
+      },
+    });
+    offlineFetch();
+    await scanTag('E3'); await inQueue('F-003');
+    await scanTag('E1'); await inQueue('F-001');
+    fireEvent.click(submitButton());
+    await message(/F-003: starts a new cleaning cycle — submit it on its own/);
+    await dismissAll();
+    await waitFor(() => expect(queuedOps().map((o: any) => [o.type, o.filterId])).toEqual([['advance', 'f1']]));
+    expect(screen.queryByText('Cleaning Reason')).toBeNull();
+  });
+});
+
 describe('cross-block (online, CONFIRM mode)', () => {
   it('a filter from another block asks for confirmation; once confirmed the re-scan goes through', async () => {
     const { api } = await renderOps({
