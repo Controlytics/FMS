@@ -4,6 +4,7 @@
 import type { RequestContext } from '../../types/context.js';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
+import { findInChunks } from '../../lib/in-chunks.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { assertFilterOperable } from '../assets/filter-workflow.js';
@@ -493,14 +494,29 @@ export class FilterOperationsService {
     }
 
     const includeEvents = query.includeEvents === 'true' || query.includeEvents === true;
-    const [data, total] = await Promise.all([
-      prisma.cleaningCycle.findMany({
-        where, skip: (page - 1) * limit, take: limit,
-        orderBy: { startedAt: 'desc' },
-        ...(includeEvents ? { include: { events: { orderBy: { performedAt: 'asc' as const } } } } : {}),
-      }),
-      prisma.cleaningCycle.count({ where }),
-    ]);
+    const eventsInclude: { include?: { events: { orderBy: { performedAt: 'asc' } } } } =
+      includeEvents ? { include: { events: { orderBy: { performedAt: 'asc' } } } } : {};
+    // Every id list below is as long as the page, and pages have no size cap, so
+    // each goes through findInChunks: Postgres binds at most 32,767 values per
+    // statement, and a ~32k-cycle page used to fail outright (D-DB-9, 2026-10-22).
+    // `ids` mode is chunked too (its ids ARE the page), then put back in the
+    // page order; its count is the rows found.
+    const [data, total] = ids
+      ? await (async () => {
+          const rows = await findInChunks(ids, (chunk) => prisma.cleaningCycle.findMany({
+            where: { ...where, id: { in: chunk } }, ...eventsInclude,
+          }));
+          rows.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+          return [rows, rows.length] as const;
+        })()
+      : await Promise.all([
+          prisma.cleaningCycle.findMany({
+            where, skip: (page - 1) * limit, take: limit,
+            orderBy: { startedAt: 'desc' },
+            ...eventsInclude,
+          }),
+          prisma.cleaningCycle.count({ where }),
+        ]);
 
     // Enrich with filter + cleaning area names in a single query
     const allAssetIds = [...new Set([
@@ -509,10 +525,10 @@ export class FilterOperationsService {
     ])];
 
     // filterSet moved to FilterDetails (Step 6) — include + flatten via the helper.
-    const allAssetsRaw = allAssetIds.length > 0 ? await prisma.assetInstance.findMany({
-      where: { id: { in: allAssetIds } },
+    const allAssetsRaw = await findInChunks(allAssetIds, (chunk) => prisma.assetInstance.findMany({
+      where: { id: { in: chunk } },
       select: { id: true, name: true, filterDetails: { select: { filterSet: true } } },
-    }) : [];
+    }));
     const allAssets = allAssetsRaw.map(a => ({ id: a.id, name: a.name, filterSet: a.filterDetails?.filterSet ?? null }));
     const assetMap = new Map(allAssets.map(a => [a.id, a]));
 
@@ -530,13 +546,16 @@ export class FilterOperationsService {
     // operator request: the report's "By" should name the latter).
     //
     // One query for both — STATE_TRANSITION rows are the bulk of filter_events,
-    // but this is already bounded to the requested page's cycle ids.
+    // but this is already bounded to the requested page's cycle ids. In chunks:
+    // this IN list plus the three event types overflowed the bind limit at
+    // ~32k cycles (D-DB-9). A cycle's events all fall in its own chunk, so the
+    // ascending order per cycle — which the "last write wins" below needs — holds.
     const cycleIds = data.map((c: any) => c.id);
-    const performerEvents = cycleIds.length > 0 ? await prisma.filterEvent.findMany({
-      where: { cycleId: { in: cycleIds }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED', 'STATE_TRANSITION'] } },
+    const performerEvents = await findInChunks(cycleIds, (chunk) => prisma.filterEvent.findMany({
+      where: { cycleId: { in: chunk }, eventType: { in: ['CYCLE_COMPLETED', 'CYCLE_TERMINATED', 'STATE_TRANSITION'] } },
       select: { cycleId: true, performedBy: true, performedAt: true, eventType: true },
       orderBy: { performedAt: 'asc' },
-    }) : [];
+    }));
     const terminalPerformerByCycle = new Map<string, string>();
     const lastStagePerformerByCycle = new Map<string, string>();
     for (const ev of performerEvents) {
@@ -553,10 +572,10 @@ export class FilterOperationsService {
       ...terminalPerformerByCycle.values(),
       ...lastStagePerformerByCycle.values(),
     ])] as string[];
-    const performers = allPerformerIds.length > 0 ? await prisma.user.findMany({
-      where: { id: { in: allPerformerIds } },
+    const performers = await findInChunks(allPerformerIds, (chunk) => prisma.user.findMany({
+      where: { id: { in: chunk } },
       select: { id: true, username: true, fullName: true },
-    }) : [];
+    }));
     // 2026-05-21: expose both fullName and username so the FE can choose which
     // to render. Mobile cycle view uses the username (operator login id) per
     // operator request; desktop continues to show fullName.

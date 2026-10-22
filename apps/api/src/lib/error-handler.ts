@@ -155,9 +155,21 @@ export function buildErrorHandler(opts: ErrorHandlerOptions) {
     // echoes err.message when NODE_ENV=development — and a Prisma message embeds the
     // absolute source-file path, line, and a code snippet (CWE-209). Never leak that,
     // in any environment; the full error is still on app.log for diagnosis.
+    //
+    // EXCEPT a server fault (D-DB-9, 2026-10-22): a statement the database refused
+    // for its own limits — P2035 "assertion violation on the database" (e.g. "too
+    // many bind variables in prepared statement"), P2029 the parameter limit — or a
+    // lost / unreachable database (P1xxx). None says the request was wrong; as 400
+    // DATA_CONSTRAINT the tablet's sync engine took it for the operation's own
+    // failure. They fall through to the genuine-internal-error path below: logged
+    // with the request's context, a generic 500, and the SYSTEM_ERROR page.
+    const prismaCode = typeof (err as any).code === 'string' ? (err as any).code as string : '';
+    const prismaServerFault = prismaCode === 'P2035' || prismaCode === 'P2029' || /^P1\d{3}$/.test(prismaCode);
     if (
-      (err as any).name === 'PrismaClientKnownRequestError' ||
-      (typeof (err as any).code === 'string' && /^P\d{4}$/.test((err as any).code))
+      !prismaServerFault && (
+        (err as any).name === 'PrismaClientKnownRequestError' ||
+        /^P\d{4}$/.test(prismaCode)
+      )
     ) {
       opts.log.error({ err, url: _req.url, prismaCode: (err as any).code }, 'Unmapped Prisma error');
       return reply.code(400).send({

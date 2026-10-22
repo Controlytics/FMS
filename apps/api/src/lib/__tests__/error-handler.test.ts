@@ -27,6 +27,9 @@ function build(onInternalError: (err: Error) => void, exposeInternalMessage = fa
   app.get('/p2000', async () => { throw prismaError('P2000'); });
   app.get('/p2024', async () => { throw prismaError('P2024'); });
   app.get('/p9999', async () => { throw prismaError('P9999'); });
+  app.get('/p2035', async () => { throw prismaError('P2035'); });
+  app.get('/p2029', async () => { throw prismaError('P2029'); });
+  app.get('/p1017', async () => { throw prismaError('P1017'); });
   app.get('/prisma-validation', async () => { throw Object.assign(new Error('Argument x: invalid value'), { name: 'PrismaClientValidationError' }); });
   app.get('/boom', async () => { throw new Error('C:\\src\\secret\\db.ts:42 connection reset'); });
   return app;
@@ -73,6 +76,17 @@ describe('buildErrorHandler', () => {
     expect(r).toEqual({ status: 500, body: { error: 'INTERNAL_ERROR', message: 'Internal server error' } });
     expect(internal).toHaveBeenCalledTimes(1);
     expect((internal.mock.calls[0][0] as Error).message).toContain('connection reset');
+  });
+
+  // D-DB-9 (2026-10-22): a statement the DATABASE refuses for its own limits —
+  // "too many bind variables" arrives as P2035, the parameter limit as P2029 — or a
+  // lost connection (P1xxx) is a server fault. Answered as 400 DATA_CONSTRAINT the
+  // client blamed its own request; the tablet's sync engine treats a 4xx as the
+  // operation's own failure and burns its retries.
+  it.each([['/p2035'], ['/p2029'], ['/p1017']])('%s (a server fault) is a 500, reaches onInternalError, never Prisma text', async (url) => {
+    const r = await get(url);
+    expect(r).toEqual({ status: 500, body: { error: 'INTERNAL_ERROR', message: 'Internal server error' } });
+    expect(internal).toHaveBeenCalledTimes(1);
   });
 
   it('exposeInternalMessage (development only) echoes the message', async () => {
