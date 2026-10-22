@@ -79,10 +79,21 @@ describe('guards common to every provider', () => {
     }
   });
 
-  it('strips HTML and caps the text at 1600 characters', async () => {
+  // Operator decision 2026-10-22 ("Send exactly the text"): an SMS is plain text
+  // (D7), so nothing shaped like a tag is removed. Stripping <...> cut readings
+  // and names: "pressure < 2 bar (limit > 4)" lost everything between the signs.
+  it('sends the text exactly as given, < and > included', async () => {
     await useSms({ provider: 'twilio', twilioAccountSid: 'AC1', twilioAuthToken: 't', twilioFromNumber: '+15550001111' });
     fetchMock.mockResolvedValueOnce(jsonRes({ sid: 'SM' }, 201));
-    await send('+919876543210', `<p>${'x'.repeat(2000)}</p>`);
+    const text = 'Filter <A1>: pressure < 2 bar (limit > 4)';
+    await send('+919876543210', text);
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1].body)).get('Body')).toBe(text);
+  });
+
+  it('caps the text at 1600 characters', async () => {
+    await useSms({ provider: 'twilio', twilioAccountSid: 'AC1', twilioAuthToken: 't', twilioFromNumber: '+15550001111' });
+    fetchMock.mockResolvedValueOnce(jsonRes({ sid: 'SM' }, 201));
+    await send('+919876543210', 'x'.repeat(2000));
     const body = new URLSearchParams(String(fetchMock.mock.calls[0][1].body)).get('Body')!;
     expect(body).toBe('x'.repeat(1600));
   });

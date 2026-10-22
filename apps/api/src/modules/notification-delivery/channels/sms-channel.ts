@@ -206,7 +206,10 @@ export const smsChannel: IChannel = {
       return { success: false, error: `Invalid phone number: ${payload.recipient}` };
     }
 
-    const message = payload.message.replace(/<[^>]*>/g, '').substring(0, 1600);
+    // Sent exactly as given (operator decision 2026-10-22). An SMS is plain text
+    // (D7): nothing is tag-stripped, because removing <...> cut readings and
+    // names ("pressure < 2 bar (limit > 4)" lost everything between the signs).
+    const message = payload.message.substring(0, 1600);
 
     // D3 (2026-10-21): the provider calls throw on a transport error (fetch
     // failed, timeout), on an SSRF-blocked gateway URL (hardenedFetch) and on a
