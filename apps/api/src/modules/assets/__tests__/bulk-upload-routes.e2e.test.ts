@@ -197,11 +197,13 @@ describe('bulk upload — upload route', () => {
 
   it('refuses a file over the 5 MB multipart limit and creates nothing', async () => {
     const big = Buffer.concat([await workbook(['name', 'filterSet'], [[own.n('BIG'), 'A']]), Buffer.alloc(5 * 1024 * 1024 + 1024, 0x41)]);
+    const tooLarge = { error: 'FILE_TOO_LARGE', message: 'Upload exceeds the maximum file size (5 MB).' };
     const res = await send(sa, 'upload', { ahuId }, big);
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.body.success).toBeUndefined();
+    expect(res.status).toBe(413);
+    expect(res.body).toEqual(tooLarge);
     expect(await prisma.filter.count({ where: { name: own.n('BIG') } })).toBe(0);
     const dry = await send(sa, 'validate', { ahuId }, big);
-    expect(dry.status).toBeGreaterThanOrEqual(400);
+    expect(dry.status).toBe(413);
+    expect(dry.body).toEqual(tooLarge);
   });
 });

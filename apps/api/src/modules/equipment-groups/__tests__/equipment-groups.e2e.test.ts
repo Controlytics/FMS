@@ -345,12 +345,7 @@ describe.skipIf(!lanIp)('equipment-groups — instrument auto-fetch through a re
   it('test-url never follows a redirect (the 302 to the metadata address is not fetched)', async () => {
     const res = await test(`${base}/redirect`);
     expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(false);
-    expect(res.body).not.toHaveProperty('reading');
-    expect(typeof res.body.error).toBe('string');
-    // NOTE (defect reported): the message is the generic 'Request failed', not
-    // 'Redirects are not allowed' — instrument-fetch.ts never sees the redirect
-    // marker it looks for on this Node's fetch error.
+    expect(res.body).toEqual({ ok: false, error: 'Redirects are not allowed' });
   });
 
   it('test-url gives up after the 5 s timeout', async () => {

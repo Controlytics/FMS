@@ -283,11 +283,14 @@ describe('cleaning-profiles — update (new version)', () => {
     expect((await prisma.filterCleaningProfile.findUnique({ where: { id: p2 } }))!.status).toBe('ACTIVE');
   });
 
-  it('editing a superseded (archived) version collides with the existing next version: 409, nothing changes', async () => {
+  it('editing a superseded (archived) version is refused with 409, nothing changes', async () => {
     internalErrors.length = 0;
     const res = await sa.call('PUT', `/api/filter-cleaning-profiles/${p1}`, { body: { description: 'stale edit' } });
     expect(res.status).toBe(409);
-    expect(res.body.error).toBe('CONFLICT');
+    expect(res.body).toEqual({
+      error: 'CONFLICT',
+      message: `Version 1 of "${own.n('MAIN')}" has been superseded by version 4. Open the latest version to change it.`,
+    });
     expect(internalErrors).toEqual([]);
     expect((await prisma.filterCleaningProfile.findUnique({ where: { id: p2 } }))!.status).toBe('ACTIVE');
   });

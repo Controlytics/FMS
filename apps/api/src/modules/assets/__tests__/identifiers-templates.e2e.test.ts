@@ -179,15 +179,16 @@ describe('identifiers — remove', () => {
     expect(a.beforeValue).toEqual({ assetId: F.A, identifierType: 'RFID', identifierValue: tag('T2'), filterName: own.n('A') });
 
     const [onC] = await prisma.assetIdentifier.findMany({ where: { assetId: F.C } });
-    // An empty JSON body, as the web client always sends: the route's body schema
-    // refuses a body-less DELETE (reported as a defect).
-    await sa.call('DELETE', `/api/assets/identifiers/${onC.id}?reason=lost`, { body: {} });
+    // No body at all: the reason comes from the query string.
+    const noBody = await sa.call('DELETE', `/api/assets/identifiers/${onC.id}?reason=lost`);
+    expect(noBody.status).toBe(200);
     expect((await auditFor(onC.id, 'ASSET_IDENTIFIER_DELETED'))[0].reason).toBe('lost');
+    // The empty JSON body the web client always sends; no reason at all.
     const [onD] = await prisma.assetIdentifier.findMany({ where: { assetId: F.D } });
     await sa.call('DELETE', `/api/assets/identifiers/${onD.id}`, { body: {} });
     expect((await auditFor(onD.id, 'ASSET_IDENTIFIER_DELETED'))[0].reason).toBeNull();
 
-    const missing = await sa.call('DELETE', `/api/assets/identifiers/${randomUUID()}`, { body: {} });
+    const missing = await sa.call('DELETE', `/api/assets/identifiers/${randomUUID()}`);
     expect(missing.status).toBe(404);
   });
 });
