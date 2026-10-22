@@ -282,8 +282,16 @@ describe('DryingFiltersPanel — instrument auto-fetch', () => {
     });
     // 5 s: the half-time fetch lands after findBy's 1 s default when the full suite loads the machine.
     expect(await screen.findByText('60.47 °C', {}, { timeout: 5_000 })).toBeInTheDocument();
+    // The row shows the value from its OWN state; the panel ticks a lone ready row
+    // two effect passes later (row report → panel rows → auto-select). Under a
+    // loaded run the click landed in between, on a still-disabled Submit, and was
+    // lost (seen: disabled=true, onError never called). Act on what the operator
+    // needs, as the other submit tests do: the row is ticked and Submit is live.
+    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeInTheDocument());
+    expect(submit()).toBeEnabled();
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalled());
+    expect(s.onError).not.toHaveBeenCalled();
     expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ instrumentReadings: { t1: 60.47, h1: 14 } });
   });
 
@@ -305,6 +313,7 @@ describe('DryingFiltersPanel — instrument auto-fetch', () => {
     expect(await screen.findByText('Auto · changed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByText('62 °C')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('1 of 1 ready filter(s) selected')).toBeInTheDocument()); // same race as above
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalled());
     expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({

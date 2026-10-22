@@ -35,7 +35,7 @@ vi.mock('@/lib/sync-engine', () => ({
 vi.mock('../components/drying-filters-panel', () => ({ DryingFiltersPanel: () => null }));
 
 import { usePageTestLifecycle, passReauth } from './fm-test-kit';
-import { setup, scanAndSubmit, cancelPrompt, settle, F1, Q_YES } from './filter-operations-kit';
+import { setup, scanAndSubmit, cancelPrompt, settle, answerYes, F1, Q_YES } from './filter-operations-kit';
 
 configure({ asyncUtilTimeout: 4000 });
 vi.setConfig({ testTimeout: 30_000 });
@@ -86,8 +86,7 @@ function api(state: unknown, routes: any[] = [], o: { reauthActions?: string[]; 
 }
 const posts = (a: ReturnType<typeof setup>, kind: string) => a.requests.filter((r) => r.method === 'POST' && r.path.endsWith(`/${kind}`));
 const answerAndSubmit = async () => {
-  await screen.findByText('Checklist Required');
-  fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+  await answerYes();
   fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
   await settle();
 };

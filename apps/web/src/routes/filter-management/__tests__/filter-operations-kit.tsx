@@ -72,20 +72,37 @@ export async function scanAndSubmit(api: ReturnType<typeof setup>, stageKey = 'W
 }
 export const openWashOut = (api: ReturnType<typeof setup>) => scanAndSubmit(api, 'WASH_OUT');
 
-/**
- * Pick the cleaning reason and start. The reason dialog clears its choice in an
- * effect when it opens, one render after its buttons appear (the reasons are
- * already in SWR from the page) — under a loaded run a click landed before that
- * effect and was wiped, so Start stayed disabled and nothing happened. Re-pick
- * until Start is live (picking is idempotent), then start.
+/*
+ * The reason and checklist dialogs clear their inputs in an effect when they
+ * open — one render AFTER their buttons appear. A test acts at sub-frame speed:
+ * under a loaded run a click landed before that effect and was wiped, so Start /
+ * Submit then did nothing (seen 2026-10-22: the START prompt never opened; the
+ * stale-gate test's answers were empty). Let the open settle first, then act,
+ * and re-apply until the input is visibly held. (A person cannot click inside
+ * one frame; this is the harness catching up, not a page defect.)
  */
+
+/** Pick the cleaning reason and start. */
 export async function pickReasonAndStart(reason = /Preventive Maintenance/) {
+  await settle();
   await waitFor(() => {
-    fireEvent.click(screen.getByRole('button', { name: reason }));
-    expect(screen.getByRole('button', { name: 'Start & Submit' })).toBeEnabled();
+    const start = screen.getByRole('button', { name: 'Start & Submit' });
+    if ((start as HTMLButtonElement).disabled) fireEvent.click(screen.getByRole('button', { name: reason }));
+    expect(start).toBeEnabled();
   });
   fireEvent.click(screen.getByRole('button', { name: 'Start & Submit' }));
   await settle();
+}
+
+/** Answer the (single YES/NO) checklist question "Yes". */
+export async function answerYes() {
+  await screen.findByText('Checklist Required');
+  await settle();
+  await waitFor(() => {
+    const yes = screen.getByRole('button', { name: 'Yes' });
+    if (yes.getAttribute('aria-pressed') !== 'true') fireEvent.click(yes);
+    expect(yes).toHaveAttribute('aria-pressed', 'true');
+  });
 }
 
 export const cancelPrompt = async () => {

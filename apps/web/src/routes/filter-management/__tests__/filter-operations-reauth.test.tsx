@@ -42,7 +42,7 @@ vi.mock('../components/drying-filters-panel', () => ({ DryingFiltersPanel: () =>
 
 import { FilterOperationsPage } from '../filter-operations';
 import {
-  OPERATOR, F1, Q_YES, NEW_FILTER_STATE, AWAITING_CHECKLIST, REAUTH_FAILED, setup, openWashOut, cancelPrompt, settle, pickReasonAndStart,
+  OPERATOR, F1, Q_YES, NEW_FILTER_STATE, AWAITING_CHECKLIST, REAUTH_FAILED, setup, openWashOut, cancelPrompt, settle, pickReasonAndStart, answerYes,
 } from './filter-operations-kit';
 
 // Whole-page renders (SWR + IndexedDB + many reads): under a loaded run the
@@ -101,8 +101,7 @@ describe('Filter Operations — starting cycles under re-auth (START_CLEANING_CY
 describe('Filter Operations — a checklist submitted under re-auth (SUBMIT_CHECKLIST_WITH_SIGNATURE)', () => {
   async function toChecklistSubmit(api: ReturnType<typeof setup>) {
     await openWashOut(api);
-    await screen.findByText('Checklist Required');
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    await answerYes();
     fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
     // The handler's post-execute state reset lands a microtask later: let it land inside act().
     await settle();
@@ -164,9 +163,7 @@ describe('Filter Operations — a checklist submitted under re-auth (SUBMIT_CHEC
     // cleaning reason).
     const api = setup({ state: AWAITING_CHECKLIST });
     await openWashOut(api);
-    await screen.findByText('Checklist Required');
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
-    expect(screen.getByRole('button', { name: 'Yes' })).toHaveAttribute('aria-pressed', 'true');
+    await answerYes(); // after the dialog's own open-time reset
     fireEvent.change(screen.getByPlaceholderText('Scan tag or type filter name'), { target: { value: 'E200' } });
     await settle();
     expect(screen.getByRole('button', { name: 'Yes' })).toHaveAttribute('aria-pressed', 'true');
@@ -237,8 +234,7 @@ describe('Filter Operations — a lockout stops a signed batch', () => {
       routes: [{ method: 'POST', path: /\/api\/filters\/f\d\/submit-checklist/, status: 403, body: LOCKED }],
     });
     await queueTwo(api);
-    await screen.findByText('Checklist Required');
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    await answerYes();
     fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
     await settle();
     await passReauth('Wrong@1');
@@ -297,7 +293,7 @@ describe('Filter Operations — a single-filter checklist under re-auth (opened 
     expect(await screen.findByText('Checklist Required')).toBeInTheDocument();
     expect(screen.getByText('F-001', { exact: false })).toBeInTheDocument();
     vi.stubGlobal('fetch', serverFetch); // back online for the submit
-    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    await answerYes();
     fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
     await settle();
   }
