@@ -4,23 +4,38 @@ const { mockIdentRepo, mockInstanceRepo, mockAuditLog, mockPrisma } = vi.hoisted
   // create() writes through prisma.$transaction (2026-09-25: it may release a
   // tag held by a retired filter in the same tx). Route the callback to the
   // same tx-shaped object so tx.x.method() records on the mock.
+  //
+  // D-DB-2 (2026-10-22): the "one identifier per entity" / duplicate-value
+  // reads moved INSIDE that transaction, behind advisory locks. The tx reads
+  // delegate to the repository mocks below, so each test's
+  // mockIdentRepo.findMany / findByIdentifierValue / findById setup still
+  // means what it says.
+  const repo = {
+    findMany: vi.fn(),
+    findByValue: vi.fn(),
+    findById: vi.fn(),
+    findByIdentifierValue: vi.fn(),
+    // C-07 (2026-10-19): the RFID duplicate check is case-insensitive. The
+    // tests below set findByIdentifierValue; this delegates so they keep
+    // meaning the same thing (see beforeEach).
+    findByIdentifierValueInsensitive: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+  };
   const tx = {
-    assetIdentifier: { create: vi.fn(), delete: vi.fn() },
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    assetIdentifier: {
+      create: vi.fn(),
+      delete: vi.fn(),
+      findMany: vi.fn((args: { where: Record<string, unknown> }) => repo.findMany(args.where)),
+      findFirst: vi.fn((args: { where: { identifierValue: { equals: string } } }) => repo.findByIdentifierValue(args.where.identifierValue.equals)),
+      findUnique: vi.fn((args: { where: { id?: string; identifierValue?: string } }) =>
+        (args.where.id ? repo.findById(args.where.id) : repo.findByIdentifierValue(args.where.identifierValue))),
+    },
     assetInstance: { findUnique: vi.fn() },
   };
   return {
-    mockIdentRepo: {
-      findMany: vi.fn(),
-      findByValue: vi.fn(),
-      findById: vi.fn(),
-      findByIdentifierValue: vi.fn(),
-      // C-07 (2026-10-19): the RFID duplicate check is case-insensitive. The
-      // tests below set findByIdentifierValue; this delegates so they keep
-      // meaning the same thing (see beforeEach).
-      findByIdentifierValueInsensitive: vi.fn(),
-      create: vi.fn(),
-      delete: vi.fn(),
-    },
+    mockIdentRepo: repo,
     mockInstanceRepo: { findByIdSimple: vi.fn() },
     mockAuditLog: vi.fn(),
     mockPrisma: { ...tx, $transaction: vi.fn().mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx)) },
@@ -82,7 +97,26 @@ describe('identifierService', () => {
       expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
         action: 'ASSET_IDENTIFIER_CREATED',
         afterValue: expect.objectContaining({ filterName: 'Filter-42', identifierValue: 'RFID-001' }),
-      }));
+      }), expect.anything()); // D-DB-2: written with the tx, so the assign and its audit row commit together
+    });
+
+    it('takes the filter lock, then the tag lock, BEFORE reading what the filter holds (D-DB-2)', async () => {
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'Filter-42' });
+      mockIdentRepo.findMany.mockResolvedValue([]);
+      mockIdentRepo.findByIdentifierValue.mockResolvedValue(null);
+      mockPrisma.assetIdentifier.create.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA00AB12' });
+
+      await identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'ca00ab12' }, ctx);
+
+      const locks = mockPrisma.$executeRaw.mock.calls.map(([strings, ...values]) => ({ sql: (strings as string[]).join('?'), values }));
+      expect(locks).toHaveLength(2);
+      expect(locks[0].sql).toContain('pg_advisory_xact_lock');
+      expect(locks[0].values).toContain('a1');
+      expect(locks[1].values).toContain('ca00ab12'); // the canonical value, lower-cased
+      const firstLock = mockPrisma.$executeRaw.mock.invocationCallOrder[0];
+      const lastLock = mockPrisma.$executeRaw.mock.invocationCallOrder[1];
+      expect(lastLock).toBeLessThan(mockPrisma.assetIdentifier.findMany.mock.invocationCallOrder[0]);
+      expect(firstLock).toBeLessThan(lastLock);
     });
 
     it('rejects when asset not found', async () => {
@@ -145,7 +179,9 @@ describe('identifierService', () => {
 
       await expect(identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000CF3' }, ctx))
         .rejects.toMatchObject({ code: 'ENTITY_HAS_IDENTIFIER', message: expect.stringContaining('CA000BF8') });
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      // Refused inside the transaction (D-DB-2), before anything is written.
+      expect(mockPrisma.assetIdentifier.create).not.toHaveBeenCalled();
+      expect(mockPrisma.assetIdentifier.delete).not.toHaveBeenCalled();
       expect(mockAuditLog).not.toHaveBeenCalled();
     });
 
@@ -155,7 +191,9 @@ describe('identifierService', () => {
 
       await expect(identifierService.create({ assetId: 'a1', identifierType: 'RFID', identifierValue: 'CA000BF8', replaceExisting: true }, ctx))
         .rejects.toMatchObject({ code: 'IDENTIFIER_ALREADY_ON_ENTITY' });
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      // Refused inside the transaction (D-DB-2), before anything is written.
+      expect(mockPrisma.assetIdentifier.create).not.toHaveBeenCalled();
+      expect(mockPrisma.assetIdentifier.delete).not.toHaveBeenCalled();
     });
 
     it('replaceExisting releases the held tag (audited, reason names the new tag) and binds the new one in one transaction', async () => {
@@ -196,14 +234,27 @@ describe('identifierService', () => {
     it('deletes identifier and logs audit', async () => {
       mockIdentRepo.findById.mockResolvedValue({ id: 'i1', assetId: 'a1', identifierType: 'RFID', identifierValue: 'RFID-001' });
       mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'Filter-42' });
-      mockIdentRepo.delete.mockResolvedValue({});
 
       await identifierService.delete('i1', ctx);
-      expect(mockIdentRepo.delete).toHaveBeenCalledWith('i1');
+      // D-DB-2: deleted through the transaction, under the filter + tag locks,
+      // with the audit row in the same transaction.
+      expect(mockPrisma.assetIdentifier.delete).toHaveBeenCalledWith({ where: { id: 'i1' } });
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
       expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({
         action: 'ASSET_IDENTIFIER_DELETED',
         beforeValue: expect.objectContaining({ filterName: 'Filter-42', identifierValue: 'RFID-001' }),
-      }));
+      }), expect.anything());
+    });
+
+    it('answers 404 when a concurrent request removed the row first (re-read under the lock)', async () => {
+      mockIdentRepo.findById
+        .mockResolvedValueOnce({ id: 'i1', assetId: 'a1', identifierType: 'RFID', identifierValue: 'RFID-001' })
+        .mockResolvedValueOnce(null);
+      mockInstanceRepo.findByIdSimple.mockResolvedValue({ id: 'a1', name: 'Filter-42' });
+
+      await expect(identifierService.delete('i1', ctx)).rejects.toThrow('not found');
+      expect(mockPrisma.assetIdentifier.delete).not.toHaveBeenCalled();
+      expect(mockAuditLog).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundError', async () => {

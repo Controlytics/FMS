@@ -8,6 +8,11 @@ import { prisma } from '../../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { canonicalRfidValue, sameRfidValue } from '../../../lib/rfid-canonical.js';
 
+// pg_advisory_xact_lock(int4, int4) namespaces for create() / delete() (D-DB-2):
+// one lock per filter, one per tag value. Arbitrary, but must stay distinct.
+const IDENTIFIER_LOCK_ASSET = 74210001;
+const IDENTIFIER_LOCK_TAG = 74210002;
+
 export const identifierService = {
   async list(query: { assetId?: string; type?: string }) {
     const where: Record<string, unknown> = {};
@@ -46,51 +51,73 @@ export const identifierService = {
     // RFID-assign page and the API did not. Non-filter assets carry APPROVED.
     assertFilterOperable((asset as any).approvalStatus, asset.name);
 
-    // Only one identifier per entity. 2026-10-05: re-tagging is a real field
-    // operation (a damaged or lost tag, or a tag scanned onto the wrong filter
-    // during commissioning). The operator used to be refused with "already has
-    // an identifier" and had to find the Remove button first — on 2026-10-05
-    // four refusals in 15 s on one filter. With `replaceExisting` the tag the
-    // filter holds is released in the SAME transaction as the new binding,
-    // audited as ASSET_IDENTIFIER_DELETED whose reason names the new tag, so
-    // the RFID Track Record shows REMOVE then ASSIGN. Without the flag the
-    // refusal stands: both UIs send it only after a confirm step.
-    const existingForAsset = await identifierRepository.findMany({ assetId: data.assetId });
-    const sameTagAlreadyHere = existingForAsset.find((i) => sameValue(i.identifierValue, data.identifierValue));
-    if (sameTagAlreadyHere) {
-      throw new ConflictError(`Tag ${data.identifierValue} is already assigned to "${asset.name}".`, 'IDENTIFIER_ALREADY_ON_ENTITY');
-    }
-    if (existingForAsset.length > 0 && !data.replaceExisting) {
-      throw new ConflictError(
-        `"${asset.name}" already has tag ${existingForAsset[0].identifierValue}. Remove it first, or confirm the replacement.`,
-        'ENTITY_HAS_IDENTIFIER',
-      );
-    }
-    const replaced = data.replaceExisting ? existingForAsset : [];
-
-    // C-07: an RFID duplicate is found case-insensitively, so a lower-case row
-    // stored before canonical writes still conflicts with its upper-case scan.
-    const existingIdent = isRfid
-      ? await identifierRepository.findByIdentifierValueInsensitive(data.identifierValue)
-      : await identifierRepository.findByIdentifierValue(data.identifierValue);
-    // Audit 2026-09-24 DB finding (closed 2026-09-25): a tag stays bound to a
-    // retired filter on purpose (§11 evidence; replace()/unretire depend on it —
-    // see e2e/retire-replace-identifier-invariant.test.ts), but a retired or
-    // deactivated filter is hidden from every RFID surface, so its tag could
-    // never be freed and the physical tag became unusable. Re-assignment is the
-    // documented place to free it: when the current holder is retired or
-    // inactive, release the old binding (audited, so the Track Record shows the
-    // REMOVE) in the same transaction as the new one. A tag on a LIVE filter is
-    // still a conflict.
-    let released: { id: string; assetId: string; identifierType: string; identifierValue: string; holderName: string | null } | null = null;
-    if (existingIdent) {
-      const holder = await prisma.assetInstance.findUnique({ where: { id: existingIdent.assetId }, select: { name: true, status: true, isActive: true } });
-      const holderGone = !holder || holder.status === 'Retired' || holder.isActive === false;
-      if (!holderGone) throw new ConflictError('Identifier value already exists on another entity', 'DUPLICATE_IDENTIFIER_VALUE');
-      released = { id: existingIdent.id, assetId: existingIdent.assetId, identifierType: existingIdent.identifierType, identifierValue: existingIdent.identifierValue, holderName: holder?.name ?? null };
-    }
-
     const identifier = await prisma.$transaction(async (tx) => {
+      // D-DB-2 (2026-10-22): every check below used to run OUTSIDE this
+      // transaction, so two assigns arriving together (two tablets, a double
+      // submit) both saw a filter with no tag and both inserted — 10 of 10
+      // filters ended with two tags in test-results/05 §2.4. Nothing in the
+      // schema stops it (asset_identifiers is unique on the value only). The
+      // checks now run here, behind two transaction-scoped advisory locks:
+      //   1. the FILTER — serialises assigns to one filter, so the second one
+      //      reads the first one's committed tag (READ COMMITTED re-snapshots
+      //      per statement) and is refused, or with `replaceExisting` replaces it;
+      //   2. the TAG value, lower-cased because the RFID duplicate check is
+      //      case-insensitive — serialises two filters claiming one tag (e.g. a
+      //      retired filter's, below), so the loser reads the winner's binding
+      //      and gets DUPLICATE_IDENTIFIER_VALUE, not a 404 for deleting a row
+      //      the winner already released.
+      // Advisory, not a row lock on asset_instances: a row lock would also stall
+      // every other write to the filter, and would deadlock against a
+      // transaction that audited (global chain lock) before updating the filter.
+      // Always filter first, tag second — one order, no lock cycle. The two-int
+      // key space is separate from the audit chain's single-bigint lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_ASSET}::int4, hashtext(${data.assetId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_TAG}::int4, hashtext(${data.identifierValue.toLowerCase()}))`;
+
+      // Only one identifier per entity. 2026-10-05: re-tagging is a real field
+      // operation (a damaged or lost tag, or a tag scanned onto the wrong filter
+      // during commissioning). The operator used to be refused with "already has
+      // an identifier" and had to find the Remove button first — on 2026-10-05
+      // four refusals in 15 s on one filter. With `replaceExisting` the tag the
+      // filter holds is released in the SAME transaction as the new binding,
+      // audited as ASSET_IDENTIFIER_DELETED whose reason names the new tag, so
+      // the RFID Track Record shows REMOVE then ASSIGN. Without the flag the
+      // refusal stands: both UIs send it only after a confirm step.
+      const existingForAsset = await tx.assetIdentifier.findMany({ where: { assetId: data.assetId }, orderBy: { createdAt: 'desc' } });
+      const sameTagAlreadyHere = existingForAsset.find((i) => sameValue(i.identifierValue, data.identifierValue));
+      if (sameTagAlreadyHere) {
+        throw new ConflictError(`Tag ${data.identifierValue} is already assigned to "${asset.name}".`, 'IDENTIFIER_ALREADY_ON_ENTITY');
+      }
+      if (existingForAsset.length > 0 && !data.replaceExisting) {
+        throw new ConflictError(
+          `"${asset.name}" already has tag ${existingForAsset[0].identifierValue}. Remove it first, or confirm the replacement.`,
+          'ENTITY_HAS_IDENTIFIER',
+        );
+      }
+      const replaced = data.replaceExisting ? existingForAsset : [];
+
+      // C-07: an RFID duplicate is found case-insensitively, so a lower-case row
+      // stored before canonical writes still conflicts with its upper-case scan.
+      const existingIdent = isRfid
+        ? await tx.assetIdentifier.findFirst({ where: { identifierValue: { equals: data.identifierValue, mode: 'insensitive' } } })
+        : await tx.assetIdentifier.findUnique({ where: { identifierValue: data.identifierValue } });
+      // Audit 2026-09-24 DB finding (closed 2026-09-25): a tag stays bound to a
+      // retired filter on purpose (§11 evidence; replace()/unretire depend on it —
+      // see e2e/retire-replace-identifier-invariant.test.ts), but a retired or
+      // deactivated filter is hidden from every RFID surface, so its tag could
+      // never be freed and the physical tag became unusable. Re-assignment is the
+      // documented place to free it: when the current holder is retired or
+      // inactive, release the old binding (audited, so the Track Record shows the
+      // REMOVE) in the same transaction as the new one. A tag on a LIVE filter is
+      // still a conflict.
+      let released: { id: string; assetId: string; identifierType: string; identifierValue: string; holderName: string | null } | null = null;
+      if (existingIdent) {
+        const holder = await tx.assetInstance.findUnique({ where: { id: existingIdent.assetId }, select: { name: true, status: true, isActive: true } });
+        const holderGone = !holder || holder.status === 'Retired' || holder.isActive === false;
+        if (!holderGone) throw new ConflictError('Identifier value already exists on another entity', 'DUPLICATE_IDENTIFIER_VALUE');
+        released = { id: existingIdent.id, assetId: existingIdent.assetId, identifierType: existingIdent.identifierType, identifierValue: existingIdent.identifierValue, holderName: holder?.name ?? null };
+      }
+
       for (const old of replaced) {
         await tx.assetIdentifier.delete({ where: { id: old.id } });
         await auditLog({
@@ -117,7 +144,7 @@ export const identifierService = {
           ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
         }, tx);
       }
-      return tx.assetIdentifier.create({
+      const row = await tx.assetIdentifier.create({
         data: {
           assetId: data.assetId,
           identifierType: data.identifierType,
@@ -127,52 +154,64 @@ export const identifierService = {
           createdBy: ctx.userId,
         },
       });
-    });
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ASSET_IDENTIFIER_CREATED',
-      targetType: 'asset_identifier',
-      targetId: identifier.id,
-      // Store the filter name alongside the identifier so the audit row is
-      // self-describing (targetId is the identifier UUID, not the filter, so the
-      // audit UI cannot resolve the filter name at render time). identifierValue
-      // is already on `identifier` — the template renders it as the RFID tag.
-      afterValue: { ...identifier, filterName: asset.name },
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      // Inside the transaction (D-DB-2, 2026-10-22): written after commit, a
+      // failed audit write left a binding with no ASSET_IDENTIFIER_CREATED row.
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ASSET_IDENTIFIER_CREATED',
+        targetType: 'asset_identifier',
+        targetId: row.id,
+        // Store the filter name alongside the identifier so the audit row is
+        // self-describing (targetId is the identifier UUID, not the filter, so the
+        // audit UI cannot resolve the filter name at render time). identifierValue
+        // is already on `identifier` — the template renders it as the RFID tag.
+        afterValue: { ...row, filterName: asset.name },
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
+      return row;
     });
 
     return identifier;
   },
 
   async delete(id: string, ctx: RequestContext, reason?: string | null) {
-    const existing = await identifierRepository.findById(id);
-    if (!existing) throw new NotFoundError('Identifier not found');
+    const found = await identifierRepository.findById(id);
+    if (!found) throw new NotFoundError('Identifier not found');
 
     // Resolve the filter name for a self-describing audit row (targetId is the
     // identifier UUID, so the audit UI can't look up the filter at render time).
-    const asset = await instanceRepository.findByIdSimple(existing.assetId);
-
-    await identifierRepository.delete(id);
+    const asset = await instanceRepository.findByIdSimple(found.assetId);
 
     // P4 (2026-06-03): capture an optional removal reason so the RFID Track
     // Record report can show WHY a tag was removed (audit_trail.reason).
     const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
 
-    await auditLog({
-      userId: ctx.userId, userRole: ctx.userRole,
-      action: 'ASSET_IDENTIFIER_DELETED',
-      targetType: 'asset_identifier',
-      targetId: id,
-      beforeValue: {
-        assetId: existing.assetId,
-        identifierType: existing.identifierType,
-        identifierValue: existing.identifierValue,
-        filterName: asset?.name ?? null,
-      },
-      afterValue: { deleted: true },
-      reason: trimmedReason || undefined,
-      ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+    // D-DB-2 (2026-10-22): the same filter-then-tag locks as create(), so a
+    // removal and a concurrent replace / re-assignment of this tag run one after
+    // the other instead of both deleting the row (the loser answered 404). The
+    // row is re-read under the lock; the audit row commits with the delete.
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_ASSET}::int4, hashtext(${found.assetId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IDENTIFIER_LOCK_TAG}::int4, hashtext(${found.identifierValue.toLowerCase()}))`;
+      const existing = await tx.assetIdentifier.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundError('Identifier not found');
+      await tx.assetIdentifier.delete({ where: { id } });
+      await auditLog({
+        userId: ctx.userId, userRole: ctx.userRole,
+        action: 'ASSET_IDENTIFIER_DELETED',
+        targetType: 'asset_identifier',
+        targetId: id,
+        beforeValue: {
+          assetId: existing.assetId,
+          identifierType: existing.identifierType,
+          identifierValue: existing.identifierValue,
+          filterName: asset?.name ?? null,
+        },
+        afterValue: { deleted: true },
+        reason: trimmedReason || undefined,
+        ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+      }, tx);
     });
   },
 
