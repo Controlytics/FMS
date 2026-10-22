@@ -18,6 +18,8 @@ import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
 import pmScheduleRoutes from '../modules/pm-schedules/routes.js';
 import { getPendingEarlierPmTasks, applyPmSkips, getPendingPmTasksMap } from '../modules/pm-schedules/pm-pending-tasks.js';
+import { loadCountedFilters as loadPmCountedFilters } from '../modules/pm-schedules/pm-shared.js';
+import { loadCountedFilters as loadAhuGateFilters } from '../modules/filter-operations/ahu-completion-gate.js';
 import {
   PmFixture, installConfigOverrides, defaultPmConfig, utcDay, iso, DAY, type ConfigOverrides,
 } from '../modules/pm-schedules/__tests__/pm-fixtures.js';
@@ -189,6 +191,27 @@ beforeAll(async () => {
   await C('ob1', { status: 'COMPLETED', startedAt: at(-4), completedAt: at(-3) });
   // Overdue, but the AHU has no filters: nothing to clean, nothing to gate or deviate.
   await scenario('NOF', at(-15), 5);
+
+  // D03-05: filters still in the creation workflow (pending review / approval,
+  // rejected) cannot be cleaned, so they must not count toward the PM visit.
+  const waiting = async (key: string, ahuKey: string, status: string, filterSet: 'SET_A' | 'SET_B' | null = null) => {
+    f[key] = await fx.filter(key, ahu[ahuKey], { filterSet });
+    await prisma.assetInstance.update({ where: { id: f[key] }, data: { approvalStatus: status as any } });
+  };
+  await scenario('WFQ', T, 5);
+  f.wq1 = await fx.filter('wq1', ahu.WFQ);
+  await C('wq1', { status: 'COMPLETED', startedAt: at(-2), completedAt: at(-1) });
+  await waiting('wq2', 'WFQ', 'PENDING_REVIEW');
+  await waiting('wq3', 'WFQ', 'PENDING_APPROVAL');
+  await waiting('wq4', 'WFQ', 'REJECTED');
+  // ...under a filter-set mode too: SET_A counts, but not a SET_A filter awaiting review.
+  await scenario('WFA', T, 5, { mode: 'SET_A' });
+  f.wa1 = await fx.filter('wa1', ahu.WFA, { filterSet: 'SET_A' });
+  f.wa2 = await fx.filter('wa2', ahu.WFA, { filterSet: 'SET_B' });
+  await waiting('wa3', 'WFA', 'PENDING_REVIEW', 'SET_A');
+  // Overdue, and its ONLY filter waits for approval: nothing it can clean, so nothing to gate.
+  await scenario('WFO', at(-15), 5);
+  await waiting('wo1', 'WFO', 'PENDING_APPROVAL');
 }, 120_000);
 
 afterAll(async () => {
@@ -324,6 +347,30 @@ describe('GET /due — My Tasks', () => {
     expect(res.statusCode).toBe(501);
     expect(res.json()).toMatchObject({ error: 'NOT_IMPLEMENTED' });
     expect(res.json().message).toContain('PER_USER');
+  });
+});
+
+describe('D03-05: a filter waiting in the creation workflow does not count toward PM', () => {
+  it('My Tasks counts only APPROVED filters, so the visit completes when they are cleaned', async () => {
+    expect(rowFor((await due()).tasks, 'WFQ')).toMatchObject({ overallStatus: 'complete', totalFilters: 1, cleanedCount: 1 });
+  });
+
+  it('...and still honours the AHU filter-set mode', async () => {
+    const r = rowFor((await due()).tasks, 'WFA');
+    expect(r).toMatchObject({ overallStatus: 'pending', totalFilters: 1, cleanedCount: 0 });
+    expect(r.filters.map((x: any) => x.filterId ?? x.id)).toEqual([f.wa1]);
+  });
+
+  it('the PM sites and the AHU-completion gate count the SAME filters (one predicate)', async () => {
+    const pm = await loadPmCountedFilters([ahu.WFQ, ahu.WFA]);
+    expect(pm.get(ahu.WFQ)!.filters.map((x) => x.id)).toEqual([f.wq1]);
+    expect(pm.get(ahu.WFA)!.filters.map((x) => x.id)).toEqual([f.wa1]);
+    expect((await loadAhuGateFilters(ahu.WFQ)).map((x) => x.id)).toEqual([f.wq1]);
+  });
+
+  it('an overdue AHU whose only filter waits for approval has nothing to gate', async () => {
+    const map = await getPendingPmTasksMap();
+    expect(map[ahu.WFO]).toBeUndefined();
   });
 });
 

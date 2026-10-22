@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { auditLog } from '../../lib/audit.js';
 import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE } from './pm-shared.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
@@ -239,7 +240,9 @@ export async function getPendingPmTasksMap(
   // getPendingEarlierPmTasks takes a FILTER id (it walks up to the AHU), so pick
   // any live child filter per AHU as the probe.
   const probes = await prisma.assetInstance.findMany({
-    where: { parentId: { in: ahuIds }, isActive: true, status: { not: 'Retired' } },
+    // A counted filter (filter-workflow.ts): an AHU whose filters all wait in the
+    // creation workflow has nothing to clean, so nothing to gate.
+    where: { parentId: { in: ahuIds }, ...COUNTED_FILTER_WHERE },
     select: { id: true, parentId: true },
   });
   const probeByAhu = new Map<string, string>();

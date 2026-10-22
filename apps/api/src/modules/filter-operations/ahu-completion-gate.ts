@@ -3,6 +3,7 @@ import * as executor from '@digilog/shared';
 import { loadLocalContext } from './local-context.js';
 import type { RequestContext } from '../../types/context.js';
 import { AppError } from '../../lib/errors.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 
 export type AhuCompletionMode = 'NONE' | 'POPUP' | 'INTERLOCK';
 
@@ -176,16 +177,13 @@ export async function loadCountedFilters(ahuId: string, set?: FilterSetChoice): 
   const rows = await prisma.assetInstance.findMany({
     where: {
       parentId: ahuId,
-      isActive: true,
-      status: { not: 'Retired' },
-      template: { templateKind: 'FILTER' },
-      // Filter creation workflow (2026-09-04): a filter awaiting review or
-      // approval is EXCLUDED from AHU readiness rather than blocking it. It
-      // cannot be cleaned, so counting it would make the AHU permanently
+      // The one counted-filter predicate (filter-workflow.ts), shared with every
+      // PM site. It excludes a filter awaiting review or approval (2026-09-04):
+      // it cannot be cleaned, so counting it would make the AHU permanently
       // un-completable — and this function feeds loadLocalContext(), which
       // THROWS on a non-approved filter, so leaving it in would fail the whole
       // AHU rather than skip one row.
-      approvalStatus: 'APPROVED',
+      ...COUNTED_FILTER_WHERE,
       ...filterSetWhere(set),
     },
     select: {
@@ -325,7 +323,7 @@ export async function computeAhuSetAvailability(
   let hasB = false;
   for (const ahuId of ahuIds) {
     const rows = await prisma.assetInstance.findMany({
-      where: { parentId: ahuId, isActive: true, status: { not: 'Retired' }, template: { templateKind: 'FILTER' } },
+      where: { parentId: ahuId, ...COUNTED_FILTER_WHERE },
       select: { filterDetails: { select: { filterSet: true } } },
     });
     for (const r of rows) {

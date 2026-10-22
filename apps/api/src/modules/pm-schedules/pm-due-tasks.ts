@@ -11,6 +11,7 @@
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
 import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
@@ -139,11 +140,9 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
   // Bulk-fetch all child filters for all AHUs in one query.
   // filterSet lives on FilterDetails (Step 6) — include + flatten.
   const allChildFiltersRaw = await prisma.assetInstance.findMany({
-    where: {
-      parentId: { in: ahus.map(a => a.id) },
-      isActive: true,
-      status: { not: 'Retired' },
-    },
+    // The one counted-filter predicate (filter-workflow.ts): a filter waiting in
+    // the creation workflow is not one of the visit's "y" (D03-05).
+    where: { parentId: { in: ahus.map(a => a.id) }, ...COUNTED_FILTER_WHERE },
     select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true, currentLifecycleState: true } } },
   });
   const allChildFilters = allChildFiltersRaw.map(f => ({

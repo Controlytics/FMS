@@ -2,6 +2,7 @@
  * PM Schedules — shared helpers used across the split service modules.
  */
 import { prisma } from '../../lib/prisma.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
 
 /**
@@ -84,7 +85,8 @@ export async function loadCountedFilters(ahuIds: string[]): Promise<Map<string, 
       select: { id: true, name: true, customAttributes: true },
     }),
     prisma.assetInstance.findMany({
-      where: { parentId: { in: ahuIds }, isActive: true, status: { not: 'Retired' } },
+      // The one counted-filter predicate (filter-workflow.ts), shared with the AHU gate.
+      where: { parentId: { in: ahuIds }, ...COUNTED_FILTER_WHERE },
       select: { id: true, name: true, parentId: true, filterDetails: { select: { filterSet: true } } },
     }),
   ]);

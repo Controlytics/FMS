@@ -17,6 +17,7 @@
  * route permission; otherwise the role must match exactly". Duplicating it here
  * would be a second place for that rule to drift.
  */
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertPmRole, normalizeRoles, type PmWorkflowConfig } from '../pm-schedules/pm-workflow.js';
@@ -77,3 +78,22 @@ export function assertFilterOperable(status: string | null | undefined, filterNa
 
 /** Prisma `where` fragment for lists that must show only operable filters. */
 export const OPERABLE_FILTER_WHERE = { approvalStatus: 'APPROVED' as const };
+
+/**
+ * The filters that COUNT toward an AHU's completion: live (active, not
+ * retired), a FILTER, and operable (APPROVED). THE one predicate (D03-05,
+ * 2026-10-22) for the AHU-completion gate and every PM site — the deviation
+ * sweep and missed-PM gate (pm-shared loadCountedFilters), My Tasks' "x/y
+ * cleaned" (pm-due-tasks), the offline missed-PM map's probe filter
+ * (pm-pending-tasks) and the per-set counts on the PM AHU config page. A filter
+ * waiting in the creation workflow (pending review / approval, or rejected)
+ * cannot be cleaned (BR-002), so counting it kept the AHU's PM visit from ever
+ * completing. Spread it into a `where` next to the parent clause; the AHU's
+ * filter-set mode is applied on top by each caller.
+ */
+export const COUNTED_FILTER_WHERE = {
+  isActive: true,
+  status: { not: 'Retired' },
+  template: { templateKind: 'FILTER' },
+  ...OPERABLE_FILTER_WHERE,
+} satisfies Prisma.AssetInstanceWhereInput;

@@ -10,6 +10,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { checkPmEnabled } from './pm-shared.js';
 
 export async function listAhuFilterSetConfigs(_ctx: RequestContext) {
@@ -29,12 +30,9 @@ export async function listAhuFilterSetConfigs(_ctx: RequestContext) {
   const ahuIds = ahus.map(a => a.id);
   const childFilters = ahuIds.length
     ? await prisma.assetInstance.findMany({
-        where: {
-          parentId: { in: ahuIds },
-          template: { templateKind: 'FILTER' },
-          isActive: true,
-          status: { not: 'Retired' },
-        },
+        // The filters PM counts (filter-workflow.ts COUNTED_FILTER_WHERE), so the
+        // per-set counts describe what the chosen mode will count.
+        where: { parentId: { in: ahuIds }, ...COUNTED_FILTER_WHERE },
         select: { parentId: true, filterDetails: { select: { filterSet: true } } },
       })
     : [];
