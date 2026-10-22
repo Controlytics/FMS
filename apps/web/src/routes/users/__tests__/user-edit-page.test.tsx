@@ -130,7 +130,9 @@ describe('Edit User — save', () => {
     await waitFor(() => expect(api.calls('PUT', '/api/users/u-1')).toHaveLength(1));
     expect(api.calls('PUT', '/api/users/u-1')[0].json).toEqual({ fullName: 'Jane Doe', email: 'jane.doe@x.io', department: 'QA Lab', role: 'QA' });
     expect(await screen.findByText('The user’s details were updated successfully.')).toBeInTheDocument();
-    expect(screen.getByText('users-list-page')).toBeInTheDocument();
+    // React Router 7 runs navigate() in a transition, which commits AFTER the toast's
+    // urgent update: on a busy CPU the toast can be on screen while /users is not yet.
+    expect(await screen.findByText('users-list-page')).toBeInTheDocument();
   });
 
   it('an emailless user saves with email "" (schema accepts it)', async () => {

@@ -42,6 +42,10 @@ function routes(opts: { users?: unknown[]; total?: number; reauth?: string[]; pe
     { path: '/api/roles/active', body: ROLES },
     { path: '/api/config/field-ids/current', body: [{ fieldId: 'FLD_USER_002', displayName: 'Employee Name' }] },
     { path: '/api/users', body: { data: users, total: opts.total ?? users.length } },
+    // useAuth() refreshes the token 5 s after mount (once per mounted consumer). A
+    // test that runs past 5 s on a loaded machine makes these calls; unrouted they
+    // landed in api.unmatched, which the console/a11y test asserts is empty.
+    { method: 'POST', path: '/api/auth/refresh', body: { token: 'test-token' } },
   ];
 }
 
@@ -484,8 +488,13 @@ describe('User list — unlock with a temporary password', () => {
     fireEvent.click(eye);
     expect(pwInput.type).toBe('password');
 
-    fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
-    expect(await screen.findByRole('button', { name: /Copied/ })).toBeInTheDocument();
+    const copyButton = screen.getByRole('button', { name: /Copy/ });
+    fireEvent.click(copyButton);
+    // Poll the button itself. A role query rebuilds the page's accessibility tree on
+    // every poll (~0.2-0.3 s on this page); on a busy CPU those polls starved the
+    // re-render they were waiting for and "Copied" was never seen in time.
+    await waitFor(() => expect(copyButton).toHaveTextContent('Copied'));
+    expect(copyButton).toHaveAccessibleName(/Copied/);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(first);
 
     fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }));
@@ -507,11 +516,14 @@ describe('User list — unlock with a temporary password', () => {
     renderPage(<UserListPage />, { user: SA, api });
     await screen.findByText('Lena Locke');
     fireEvent.click(within(rowOf('Lena Locke')).getByRole('button', { name: 'Unlock' }));
-    fireEvent.click(await screen.findByRole('button', { name: /Copy/ }));
-    expect(await screen.findByRole('button', { name: /Copied/ })).toBeInTheDocument();
+    const copyButton = await screen.findByRole('button', { name: /Copy/ });
+    fireEvent.click(copyButton);
+    // the button itself, not a page-wide role query per poll (see the test above)
+    await waitFor(() => expect(copyButton).toHaveTextContent('Copied'));
+    expect(copyButton).toHaveAccessibleName(/Copied/);
     expect(exec).toHaveBeenCalledWith('copy');
     // CLIPBOARD_COPY_RESET_MS = 2s
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Copy$/ })).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(copyButton).toHaveAccessibleName(/^Copy$/), { timeout: 3000 });
     // Cancel closes the unlock dialog without a request
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByText('Unlock Account', { selector: 'h2, h3, div' })).toBeNull());

@@ -142,7 +142,11 @@ describe('Notification Channels — Email (SMTP)', () => {
       { method: 'POST', path: T, status: 502, body: { error: 'BAD_GATEWAY', message: 'Connection timed out' } },
     ]);
     await loaded();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Test Connection' })); });
+    // Ready state before acting: reset() writes the inputs' DOM values at once, but the
+    // button's `disabled={!enabled}` follows a re-render; clicked before it, nothing is sent.
+    const testButton = screen.getByRole('button', { name: 'Test Connection' });
+    await waitFor(() => expect(testButton).toBeEnabled());
+    await act(async () => { fireEvent.click(testButton); });
     expect(await screen.findByText('SMTP connection OK')).toBeInTheDocument();
     expect(api.calls('POST', T)[0].json).toEqual({});
     fireEvent.change(screen.getByPlaceholderText('test@example.com'), { target: { value: 'qa@acme.test' } });
