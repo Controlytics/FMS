@@ -320,16 +320,33 @@ export const stageApprovalService = {
     // failure. `from` keeps every PENDING row (whatever its age) plus everything
     // requested on/after `from`; older decided rows stay reachable with a status
     // filter and no `from`.
-    if (opts.from) {
-      const from = new Date(opts.from);
-      if (!Number.isNaN(from.getTime())) clauses.push({ OR: [{ status: 'PENDING' }, { requestedAt: { gte: from } }] });
-    }
+    const from = opts.from ? new Date(opts.from) : null;
     if (clauses.length) where.AND = clauses;
-    return withStageDetails(await withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
-      where,
-      orderBy: { requestedAt: 'desc' },
-      select: SUMMARY_SELECT,
-    })));
+    if (!from || Number.isNaN(from.getTime())) {
+      return withStageDetails(await withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
+        where,
+        orderBy: { requestedAt: 'desc' },
+        select: SUMMARY_SELECT,
+      })));
+    }
+    // The window is read as TWO queries, merged here, not one `PENDING OR
+    // requested_at >= from` (2026-10-22). With cleaning_stage_approvals_requested_at_idx
+    // the planner answered the OR by walking the whole index backwards and
+    // filtering 0.94 M of 1.0 M rows: 3.9-4.3 s against 2.1-3.0 s without the
+    // index (digilog_perf, alternating A/B; up to 70 s on a loaded machine).
+    // Split, PENDING is ~2 ms and the window an index range: 0.4-2.1 s.
+    const [pending, recent] = await Promise.all([
+      prisma.cleaningStageApproval.findMany({ where: { ...where, AND: [...clauses, { status: 'PENDING' }] }, select: SUMMARY_SELECT }),
+      prisma.cleaningStageApproval.findMany({
+        where: { ...where, AND: [...clauses, { requestedAt: { gte: from } }] },
+        orderBy: { requestedAt: 'desc' },
+        select: SUMMARY_SELECT,
+      }),
+    ]);
+    const byId = new Map<string, (typeof recent)[number]>();
+    for (const r of [...recent, ...pending]) if (!byId.has(r.id)) byId.set(r.id, r);
+    const rows = [...byId.values()].sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
+    return withStageDetails(await withSelfFlag(ctx, rows));
   },
 
   async getById(id: string) {

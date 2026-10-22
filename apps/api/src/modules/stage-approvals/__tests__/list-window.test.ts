@@ -39,24 +39,38 @@ describe('stage-approvals list window (`from`)', () => {
     expect(whereOfLastCall()).toEqual({ AND: [{ OR: [{ approverRole: 'QA' }, { requestedBy: 'sub-qa1' }] }] });
   });
 
-  it('`from`: PENDING rows of any age OR requested on/after from, AND the role scope', async () => {
+  // 2026-10-22: the window is read as two index-friendly queries (PENDING of
+  // any age; requested on/after `from`), each keeping the role scope, merged in
+  // the service — one OR made the planner walk the whole requested_at index.
+  const whereOfCalls = () => vi.mocked(prisma.cleaningStageApproval.findMany).mock.calls.map((c) => c[0]!.where as any);
+
+  it('`from`: PENDING rows of any age + rows requested on/after from, each AND the role scope', async () => {
     const from = '2026-09-17T00:00:00.000Z';
     await stageApprovalService.list(qa, { from });
-    expect(whereOfLastCall()).toEqual({
-      AND: [
-        { OR: [{ approverRole: 'QA' }, { requestedBy: 'sub-qa1' }] },
-        { OR: [{ status: 'PENDING' }, { requestedAt: { gte: new Date(from) } }] },
-      ],
-    });
+    const scope = { OR: [{ approverRole: 'QA' }, { requestedBy: 'sub-qa1' }] };
+    expect(whereOfCalls()).toEqual([
+      { AND: [scope, { status: 'PENDING' }] },
+      { AND: [scope, { requestedAt: { gte: new Date(from) } }] },
+    ]);
   });
 
-  it('SUPER_ADMIN with `from` and a status filter: window only, status kept', async () => {
+  it('SUPER_ADMIN with `from` and a status filter: window only, status kept on both halves', async () => {
     const from = '2026-09-17T00:00:00.000Z';
     await stageApprovalService.list(sa, { status: 'APPROVED', from });
-    expect(whereOfLastCall()).toEqual({
-      status: 'APPROVED',
-      AND: [{ OR: [{ status: 'PENDING' }, { requestedAt: { gte: new Date(from) } }] }],
-    });
+    expect(whereOfCalls()).toEqual([
+      { status: 'APPROVED', AND: [{ status: 'PENDING' }] },
+      { status: 'APPROVED', AND: [{ requestedAt: { gte: new Date(from) } }] },
+    ]);
+  });
+
+  it('the two halves are merged once per row, newest requestedAt first', async () => {
+    const at = (d: string) => new Date(`2026-10-${d}T00:00:00.000Z`);
+    const findMany = vi.mocked(prisma.cleaningStageApproval.findMany);
+    findMany
+      .mockResolvedValueOnce([{ id: 'old-pending', requestedAt: at('01') }, { id: 'both', requestedAt: at('20') }] as any)
+      .mockResolvedValueOnce([{ id: 'new', requestedAt: at('21') }, { id: 'both', requestedAt: at('20') }] as any);
+    const rows = await stageApprovalService.list(sa, { from: '2026-10-15T00:00:00.000Z' });
+    expect(rows.map((r: any) => r.id)).toEqual(['new', 'both', 'old-pending']);
   });
 
   it('an unparseable `from` is ignored rather than turned into an empty list', async () => {
