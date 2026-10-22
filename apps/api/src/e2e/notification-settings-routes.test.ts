@@ -62,7 +62,9 @@ const latestAudit = (action: string, targetId: string) =>
   prisma.auditTrail.findFirst({ where: { action, targetId }, orderBy: { chainPosition: 'desc' } });
 
 const EMAIL_BASE = {
-  host: '127.0.0.1', port: 1, secure: false, enabled: true, authType: 'basic',
+  // TEST-NET-1 (RFC 5737, never routed): a concurrent real send reaches no server.
+  // Not loopback: a loopback SMTP host is refused outright since SEC-08 (2026-10-22).
+  host: '192.0.2.1', port: 1, secure: false, enabled: true, authType: 'basic',
   username: 'cov@cov.test', fromEmail: 'noreply@cov.test', fromName: 'Cov',
 };
 
@@ -85,6 +87,9 @@ beforeAll(async () => {
   vi.stubGlobal('fetch', fetchMock);
   lookup.mockImplementation(async (host: string) => {
     const t: Record<string, string> = { 'login.microsoftonline.com': '20.190.160.20', 'oauth2.googleapis.com': '142.250.183.10' };
+    // An IP literal resolves to itself, as the real resolver does (the SMTP host
+    // is resolved and checked through lib/ssrf.ts since SEC-08, 2026-10-22).
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return [{ address: host, family: 4 }];
     if (!t[host]) throw Object.assign(new Error(`ENOTFOUND ${host}`), { code: 'ENOTFOUND' });
     return [{ address: t[host], family: 4 }];
   });
@@ -118,7 +123,7 @@ describe('email configuration', () => {
     const res = await get('/api/notification-settings/email', ro);
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body).toMatchObject({ host: '127.0.0.1', password: MASK, clientSecret: MASK, refreshToken: MASK });
+    expect(body).toMatchObject({ host: '192.0.2.1', password: MASK, clientSecret: MASK, refreshToken: MASK });
     for (const k of ['accessToken', 'tokenExpiresAt', 'oauth2PendingState', 'oauth2PendingStateAt']) expect(body).not.toHaveProperty(k);
   });
 
@@ -135,7 +140,7 @@ describe('email configuration', () => {
       payload: { ...EMAIL_BASE, password: 'first-pw' },
     });
     expect(res.statusCode).toBe(200);
-    expect(await storedEmail()).toMatchObject({ host: '127.0.0.1', password: 'first-pw' });
+    expect(await storedEmail()).toMatchObject({ host: '192.0.2.1', password: 'first-pw' });
     const audit = await latestAudit('UPDATE_EMAIL_CONFIG', 'notification-email');
     expect(audit!.userId).toBe(SA);
     expect(audit!.beforeValue).toBeNull();
@@ -147,7 +152,7 @@ describe('email configuration', () => {
       method: 'PUT', url: '/api/notification-settings/email', headers: H(sa, PW), payload: { fromName: 'Renamed' },
     });
     expect(res.statusCode).toBe(200);
-    expect(await storedEmail()).toMatchObject({ host: '127.0.0.1', password: 'first-pw', fromName: 'Renamed' });
+    expect(await storedEmail()).toMatchObject({ host: '192.0.2.1', password: 'first-pw', fromName: 'Renamed' });
     const audit = await latestAudit('UPDATE_EMAIL_CONFIG', 'notification-email');
     expect((audit!.beforeValue as any).fromName).toBe('Cov');
   });

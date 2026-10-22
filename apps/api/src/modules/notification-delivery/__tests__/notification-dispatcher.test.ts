@@ -10,8 +10,9 @@
  * Shared-DB safety: matched rules use DEVICE_* event types (nothing emits them
  * any more) and are deleted in afterAll; ROLE recipients use throwaway roles
  * holding only this file's users; notification-email / notification-sms are
- * snapshotted and restored, and the SMTP host is loopback so a concurrent
- * process that happens to send meanwhile fails fast.
+ * snapshotted and restored, and the SMTP host is TEST-NET-1 (RFC 5737, never
+ * routed) so a concurrent process that sends meanwhile reaches no server (not
+ * loopback: a loopback SMTP host is refused outright since SEC-08, 2026-10-22).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { prisma } from '../../../lib/prisma.js';
@@ -69,7 +70,7 @@ beforeAll(async () => {
   emailSnap = await snapshotConfig('notification-email');
   smsSnap = await snapshotConfig('notification-sms');
   await setConfig('notification-email', {
-    host: '127.0.0.1', port: 1, secure: false, enabled: true, authType: 'basic',
+    host: '192.0.2.1', port: 1, secure: false, enabled: true, authType: 'basic',
     username: 'cov', password: 'x', fromEmail: 'noreply@cov.test', fromName: 'Cov',
   });
   await setConfig('notification-sms', {

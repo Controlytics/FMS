@@ -3,7 +3,10 @@
  * campaign 2026-10-21). Boundaries mocked:
  *   - nodemailer.createTransport (SMTP) — the options it receives are asserted;
  *   - global fetch + node:dns/promises — the OAuth2 token endpoints are reached
- *     through the REAL lib/ssrf.ts hardenedFetch.
+ *     through the REAL lib/ssrf.ts hardenedFetch, and (SEC-08, 2026-10-22) the
+ *     SMTP host itself is resolved and checked through the REAL lib/ssrf.ts
+ *     before every transport is built. Every test host smtpN.cov.invalid
+ *     resolves to the private-LAN address SMTP_IP below.
  * The Microsoft refresh-token path persists rotated tokens with its own
  * PrismaClient into notification-email; that row is snapshotted and restored.
  *
@@ -28,6 +31,11 @@ vi.mock('nodemailer', () => ({ default: { createTransport } }));
 vi.mock('node:dns/promises', () => ({ lookup, default: { lookup } }));
 
 const fetchMock = vi.fn();
+const SMTP_IP = '192.168.50.25';
+/** Per-host DNS answers a test can set; anything else under smtpN.cov.invalid → SMTP_IP. */
+const smtpAnswers: Record<string, Array<{ address: string; family: number }>> = {};
+const SMTP_UNREACHABLE = 'Could not reach the SMTP server. Check the host and port, and that the server is reachable from this machine.';
+const SMTP_BLOCKED = 'SMTP server address is not allowed (loopback and link-local addresses are refused).';
 let snap: ConfigSnapshot;
 let hostSeq = 0;
 
@@ -62,6 +70,7 @@ beforeEach(() => {
   createTransport.mockClear();
   fetchMock.mockReset();
   lookup.mockReset();
+  for (const k of Object.keys(smtpAnswers)) delete smtpAnswers[k];
   lookup.mockImplementation(async (host: string) => {
     const table: Record<string, string> = {
       'login.microsoftonline.com': '20.190.160.20',
@@ -69,6 +78,10 @@ beforeEach(() => {
       'idp.cov.test': '203.0.113.20',
       'internal-idp.cov.test': '127.0.0.1',
     };
+    if (smtpAnswers[host]) return smtpAnswers[host];
+    if (/^smtp\d+\.cov\.invalid$/.test(host)) return [{ address: SMTP_IP, family: 4 }];
+    // An IP literal resolves to itself, as the real resolver does.
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return [{ address: host, family: 4 }];
     if (!table[host]) throw Object.assign(new Error(`ENOTFOUND ${host}`), { code: 'ENOTFOUND' });
     return [{ address: table[host], family: 4 }];
   });
@@ -89,7 +102,7 @@ describe('basic auth', () => {
 
     const opts = lastTransportOpts();
     expect(opts).toMatchObject({
-      host, port: 587, secure: false, family: 4,
+      host: SMTP_IP, servername: host, port: 587, secure: false,
       auth: { user: 'mailer@cov.test', pass: 'pw-1' },
       tls: { rejectUnauthorized: true }, // secure by default (2026-07-15)
       connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000,
@@ -148,12 +161,16 @@ describe('basic auth', () => {
     expect(lastTransportOpts().auth.pass).toBe('pw-ROTATED');
   });
 
-  it('reports a send error as a failed DeliveryResult (Error and non-Error throws)', async () => {
+  it('reports a send error as a failed DeliveryResult — the SMTP reply code, never the raw error (SEC-08)', async () => {
     await useEmail();
-    sendMail.mockRejectedValueOnce(new Error('535 auth failed'));
-    expect(await send()).toEqual({ success: false, error: '535 auth failed' });
+    // An SMTP-level refusal: the server was reached and answered — its code is kept.
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('Invalid login: 535 5.7.3 Authentication unsuccessful'), { code: 'EAUTH', responseCode: 535 }));
+    expect(await send()).toEqual({ success: false, error: 'The SMTP server rejected the request (response code 535).' });
+    // Below SMTP (reset, refused, timeout, a non-Error throw): one sentence for all.
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('read ECONNRESET'), { code: 'ESOCKET' }));
+    expect(await send()).toEqual({ success: false, error: SMTP_UNREACHABLE });
     sendMail.mockRejectedValueOnce('socket hang up');
-    expect(await send()).toEqual({ success: false, error: 'socket hang up' });
+    expect(await send()).toEqual({ success: false, error: SMTP_UNREACHABLE });
     // basic auth keeps its transporter after a failure
     expect(createTransport).toHaveBeenCalledTimes(1);
   });
@@ -162,24 +179,67 @@ describe('basic auth', () => {
     await useEmail();
     verify.mockResolvedValueOnce(true);
     expect(await emailChannel.testConnection()).toEqual({ success: true, messageId: 'connection-verified' });
-    verify.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-    expect(await emailChannel.testConnection()).toEqual({ success: false, error: 'ECONNREFUSED' });
+    verify.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED 192.168.50.25:587'), { code: 'ESOCKET' }));
+    expect(await emailChannel.testConnection()).toEqual({ success: false, error: SMTP_UNREACHABLE });
     verify.mockRejectedValueOnce(42);
-    expect(await emailChannel.testConnection()).toEqual({ success: false, error: '42' });
+    expect(await emailChannel.testConnection()).toEqual({ success: false, error: SMTP_UNREACHABLE });
     // built once, reused by the 2nd call, rebuilt for the 3rd after the 2nd failed
     expect(createTransport).toHaveBeenCalledTimes(2);
   });
 
-  it('the transport resolves hosts over IPv4 only, whatever lookup options nodemailer passes', async () => {
-    await useEmail();
+  // SEC-08 / SEC-14 (2026-10-22). nodemailer 9 resolves hosts itself and never
+  // called the old custom dnsLookup, so the destination is now checked here and
+  // the transport is handed the checked ADDRESS — nodemailer does no DNS for an
+  // IP literal, so a second (rebinding) answer is never asked for.
+  it('connects to the checked address, IPv4 preferred, with the typed name kept for TLS', async () => {
+    const host = await useEmail();
+    smtpAnswers[host] = [{ address: 'fd00::25', family: 6 }, { address: '10.1.2.3', family: 4 }];
     sendMail.mockResolvedValueOnce({ messageId: '<e@cov>' });
     await send();
-    const dnsLookup = lastTransportOpts().dnsLookup as (...a: any[]) => void;
-    const viaLookup = (...args: any[]) => new Promise<any>((resolve, reject) =>
-      dnsLookup('localhost', ...args, (err: any, address: any, family: any) => (err ? reject(err) : resolve({ address, family }))));
-    for (const r of [await viaLookup(), await viaLookup(6), await viaLookup({ all: false, family: 6 })]) {
-      expect(r).toEqual({ address: '127.0.0.1', family: 4 });
-    }
+    const opts = lastTransportOpts();
+    expect(opts).toMatchObject({ host: '10.1.2.3', servername: host });
+    expect(opts.dnsLookup).toBeUndefined();
+    expect(opts.family).toBeUndefined();
+  });
+
+  it('an IP-literal host is used as is, with no servername', async () => {
+    await useEmail({ host: '192.168.50.30' });
+    sendMail.mockResolvedValueOnce({ messageId: '<f@cov>' });
+    await send();
+    expect(lastTransportOpts().host).toBe('192.168.50.30');
+    expect(lastTransportOpts().servername).toBeUndefined();
+  });
+
+  it.each([
+    ['localhost', [{ address: '127.0.0.1', family: 4 }]],
+    ['link-local / cloud metadata', [{ address: '169.254.169.254', family: 4 }]],
+    ['a mixed answer with ANY loopback address', [{ address: '10.0.0.9', family: 4 }, { address: '127.0.0.1', family: 4 }]],
+  ])('a host resolving to %s is refused before any transport is built', async (_label, answer) => {
+    const host = await useEmail();
+    smtpAnswers[host] = answer;
+    expect(await send()).toEqual({ success: false, error: SMTP_BLOCKED });
+    expect(await emailChannel.testConnection()).toEqual({ success: false, error: SMTP_BLOCKED });
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it('a host that does not resolve gets the same sentence as any unreachable server', async () => {
+    await useEmail({ host: 'nowhere.cov.invalid' });
+    expect(await emailChannel.testConnection()).toEqual({ success: false, error: SMTP_UNREACHABLE });
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it('a DNS change for the mail server is picked up (and checked) — the old address is not reused forever', async () => {
+    const host = await useEmail();
+    sendMail.mockResolvedValue({ messageId: '<g@cov>' });
+    await send();
+    expect(lastTransportOpts().host).toBe(SMTP_IP);
+    smtpAnswers[host] = [{ address: '192.168.50.99', family: 4 }];
+    await send();
+    expect(createTransport).toHaveBeenCalledTimes(2);
+    expect(lastTransportOpts().host).toBe('192.168.50.99');
+    smtpAnswers[host] = [{ address: '127.0.0.1', family: 4 }];
+    expect(await send()).toEqual({ success: false, error: SMTP_BLOCKED });
+    expect(createTransport).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -246,8 +306,8 @@ describe('OAuth2 — Microsoft / Office 365', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(lastTransportOpts().auth.accessToken).toBe('MS-AT');
     // an oauth2 send failure drops the cached token AND transporter
-    sendMail.mockRejectedValueOnce(new Error('535 token rejected'));
-    expect(await send()).toEqual({ success: false, error: '535 token rejected' });
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('535 5.7.3 token rejected'), { code: 'EAUTH', responseCode: 535 }));
+    expect(await send()).toEqual({ success: false, error: 'The SMTP server rejected the request (response code 535).' });
     fetchMock.mockResolvedValueOnce(tokenRes('MS-AT-2'));
     sendMail.mockResolvedValueOnce({ messageId: '<ms4@cov>' });
     await send();
@@ -312,10 +372,11 @@ describe('OAuth2 — Google and custom providers', () => {
     });
   });
 
-  it('custom provider without a scope omits it; a token error is reported', async () => {
+  it('custom provider without a scope omits it; a token error is reported by status, never by body', async () => {
     await useEmail({ authType: 'oauth2', oauth2Provider: 'custom', clientId: 'xid', clientSecret: 'xs', tokenUrl: 'https://idp.cov.test/t' });
-    fetchMock.mockResolvedValueOnce(new Response('denied', { status: 403 }));
-    expect(await send()).toEqual({ success: false, error: 'OAuth2 token error: denied' });
+    // The token URL is admin-typed: echoing its body let any LAN HTTP endpoint be read through the test.
+    fetchMock.mockResolvedValueOnce(new Response('<html>internal admin page</html>', { status: 403 }));
+    expect(await send()).toEqual({ success: false, error: 'OAuth2 token error: HTTP 403' });
     expect(new URLSearchParams(fetchMock.mock.calls[0][1].body).has('scope')).toBe(false);
   });
 
@@ -331,6 +392,12 @@ describe('OAuth2 — Google and custom providers', () => {
     expect(r.success).toBe(false);
     expect(r.error).toBe('Blocked outbound request: Destination address not allowed');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a token endpoint that cannot be reached gets one fixed sentence (no network detail)', async () => {
+    await useEmail({ authType: 'oauth2', oauth2Provider: 'custom', clientId: 'xid', clientSecret: 'xs', tokenUrl: 'https://idp.cov.test/t' });
+    fetchMock.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('connect ECONNREFUSED 203.0.113.20:443'), { code: 'ECONNREFUSED' }) }));
+    expect(await emailChannel.testConnection()).toEqual({ success: false, error: 'OAuth2 token request failed: could not reach the token endpoint.' });
   });
 
   it('testConnection fetches the OAuth2 token first, then verifies SMTP', async () => {

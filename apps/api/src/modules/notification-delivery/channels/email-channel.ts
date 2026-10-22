@@ -5,25 +5,73 @@
  */
 
 import nodemailer from "nodemailer";
-import dns from "dns";
+import { isIP } from 'node:net';
 import type { EmailConfig, NotificationPayload, DeliveryResult, NotificationChannel as IChannel } from '../types.js';
 import { getEmailConfig } from '../config-loader.js';
-import { hardenedFetch } from '../../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl
+import { hardenedFetch, checkOutboundHost } from '../../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl; SEC-08: SMTP host
 import { escapeHtml, unescapeHtml } from '../template-engine.js';
+import { getLogger } from '../../../lib/logger.js';
+
+/** Log type 6 — the raw SMTP / token-endpoint error lives here, never in a response. */
+const mailLog = getLogger('email-channel', 'services');
 
 let transporter: nodemailer.Transporter | null = null;
 let currentConfigHash = "";
 
-// Force IPv4 DNS resolution to avoid EC2 IPv6 ENETUNREACH
-const ipv4Lookup: any = (hostname: any, options: any, callback: any) => {
-  if (typeof options === "function") {
-    callback = options;
-    options = { family: 4 };
-  } else {
-    options = typeof options === "number" ? { family: 4 } : { ...options, family: 4 };
+/*
+ * SEC-08 / SEC-14, SMTP half (security assessment 2026-10-22).
+ *
+ * The SMTP host is admin-typed and the server opens a socket to it. It had no
+ * destination check, and the raw error ("connect ECONNREFUSED", "Greeting never
+ * received", a TLS error) went back to the caller through the test endpoint and
+ * into the delivery log — the same port-scan oracle as LDAP test-connection.
+ *
+ * Now the host is resolved through lib/ssrf.ts before every transport is built
+ * (loopback / link-local / unspecified refused, private LAN allowed), and the
+ * transport is given the checked ADDRESS, with the typed name kept as the TLS
+ * servername. nodemailer does no DNS of its own for an IP literal, so the
+ * address that passed the check is the one connected to (no rebinding window).
+ *
+ * This replaces a custom `dnsLookup` (an IPv4-only lookup "to avoid EC2 IPv6
+ * ENETUNREACH") that nodemailer 9 never calls — it resolves hosts itself with
+ * resolve4/resolve6 — so that hook was dead code and could not have carried
+ * the check. IPv4 is still preferred, now for real.
+ */
+const MSG_SMTP_BLOCKED = 'SMTP server address is not allowed (loopback and link-local addresses are refused).';
+const MSG_SMTP_UNREACHABLE = 'Could not reach the SMTP server. Check the host and port, and that the server is reachable from this machine.';
+
+/** The SMTP host failed the destination check; the message is caller-safe. */
+class SmtpDestinationError extends Error {
+  constructor(message: string, readonly reason: string) { super(message); }
+}
+/** A token-endpoint failure; the message is caller-safe (provider text for the
+ *  fixed Microsoft / Google endpoints, never a body from an admin-typed URL). */
+class OAuth2TokenError extends Error {}
+
+async function resolveSmtpDestination(host: string): Promise<{ host: string; servername?: string }> {
+  const dest = await checkOutboundHost(host);
+  if (!dest.ok) {
+    throw new SmtpDestinationError(
+      dest.error === 'Destination address not allowed' ? MSG_SMTP_BLOCKED : MSG_SMTP_UNREACHABLE,
+      dest.error,
+    );
   }
-  return dns.lookup(hostname, options, callback as any);
-};
+  const picked = dest.addresses.find((a) => a.family === 4) ?? dest.addresses[0];
+  const name = host.trim().replace(/^\[(.*)\]$/, '$1');
+  return { host: picked.address, ...(isIP(name) ? {} : { servername: name }) };
+}
+
+/** The sentence a caller (test endpoint, delivery log) gets. Never the raw error. */
+function describeEmailFailure(err: unknown): string {
+  if (err instanceof SmtpDestinationError || err instanceof OAuth2TokenError) return err.message;
+  // nodemailer puts the SMTP reply code on protocol errors (EAUTH 535, EENVELOPE
+  // 550, …): the configured server WAS reached and spoke SMTP, so the code is
+  // reported. Socket / TLS / timeout / DNS errors carry none and get one sentence.
+  const responseCode = (err as { responseCode?: unknown } | null)?.responseCode;
+  if (typeof responseCode === 'number') return `The SMTP server rejected the request (response code ${responseCode}).`;
+  return MSG_SMTP_UNREACHABLE;
+}
+
 let cachedOAuthToken: { token: string; expiresAt: number } | null = null;
 
 function configHash(config: EmailConfig): string {
@@ -87,7 +135,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Microsoft OAuth2 token error: ${err}`);
+      throw new OAuth2TokenError(`Microsoft OAuth2 token error: ${err}`);
     }
 
     const data = await res.json() as { access_token: string; expires_in: number; refresh_token?: string };
@@ -134,7 +182,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Google OAuth2 token error: ${err}`);
+      throw new OAuth2TokenError(`Google OAuth2 token error: ${err}`);
     }
 
     const data = await res.json() as { access_token: string; expires_in: number };
@@ -146,7 +194,7 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
 
   } else {
     // Custom OAuth2 provider
-    if (!config.tokenUrl) throw new Error('OAuth2 token URL not configured');
+    if (!config.tokenUrl) throw new OAuth2TokenError('OAuth2 token URL not configured');
 
     const body = new URLSearchParams({
       client_id: config.clientId!,
@@ -162,8 +210,10 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`OAuth2 token error: ${err}`);
+      // The token URL is admin-typed: its response body is logged, not returned —
+      // returned, it let any HTTP endpoint on the LAN be read through the test.
+      mailLog.warn({ status: res.status, body: (await res.text()).slice(0, 500) }, 'Custom OAuth2 token endpoint refused');
+      throw new OAuth2TokenError(`OAuth2 token error: HTTP ${res.status}`);
     }
 
     const data = await res.json() as { access_token: string; expires_in: number };
@@ -175,18 +225,36 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
   }
 }
 
+/** fetchOAuth2Token with every failure as an OAuth2TokenError carrying a caller-safe sentence. */
+async function getOAuth2Token(config: EmailConfig): Promise<string> {
+  try {
+    return await fetchOAuth2Token(config);
+  } catch (err) {
+    if (err instanceof OAuth2TokenError) throw err;
+    mailLog.warn({ err }, 'OAuth2 token request failed');
+    const msg = err instanceof Error ? err.message : '';
+    // hardenedFetch's refusal is a fixed sentence about OUR policy — kept.
+    throw new OAuth2TokenError(msg.startsWith('Blocked outbound request:') ? msg : 'OAuth2 token request failed: could not reach the token endpoint.');
+  }
+}
+
 async function getTransporter(config: EmailConfig): Promise<nodemailer.Transporter> {
-  const hash = configHash(config);
+  // Re-checked on every build AND on every reuse: the pinned address is part of
+  // the cache key, so a DNS change for the mail server is picked up, and is
+  // checked, rather than the old address being used forever.
+  const dest = await resolveSmtpDestination(config.host);
+  const hash = `${configHash(config)}@${dest.host}`;
   if (transporter && currentConfigHash === hash && config.authType !== 'oauth2') {
     return transporter;
   }
 
   if (config.authType === 'oauth2') {
     // OAuth2 authentication
-    const accessToken = await fetchOAuth2Token(config);
+    const accessToken = await getOAuth2Token(config);
 
     transporter = nodemailer.createTransport({
-      host: config.host,
+      host: dest.host,
+      ...(dest.servername ? { servername: dest.servername } : {}),
       port: config.port,
       secure: config.secure,
       auth: {
@@ -203,8 +271,6 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
         // opt-out remains for internal servers with self-signed certs.
         rejectUnauthorized: config.tlsRejectUnauthorized ?? true,
       },
-      family: 4,
-      dnsLookup: ipv4Lookup,
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
@@ -212,7 +278,8 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
   } else {
     // Basic auth (username + password)
     transporter = nodemailer.createTransport({
-      host: config.host,
+      host: dest.host,
+      ...(dest.servername ? { servername: dest.servername } : {}),
       port: config.port,
       secure: config.secure,
       auth: {
@@ -228,8 +295,6 @@ async function getTransporter(config: EmailConfig): Promise<nodemailer.Transport
         // opt-out remains for internal servers with self-signed certs.
         rejectUnauthorized: config.tlsRejectUnauthorized ?? true,
       },
-      family: 4,
-      dnsLookup: ipv4Lookup,
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
@@ -315,10 +380,8 @@ export const emailChannel: IChannel = {
         transporter = null;
         currentConfigHash = '';
       }
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      mailLog.warn({ err, host: config.host }, 'Email send failed');
+      return { success: false, error: describeEmailFailure(err) };
     }
   },
 
@@ -331,7 +394,7 @@ export const emailChannel: IChannel = {
     try {
       if (config.authType === 'oauth2') {
         // Test OAuth2 token fetch first
-        await fetchOAuth2Token(config);
+        await getOAuth2Token(config);
       }
       const transport = await getTransporter(config);
       await transport.verify();
@@ -340,10 +403,8 @@ export const emailChannel: IChannel = {
       cachedOAuthToken = null;
       transporter = null;
       currentConfigHash = '';
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      mailLog.warn({ err, host: config.host }, 'SMTP connection test failed');
+      return { success: false, error: describeEmailFailure(err) };
     }
   },
 };

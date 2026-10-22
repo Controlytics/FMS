@@ -40,9 +40,11 @@ let smsSnap: ConfigSnapshot;
 const fetchMock = vi.fn();
 
 const EMAIL_CFG = {
-  // A loopback host: if another process sends while this config is live, it
-  // fails fast instead of reaching a real server.
-  host: '127.0.0.1', port: 1, secure: false, enabled: true, authType: 'basic',
+  // A TEST-NET-1 address (RFC 5737, never routed): if another process sends
+  // while this config is live, it reaches no server. Not loopback: since SEC-08
+  // (2026-10-22) a loopback SMTP host is refused before any transport is built,
+  // which would stop this file's own (mocked) sends as well.
+  host: '192.0.2.1', port: 1, secure: false, enabled: true, authType: 'basic',
   username: 'cov', password: 'cov-pw', fromEmail: 'noreply@cov.test', fromName: 'Cov Sender',
 };
 
@@ -93,21 +95,21 @@ describe('resolveTemplate', () => {
 describe('config-loader', () => {
   it('caches each config for 30 s and invalidateNotificationConfigCache() drops it', async () => {
     invalidateNotificationConfigCache();
-    expect((await getEmailConfig())!.host).toBe('127.0.0.1');
-    await setConfig('notification-email', { ...EMAIL_CFG, host: '127.0.0.2' });
+    expect((await getEmailConfig())!.host).toBe('192.0.2.1');
+    await setConfig('notification-email', { ...EMAIL_CFG, host: '192.0.2.2' });
     // still served from the cache
-    expect((await getEmailConfig())!.host).toBe('127.0.0.1');
+    expect((await getEmailConfig())!.host).toBe('192.0.2.1');
     // TTL expiry without an explicit invalidation
     const realNow = Date.now();
     const spy = vi.spyOn(Date, 'now').mockReturnValue(realNow + 31_000);
     try {
-      expect((await getEmailConfig())!.host).toBe('127.0.0.2');
+      expect((await getEmailConfig())!.host).toBe('192.0.2.2');
     } finally {
       spy.mockRestore();
     }
     await setConfig('notification-email', EMAIL_CFG);
     invalidateNotificationConfigCache();
-    expect((await getEmailConfig())!.host).toBe('127.0.0.1');
+    expect((await getEmailConfig())!.host).toBe('192.0.2.1');
     expect((await getSmsConfig())!.provider).toBe('twilio');
   });
 
@@ -178,13 +180,14 @@ describe('sendNotification', () => {
 
   it('a failed send is logged RETRYING (attempt 1, next in 5 s) and the caller gets the failure', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    sendMail.mockRejectedValueOnce(new Error('SMTP 421 try later'));
+    // An SMTP reply: the channel reports its code, never the raw text (SEC-08, 2026-10-22).
+    sendMail.mockRejectedValueOnce(Object.assign(new Error('421 4.7.0 try later'), { responseCode: 421 }));
     const to = mailbox('fail1');
     const before = Date.now();
     const r = await sendNotification({ channel: 'EMAIL', recipient: to, subject: 's', message: 'm' });
-    expect(r).toEqual({ success: false, error: 'SMTP 421 try later' });
+    expect(r).toEqual({ success: false, error: 'The SMTP server rejected the request (response code 421).' });
     const row = await rowFor(to);
-    expect(row).toMatchObject({ status: 'RETRYING', retryCount: 1, errorMessage: 'SMTP 421 try later' });
+    expect(row).toMatchObject({ status: 'RETRYING', retryCount: 1, errorMessage: 'The SMTP server rejected the request (response code 421).' });
     const delta = row!.nextRetryAt!.getTime() - before;
     expect(delta).toBeGreaterThanOrEqual(4_900);
     expect(delta).toBeLessThan(6_000);
@@ -193,9 +196,9 @@ describe('sendNotification', () => {
   it('retries on the 5 s / 15 s backoff and is FAILED after the third failed attempt', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     sendMail
-      .mockRejectedValueOnce(new Error('attempt 1'))
-      .mockRejectedValueOnce(new Error('attempt 2'))
-      .mockRejectedValueOnce(new Error('attempt 3'));
+      .mockRejectedValueOnce(Object.assign(new Error('attempt 1'), { responseCode: 421 }))
+      .mockRejectedValueOnce(Object.assign(new Error('attempt 2'), { responseCode: 451 }))
+      .mockRejectedValueOnce(Object.assign(new Error('attempt 3'), { responseCode: 452 }));
     const to = mailbox('fail3');
     await sendNotification({ channel: 'EMAIL', recipient: to, subject: 's', message: 'm' });
     expect(sendMail).toHaveBeenCalledTimes(1);
@@ -210,7 +213,7 @@ describe('sendNotification', () => {
       return row?.retryCount === 2 ? row : null;
     });
     expect(sendMail).toHaveBeenCalledTimes(2);
-    expect(r2).toMatchObject({ status: 'RETRYING', errorMessage: 'attempt 2' });
+    expect(r2).toMatchObject({ status: 'RETRYING', errorMessage: 'The SMTP server rejected the request (response code 451).' });
     // the row promises the wait the code will actually take (C-11): 15 s
     const promised = r2.nextRetryAt!.getTime() - r2.updatedAt.getTime();
     expect(promised).toBeGreaterThanOrEqual(14_900);
@@ -226,7 +229,7 @@ describe('sendNotification', () => {
       return row?.status === 'FAILED' ? row : null;
     });
     expect(sendMail).toHaveBeenCalledTimes(3);
-    expect(r3).toMatchObject({ retryCount: 3, errorMessage: 'attempt 3', nextRetryAt: null });
+    expect(r3).toMatchObject({ retryCount: 3, errorMessage: 'The SMTP server rejected the request (response code 452).', nextRetryAt: null });
     expect(vi.getTimerCount()).toBe(0); // nothing further scheduled
   });
 
