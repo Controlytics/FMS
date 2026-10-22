@@ -136,7 +136,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
                       </td>
                     )}
                     <td>
-                      <button onClick={() => onViewDetails(f)} title="Filter Details"
+                      <button onClick={() => onViewDetails(f)} title="Filter Details" aria-label={`Details of ${f.name}`}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -164,10 +164,10 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
             </div>
           ) : (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-              <label className="block text-sm font-medium text-red-800 mb-1">
+              <label htmlFor={`${remarksId}-reject`} className="block text-sm font-medium text-red-800 mb-1">
                 Rejection reason for the {picked.length} selected filter(s) <span className="text-red-500">*</span>
               </label>
-              <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2} autoFocus
+              <textarea id={`${remarksId}-reject`} value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={2} autoFocus
                 placeholder="One reason recorded on every selected filter. They stay in the list as Rejected so they can be corrected and resubmitted."
                 className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm bg-white focus:ring-3 focus:ring-red-400 focus:border-red-400" />
             </div>

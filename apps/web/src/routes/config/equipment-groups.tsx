@@ -337,8 +337,8 @@ export function EquipmentGroupsConfigPage() {
       {/* Stats + Block Selector */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-          <label className="text-xs font-semibold text-slate-500 mb-2 block">Select Block</label>
-          <Select value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}>
+          <label htmlFor="eg-block" className="text-xs font-semibold text-slate-500 mb-2 block">Select Block</label>
+          <Select id="eg-block" value={selectedBlockId} onChange={e => setSelectedBlockId(e.target.value)}>
             <option value="">-- Select Block --</option>
             {blocks.map((b: any) => (
               <option key={b.id} value={b.id}>{b.name}</option>

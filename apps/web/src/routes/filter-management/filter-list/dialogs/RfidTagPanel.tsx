@@ -1,3 +1,4 @@
+import { useEffect, useId } from 'react';
 import { themeButton, themeGradientBr } from '@/lib/theme-styles';
 import type { FilterRef } from '../types';
 
@@ -23,10 +24,18 @@ export function RfidTagPanel({
   const rfidTags = tags.filter((t: any) => t.identifierType === 'RFID');
   const otherTags = tags.filter((t: any) => t.identifierType !== 'RFID');
   const heldRfid = rfidTags[0]?.identifierValue as string | undefined;
+  const id = useId();
+  // Escape closes the panel, like the backdrop click and the X (D03-03, 2026-10-22).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div className="fixed top-0 right-0 h-full w-[420px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
+      <div role="dialog" aria-modal="true" aria-labelledby={`${id}-title`}
+        className="fixed top-0 right-0 h-full w-[420px] bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg" style={{ ...themeGradientBr, boxShadow: '0 4px 14px -3px color-mix(in srgb, var(--theme-primary) 20%, transparent)' }}>
@@ -35,11 +44,11 @@ export function RfidTagPanel({
               </svg>
             </div>
             <div>
-              <h3 className="text-[15px] font-bold text-slate-800">RFID Tag Management</h3>
+              <h3 id={`${id}-title`} className="text-[15px] font-bold text-slate-800">RFID Tag Management</h3>
               <p className="text-[12px] text-slate-400">{filter.name}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -104,6 +113,7 @@ export function RfidTagPanel({
                   value={tagValue}
                   onChange={e => onTagValueChange(e.target.value)}
                   data-rfid="true"
+                  aria-label="New RFID tag ID"
                   placeholder="Scan RFID tag or type tag ID..."
                   autoFocus
                   className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 font-mono bg-white focus:border-[var(--theme-primary)] focus:ring-3 focus:ring-[var(--theme-focus-ring)] outline-none pr-12"

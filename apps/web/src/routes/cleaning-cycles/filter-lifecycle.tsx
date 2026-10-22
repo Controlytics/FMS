@@ -882,29 +882,29 @@ export function FilterLifecycleReportPage() {
         {/* Cascade selectors + period */}
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Block</label>
-            <Select className={selectCls} value={blockId} onChange={(e) => onBlock(e.target.value)}>
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="fl-block">Block</label>
+            <Select id="fl-block" className={selectCls} value={blockId} onChange={(e) => onBlock(e.target.value)}>
               <option value="">All Blocks</option>
               {[...allBlocks].sort((a, b) => a.name.localeCompare(b.name)).map((b) => (<option key={b.id} value={b.id}>{b.name}</option>))}
             </Select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Area</label>
-            <Select className={selectCls} value={areaId} onChange={(e) => onArea(e.target.value)}>
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="fl-area">Area</label>
+            <Select id="fl-area" className={selectCls} value={areaId} onChange={(e) => onArea(e.target.value)}>
               <option value="">All Areas</option>
               {areaOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
             </Select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">AHU</label>
-            <Select className={selectCls} value={ahuId} onChange={(e) => onAhu(e.target.value)}>
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="fl-ahu">AHU</label>
+            <Select id="fl-ahu" className={selectCls} value={ahuId} onChange={(e) => onAhu(e.target.value)}>
               <option value="">All AHUs</option>
               {ahuOptions.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
             </Select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Filter</label>
-            <Select className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="fl-filter">Filter</label>
+            <Select id="fl-filter" className={selectCls} value={filterId} onChange={(e) => setFilterId(e.target.value)}>
               <option value="">All in scope</option>
               {filterOptions.map((f) => (<option key={f.id} value={f.id}>{f.name}{f.retired ? ' (Retired)' : ''}</option>))}
             </Select>

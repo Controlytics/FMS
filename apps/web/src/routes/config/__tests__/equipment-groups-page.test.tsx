@@ -73,6 +73,13 @@ const save = async () => { await act(async () => { fireEvent.click(saveBtn()); }
 const groupCard = (name: string) => screen.getByRole('heading', { name, level: 3 }).closest('div.bg-white') as HTMLElement;
 
 describe('Equipment Groups page - list', () => {
+  // D03-01 (2026-10-22): the visible "Select Block" label was not bound to its select.
+  it('the block picker is named by its visible label', async () => {
+    setup();
+    await screen.findByRole('heading', { name: 'EG Alpha' });
+    expect(screen.getByRole('combobox', { name: 'Select Block' })).toHaveValue('b1');
+  });
+
   it('selects the first block and lists its groups with instrument details', async () => {
     const api = setup();
     await screen.findByRole('heading', { name: 'EG Alpha' });

@@ -374,33 +374,33 @@ export function CleaningCycleHistoryPage() {
         {/* Filters */}
         <div className="flex items-end gap-3 flex-wrap mb-3">
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Search</label>
-            <Input type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Filter name…" className="h-9 text-[13px]" />
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="cr-search">Search</label>
+            <Input id="cr-search" type="text" value={searchInput} onChange={e => setSearchInput(e.target.value)} placeholder="Filter name…" className="h-9 text-[13px]" />
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Block</label>
-            <Select value={blockId} onChange={e => { setBlockId(e.target.value); setAreaId(''); setAhuId(''); setPage(1); }} className="h-9 text-[13px]">
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="cr-block">Block</label>
+            <Select id="cr-block" value={blockId} onChange={e => { setBlockId(e.target.value); setAreaId(''); setAhuId(''); setPage(1); }} className="h-9 text-[13px]">
               <option value="">All Blocks</option>
               {blocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </Select>
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Area</label>
-            <Select value={areaId} onChange={e => { setAreaId(e.target.value); setAhuId(''); setPage(1); }} disabled={!blockId} className="h-9 text-[13px]">
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="cr-area">Area</label>
+            <Select id="cr-area" value={areaId} onChange={e => { setAreaId(e.target.value); setAhuId(''); setPage(1); }} disabled={!blockId} className="h-9 text-[13px]">
               <option value="">{blockId ? 'All Areas' : 'Select block'}</option>
               {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Select>
           </div>
           <div className="min-w-[150px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">AHU</label>
-            <Select value={ahuId} onChange={e => { setAhuId(e.target.value); setPage(1); }} disabled={!areaId} className="h-9 text-[13px]">
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="cr-ahu">AHU</label>
+            <Select id="cr-ahu" value={ahuId} onChange={e => { setAhuId(e.target.value); setPage(1); }} disabled={!areaId} className="h-9 text-[13px]">
               <option value="">{areaId ? 'All AHUs' : 'Select area'}</option>
               {ahus.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
             </Select>
           </div>
           <div className="min-w-[180px]">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Filter</label>
-            <Select value={selectedFilter} onChange={e => { setSelectedFilter(e.target.value); setPage(1); }} className="h-9 text-[13px]">
+            <label className="block text-xs font-semibold text-slate-500 mb-1" htmlFor="cr-filter">Filter</label>
+            <Select id="cr-filter" value={selectedFilter} onChange={e => { setSelectedFilter(e.target.value); setPage(1); }} className="h-9 text-[13px]">
               <option value="">All Filters</option>
               {filterInstances.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </Select>

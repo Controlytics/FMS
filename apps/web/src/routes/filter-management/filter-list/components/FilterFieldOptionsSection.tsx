@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import type { LastCleaningDateState } from '../lib/lastCleaningDateState';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -27,8 +28,11 @@ export function FilterFieldOptionsSection({
   options, ahuType, filterType, micronSize, filterSize, lastCleaning,
   onAhuTypeChange, onFilterTypeChange, onMicronSizeChange, onFilterSizeChange, onLastCleaningChange,
 }: Props) {
-  const select = (value: string, list: string[], onChange: (v: string) => void, emptyHint: string) => (
-    <Select value={value} onChange={e => onChange(e.target.value)}>
+  // Each visible label is bound to its control (D03-01, 2026-10-22); useId keeps
+  // the ids unique between the Create and Edit dialogs that both render this.
+  const id = useId();
+  const select = (key: string, value: string, list: string[], onChange: (v: string) => void, emptyHint: string) => (
+    <Select id={`${id}-${key}`} value={value} onChange={e => onChange(e.target.value)}>
       <option value="">{list.length === 0 ? emptyHint : 'Select…'}</option>
       {list.map(opt => <option key={opt} value={opt}>{opt}</option>)}
     </Select>
@@ -39,30 +43,30 @@ export function FilterFieldOptionsSection({
       <div className="text-xs font-bold text-slate-500 pt-2">Filter Details</div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">AHU Type</label>
-        {select(ahuType, options.ahuType, onAhuTypeChange, 'No options — configure in Settings')}
+        <label htmlFor={`${id}-ahuType`} className="block text-sm font-medium text-slate-700 mb-1">AHU Type</label>
+        {select('ahuType', ahuType, options.ahuType, onAhuTypeChange, 'No options — configure in Settings')}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Filter Type</label>
-        {select(filterType, options.filterType, onFilterTypeChange, 'No options — configure in Settings')}
+        <label htmlFor={`${id}-filterType`} className="block text-sm font-medium text-slate-700 mb-1">Filter Type</label>
+        {select('filterType', filterType, options.filterType, onFilterTypeChange, 'No options — configure in Settings')}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Micron Size <span className="text-slate-400 font-normal">(µm)</span></label>
-        {select(micronSize, options.micronSize, onMicronSizeChange, 'No options — configure in Settings')}
+        <label htmlFor={`${id}-micronSize`} className="block text-sm font-medium text-slate-700 mb-1">Micron Size <span className="text-slate-400 font-normal">(µm)</span></label>
+        {select('micronSize', micronSize, options.micronSize, onMicronSizeChange, 'No options — configure in Settings')}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Filter Dimensions</label>
-        <Input type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
+        <label htmlFor={`${id}-filterSize`} className="block text-sm font-medium text-slate-700 mb-1">Filter Dimensions</label>
+        <Input id={`${id}-filterSize`} type="text" value={filterSize} onChange={e => onFilterSizeChange(e.target.value)}
           placeholder="e.g. 610×610×292mm" />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Last Cleaning Date</label>
+        <label htmlFor={`${id}-lastCleaning`} className="block text-sm font-medium text-slate-700 mb-1">Last Cleaning Date</label>
         <div className="flex items-center gap-3">
-          <Input type="date"
+          <Input id={`${id}-lastCleaning`} type="date"
             value={lastCleaning.date}
             disabled={lastCleaning.na}
             onChange={e => onLastCleaningChange({ ...lastCleaning, date: e.target.value })} className="flex-1" />
