@@ -248,7 +248,8 @@ describe('Notification Channels — Email (SMTP)', () => {
       await screen.findByDisplayValue('https://fms.acme.test/api/oauth2/callback');
       fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
       expect(writeText).toHaveBeenCalledWith('https://fms.acme.test/api/oauth2/callback');
-      expect(screen.getByRole('button', { name: 'Copied!' })).toBeInTheDocument();
+      // "Copied!" only once the write has resolved (it used to show before the write)
+      expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
       await waitFor(() => expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument(), { timeout: 3500 });
     } finally {
       // @ts-expect-error restore jsdom default
@@ -265,10 +266,24 @@ describe('Notification Channels — Email (SMTP)', () => {
       await screen.findByDisplayValue('https://fms.acme.test/api/oauth2/callback');
       fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
       expect(exec).toHaveBeenCalledWith('copy');
-      expect(screen.getByRole('button', { name: 'Copied!' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
       expect(document.querySelector('textarea[style*="-9999px"]')).toBeNull(); // temp node removed
     } finally {
       delete (document as any).execCommand;
+    }
+  });
+
+  it('a refused copy says so and never claims "Copied!"', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) }, configurable: true });
+    try {
+      setup([], { config: { ...SAVED, authType: 'oauth2' } });
+      await screen.findByDisplayValue('https://fms.acme.test/api/oauth2/callback');
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+      expect(await screen.findByText('Copy failed')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Copied!' })).toBeNull();
+    } finally {
+      // @ts-expect-error restore jsdom default
+      delete navigator.clipboard;
     }
   });
 

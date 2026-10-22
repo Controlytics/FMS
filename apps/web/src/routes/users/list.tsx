@@ -16,6 +16,7 @@ import { usePaginationConfig, usePageSize } from '@/hooks/use-pagination-config'
 import type { PasswordPolicyConfig } from '@digilog/shared';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
 
 import { UserStatsBar } from './components/user-stats-bar';
 import { UserFilters } from './components/user-filters';
@@ -232,19 +233,9 @@ export function UserListPage() {
   }, [unlockDialog, unlockPassword, reauth, mutate, mutateStats, toast]);
 
   const handleUnlockCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(unlockPassword);
-      showUnlockCopied(true);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = unlockPassword;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      showUnlockCopied(true);
-    }
-  }, [unlockPassword, showUnlockCopied]);
+    if (await copyText(unlockPassword)) showUnlockCopied(true);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
+  }, [unlockPassword, showUnlockCopied, toast]);
 
   const handleUnlockRegenerate = useCallback(() => {
     setUnlockPassword(generatePassword(policy));

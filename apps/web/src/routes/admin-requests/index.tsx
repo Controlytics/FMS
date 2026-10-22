@@ -7,6 +7,7 @@ import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
 import { Pagination } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
@@ -217,8 +218,9 @@ export function AdminRequestsPage() {
     );
   };
 
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => showCopied(key));
+  const copyToClipboard = async (text: string, key: string) => {
+    if (await copyText(text)) showCopied(key);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
   };
 
   const timeAgo = (date: string) => {

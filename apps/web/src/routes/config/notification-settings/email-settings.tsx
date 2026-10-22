@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import { useDatetimeFormat } from '../../../hooks/use-datetime-format';
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
+import { useToast } from '@/hooks/use-toast';
 
 // ─── Email Types & Constants ──────────────────────────────────────────
 interface EmailConfig {
@@ -145,6 +147,7 @@ function EmailTab() {
   const [testEmail, setTestEmail] = useState('');
   const [testResult, setTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
   const [copied, showCopied] = useCopiedFlag(false);
+  const { toast } = useToast();
 
   const { data, mutate } = useSWR('/api/notification-settings/email', { revalidateOnMount: true, dedupingInterval: 0 });
   const { data: redirectData } = useSWR('/api/notification-settings/email/oauth2/redirect-uri', { revalidateOnMount: true, dedupingInterval: 0 });
@@ -234,22 +237,10 @@ function EmailTab() {
     setTesting(false);
   };
 
-  const copyRedirectUri = () => {
-    if (redirectData?.redirectUri) {
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(redirectData.redirectUri);
-      } else {
-        const textArea = document.createElement('textarea');
-        textArea.value = redirectData.redirectUri;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-      }
-      showCopied(true);
-    }
+  const copyRedirectUri = async () => {
+    if (!redirectData?.redirectUri) return;
+    if (await copyText(redirectData.redirectUri)) showCopied(true);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
   };
 
   const startOAuth2Flow = async () => {

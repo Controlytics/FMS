@@ -266,8 +266,7 @@ describe('Admin Requests — details panel', () => {
   // the SECOND copy's "Copied" early (2026-10-22: seen as a load-only failure).
   // Fake timers go on only once the dialog is open: RTL's async utils wait on a
   // real setTimeout, so nothing below awaits one while the clock is faked.
-  const openCredentials = async (extra: unknown[] = []) => {
-    const writeText = vi.fn(async () => {});
+  const openCredentials = async (extra: unknown[] = [], writeText: (t: string) => Promise<void> = vi.fn(async () => {})) => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
     const api = mockApi([
       { method: 'POST', path: '/api/admin-requests/r4/process', body: { username: '101012', temporaryPassword: 'Tmp@4821', message: 'Password reset' } },
@@ -306,6 +305,13 @@ describe('Admin Requests — details panel', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a refused copy says so: no "Copied", and no unhandled rejection', async () => {
+    const { result } = await openCredentials([], vi.fn().mockRejectedValue(new Error('denied')));
+    fireEvent.click(copyBtn(result, 'Copy User ID'));
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument();
+    expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copy$/);
   });
 
   it('Escape clears "Copied" like Done: the next request\'s credentials start at "Copy"', async () => {

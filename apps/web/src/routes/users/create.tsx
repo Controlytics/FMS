@@ -16,6 +16,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import useSWR from 'swr';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from "../../lib/password-utils";
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
 
 export function CreateUserPage() {
   const { user } = useAuth();
@@ -61,19 +62,8 @@ export function CreateUserPage() {
   };
 
   const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(generatedPassword);
-      showCopied(true);
-    } catch {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = generatedPassword;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      showCopied(true);
-    }
+    if (await copyText(generatedPassword)) showCopied(true);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
   };
 
   const onSubmit = async (data: CreateUserInput) => {

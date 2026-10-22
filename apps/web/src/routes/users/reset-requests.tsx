@@ -13,6 +13,8 @@ import { type PasswordPolicyConfig } from '@digilog/shared';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
+import { useToast } from '@/hooks/use-toast';
 
 interface ResetRequest {
   id: string;
@@ -40,6 +42,7 @@ export function ResetRequestsPage() {
   const [notes, setNotes] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [copied, showCopied, resetCopied] = useCopiedFlag(false);
+  const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -80,18 +83,8 @@ export function ResetRequestsPage() {
   };
 
   const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(newPassword);
-      showCopied(true);
-    } catch {
-      const textArea = document.createElement('textarea');
-      textArea.value = newPassword;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      showCopied(true);
-    }
+    if (await copyText(newPassword)) showCopied(true);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
   };
 
   const handleProcess = async () => {

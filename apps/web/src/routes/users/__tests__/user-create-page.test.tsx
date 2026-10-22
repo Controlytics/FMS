@@ -211,6 +211,21 @@ describe('Create User — temporary password', () => {
     await waitFor(() => expect(screen.queryByText('Copied!')).toBeNull(), { timeout: 3000 });
   });
 
+  it('a refused copy says so and never claims "Copied!" (the fallback copy failed too)', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockRejectedValue(new Error('no')) }, configurable: true });
+    Object.defineProperty(document, 'execCommand', { value: vi.fn().mockReturnValue(false), configurable: true });
+    try {
+      const api = mockApi(routes());
+      renderPage(<Page />, { route: '/users/create', user: SA, api });
+      await screen.findByRole('option', { name: 'Operator' });
+      fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
+      expect(await screen.findByText('Copy failed')).toBeInTheDocument();
+      expect(screen.queryByText('Copied!')).toBeNull();
+    } finally {
+      delete (document as any).execCommand;
+    }
+  });
+
   // Each copy used to start its own 2 s reset timer and none was cleared, so a
   // second copy inside the window lost its "Copied!" when the FIRST timer fired.
   // Fake timers go on only after the page has loaded: RTL's async utils wait on

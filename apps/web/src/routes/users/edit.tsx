@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { useCopiedFlag } from '@/hooks/use-copied-flag';
+import { copyText, COPY_FAILED } from '@/lib/clipboard';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { generatePassword, DEFAULT_PASSWORD_POLICY } from '../../lib/password-utils';
@@ -117,19 +118,8 @@ export function EditUserPage() {
   };
 
   const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(generatedPassword);
-      showCopied(true);
-    } catch {
-      // Fallback for older browsers
-      const textArea = document.createElement('textarea');
-      textArea.value = generatedPassword;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-      showCopied(true);
-    }
+    if (await copyText(generatedPassword)) showCopied(true);
+    else toast.errorToast(COPY_FAILED.title, COPY_FAILED.message);
   };
 
   // The dialog stays open while the password is being set, so its "Setting
