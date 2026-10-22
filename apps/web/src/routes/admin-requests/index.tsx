@@ -6,7 +6,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { useToast } from '@/hooks/use-toast';
 import { api } from '@/lib/api-client';
-import { CLIPBOARD_COPY_RESET_MS } from '@/lib/timing-constants';
+import { useCopiedFlag } from '@/hooks/use-copied-flag';
 import { Pagination } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from '@/components/ui/page-header';
@@ -71,7 +71,7 @@ export function AdminRequestsPage() {
   const [adminRemarks, setAdminRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
   const [approvalResult, setApprovalResult] = useState<{ username?: string; temporaryPassword?: string; message?: string; requestType?: string } | null>(null);
-  const [copied, setCopied] = useState<string>('');
+  const [copied, showCopied, resetCopied] = useCopiedFlag<string>('');
 
   // SUPER_ADMIN edit of any column (2026-09-05) - same endpoint and rules as
   // the Filter Data Management console's Admin Requests tab.
@@ -109,12 +109,12 @@ export function AdminRequestsPage() {
     if (!selectedRequest && !approvalResult) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (approvalResult) setApprovalResult(null);
+      if (approvalResult) { setApprovalResult(null); resetCopied(); }
       else setSelectedRequest(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedRequest, approvalResult]);
+  }, [selectedRequest, approvalResult, resetCopied]);
 
   // Move focus into each overlay when it opens so keyboard/AT users land inside
   // it (and so Escape reaches the handler above without a stray focus target).
@@ -218,10 +218,7 @@ export function AdminRequestsPage() {
   };
 
   const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(''), CLIPBOARD_COPY_RESET_MS);
-    });
+    navigator.clipboard.writeText(text).then(() => showCopied(key));
   };
 
   const timeAgo = (date: string) => {
@@ -705,7 +702,7 @@ export function AdminRequestsPage() {
               </div>
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
                 <button
-                  onClick={() => { setApprovalResult(null); setCopied(''); }}
+                  onClick={() => { setApprovalResult(null); resetCopied(); }}
                   className="px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 transition-colors"
                 >
                   Done

@@ -261,6 +261,76 @@ describe('Admin Requests — details panel', () => {
     expect(screen.queryByRole('dialog', { name: 'Request processed' })).toBeNull();
   });
 
+  // Both copy buttons share one "copied" value. Each copy used to start its own
+  // 2 s reset timer and none was ever cleared, so the FIRST copy's timer wiped
+  // the SECOND copy's "Copied" early (2026-10-22: seen as a load-only failure).
+  // Fake timers go on only once the dialog is open: RTL's async utils wait on a
+  // real setTimeout, so nothing below awaits one while the clock is faked.
+  const openCredentials = async (extra: unknown[] = []) => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const api = mockApi([
+      { method: 'POST', path: '/api/admin-requests/r4/process', body: { username: '101012', temporaryPassword: 'Tmp@4821', message: 'Password reset' } },
+      ...(extra as any[]),
+      ...routes(REQS()),
+    ]);
+    renderPage(<AdminRequestsPage />, { user: APPROVER, api });
+    fireEvent.click(await screen.findByRole('button', { name: /Forgot Password request from dave/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Enter notes/), { target: { value: 'verified by phone' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    const result = await screen.findByRole('dialog', { name: 'Request processed' });
+    return { api, result };
+  };
+  const copyBtn = (result: HTMLElement, name: 'Copy User ID' | 'Copy temporary password') => within(result).getByRole('button', { name });
+  // the clipboard write resolves in a microtask; the click's "Copied" follows it
+  const clickCopy = async (btn: HTMLElement) => { fireEvent.click(btn); await act(async () => {}); };
+
+  it('a second copy keeps its "Copied" for the full delay: the first copy\'s timer does not cut it short', async () => {
+    const { result } = await openCredentials();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await clickCopy(copyBtn(result, 'Copy temporary password'));
+      expect(copyBtn(result, 'Copy temporary password')).toHaveTextContent(/^Copied$/);
+      act(() => { vi.advanceTimersByTime(1_500); });
+      await clickCopy(copyBtn(result, 'Copy User ID'));
+      expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copied$/);
+      expect(copyBtn(result, 'Copy temporary password')).toHaveTextContent(/^Copy$/);
+      // 2.1 s after the first copy, 0.6 s after the second: the second is still confirmed
+      act(() => { vi.advanceTimersByTime(600); });
+      expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copied$/);
+      // and it reverts exactly CLIPBOARD_COPY_RESET_MS (2 s) after its own copy
+      act(() => { vi.advanceTimersByTime(1_399); });
+      expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copied$/);
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copy$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('Escape clears "Copied" like Done: the next request\'s credentials start at "Copy"', async () => {
+    const { result } = await openCredentials([
+      { method: 'POST', path: '/api/admin-requests/r1/process', body: { username: 'alice01' } },
+    ]);
+    // Faked only around the copy: its reset timer can then never fire on its own,
+    // which is what a second approval inside the 2 s window looks like.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await clickCopy(copyBtn(result, 'Copy User ID'));
+      expect(copyBtn(result, 'Copy User ID')).toHaveTextContent(/^Copied$/);
+      fireEvent.keyDown(window, { key: 'Escape' });
+    } finally {
+      vi.useRealTimers(); // the pending reset is dropped, never fired
+    }
+    expect(screen.queryByRole('dialog', { name: 'Request processed' })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: /Create User request from alice/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Enter notes/), { target: { value: 'approved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    const next = await screen.findByRole('dialog', { name: 'Request processed' });
+    expect(within(next).getByText('alice01')).toBeInTheDocument();
+    expect(copyBtn(next, 'Copy User ID')).toHaveTextContent(/^Copy$/);
+  });
+
   it('approving a create-user request with only a username still opens the result dialog; Done closes it', async () => {
     const api = mockApi([
       { method: 'POST', path: '/api/admin-requests/r1/process', body: { username: 'alice01' } },
