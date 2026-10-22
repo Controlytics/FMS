@@ -1,5 +1,76 @@
 # Changelog
 
+## [Unreleased] - Security + database rounds, pipeline client half, restore at any size (2026-10-22, evening)
+
+Operator decisions of 2026-10-22: always-on password for destructive / rule-changing actions (OD-01),
+the send endpoint removed (SEC-03), approvals stay policy-driven (SEC-07), restore script now +
+in-app rework later (D-DB-6), three volume indexes, "10,000+" totals, LDAP StartTLS kept, the full
+soak plan kept. Every fix started from a failing test. Nothing here is in an installer or APK yet.
+
+- **Always-on signatures (OD-01, `1f8b8de`, `54f23fc`, `8372478`).** The live policy named
+  SUPER_ADMIN on 2 of 84 actions, so the SA signed almost nothing. These now ask EVERY user for the
+  password and cannot be switched off: audit edit / redact / delete, every Filter Data Management
+  write, user delete and edit, role create / edit / delete, role permission and per-user override
+  saves, the re-auth policy save, the LDAP group→role mapping, backup restore, filter / hierarchy
+  delete, manual lifecycle moves, and an admin request that changes a role.
+- **Redacted audit rows are verified (security P1, `54f23fc`).** Verification checked only that a
+  redacted row's payload was empty, so a database-level actor could mark any row redacted and
+  rewrite who / what / when. Each redacted row is now checked against the hash-chained record of its
+  redaction (verify-chain, the audit list, and the backup restore gate). The record of any audit
+  change can no longer be redacted. Concurrent redactions of one row are serialised.
+- **Security fixes (`4eeb864`, `160dc91`, `86b300a`, `b152596`, `79f97bd`).**
+  - The unused `POST /api/notification-settings/send` (any e-mail / SMS, no audit, no password) is
+    removed. Every test e-mail / SMS writes an audit row.
+  - The LDAP and SMTP connection tests are no longer port-scan oracles: the destination is checked
+    and pinned, and raw socket errors are never returned.
+  - URL credentials (code, state, tokens, keys, passwords) are redacted in every log line. A login
+    429 reaches the security log.
+  - `ldap://` connects, then upgrades with StartTLS before any password is sent. It was forced to
+    TLS, so a site on a plain directory could never sign in.
+  - The Quality Notifications export follows the page's view rule.
+- **Database integrity (`df5e6a1`, `dfa6073`, `6098b5e`, `f3153ee`).**
+  - Two simultaneous RFID assigns could bind two tags to one filter. Now locked, including the
+    Super Admin RFID edit.
+  - The drift guard now sees partial indexes, triggers and function bodies.
+  - The seed no longer skips the 5 commented statements of invariants.sql.
+- **Backup / restore (`7cdd9c5`, `0b823f4`, `eadcf9a`, `7321f87`).**
+  - A CSV restore refused the app's own backup whenever usernames were numeric (the default).
+  - '' came back as NULL, and timestamps lost their microseconds.
+  - A failed .dump restore left an unprotected copy of the audit trail behind.
+  - Restoring an archive that carried such a copy erased live audit rows written after the backup.
+    Now restored with 6 of 6 rows kept.
+- **Restore at any size (`e17368d`, `12ad7a2`, `052c27e`).** `scripts/restore-database.ps1` + guide:
+  - It restores the nightly `.sql` or an in-app `.dump` of any size in one transaction, and leaves
+    live data untouched on any failure.
+  - It keeps audit rows the backup lacks.
+  - It is a signed act (Super Admin password), with an explicit `-EmergencyUnsigned` fallback.
+  - It ships in the installer with a Start-menu entry.
+- **Volume (`213d54c`, `d9aa1b3`, `928ea36`, `a33ec8c`).**
+  - batch-states: 17,931 → 65 queries per call at one year, with a byte-identical response.
+  - The in-progress cycles list: 38.6 s → 9.4 s cold.
+  - Events pages 2+ reuse the count.
+  - The cycles list no longer fails past Postgres's bind limit.
+  - The tablet Cycles view pages on the server.
+- **Pipeline client half (`00a7ac8`, `2ceed59`, `f81c3fa`, `f54aa87`, `bf44e23`, `9a03e6d`,
+  `c4621a7`, `723afdd`, `1d25893`, `f29aa29`, `f745d8c`, `bb4df5e`).**
+  - Desktop and tablet complete every pipeline shape: a final Dry In with a checklist in one call,
+    a Dry In with no instrument, and START checklists asked first, online, offline and in batches.
+  - A checklist is answered only at its own station.
+  - Offline: queued ops replay in queue order, even within one millisecond (`0463e42`). An
+    unreadable START checklist is refused, never skipped. A final Dry In closes locally.
+  - A mixed tablet submit no longer drops in-cycle work.
+  - A bypass into the last stage completes the cycle.
+  - An old tablet's offline Dry In queue replays in its own order.
+- **Web.**
+  - There is one token-refresh schedule per app.
+  - "Copied" appears only after a successful copy.
+  - There are no unlabelled controls on the report filters and Filters dialogs.
+  - The PM tab counts ignore the selected tab.
+  - Load-only test races are fixed at their cause.
+- **Reports.** test-results 02 (BR-100/101 EXECUTED), 04 (2,574 role × route rows, 0 leaks; 1,120
+  fuzzed writes, 0 5xx), 05 (database, 11 defects with fix status) and 06 (security: P0 0, P1 2
+  fixed).
+
 ## [Unreleased] - batch-states no longer reads per in-cycle filter (P-1, 2026-10-22)
 
 - **`GET /api/filters/batch-states`** (the tablet's offline-cache poll) made six queries per
