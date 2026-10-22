@@ -1,0 +1,2 @@
+# Shell scripts run under Git Bash; a CRLF checkout (core.autocrlf=true) breaks them.
+*.sh text eol=lf
