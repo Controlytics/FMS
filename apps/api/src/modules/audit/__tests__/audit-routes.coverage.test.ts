@@ -303,8 +303,9 @@ describe('POST /api/audit/report-export-log', () => {
     const row = await latestMeta('REPORT_GENERATED', saUser.username);
     expect(row).toMatchObject({
       targetType: 'Audit Trail', userRole: 'SUPER_ADMIN',
-      reason: 'Report generated: Audit Trail (3 record(s)) as PDF',
-      afterValue: { reportType: 'Audit Trail', format: 'PDF', recordCount: 3, period: 'All Time', search: null, startDate: null, endDate: null },
+      // c08ab72 (2026-10-22): the record states its filters - here, explicitly none.
+      reason: 'Report generated: Audit Trail (3 record(s)) as PDF; no filters',
+      afterValue: { reportType: 'Audit Trail', format: 'PDF', recordCount: 3, period: 'All Time', search: null, startDate: null, endDate: null, filters: {} },
     });
     await expectChained(row!.id);
   });
@@ -316,7 +317,7 @@ describe('POST /api/audit/report-export-log', () => {
     expect(res.statusCode).toBe(200);
     const row = await latestMeta('REPORT_GENERATED', saUser.username);
     expect(row?.afterValue).toEqual({
-      reportType: 'Filters', format: 'Excel', recordCount: 0, period: 'month', search: 'AHU-1', startDate: '2026-10-01', endDate: '2026-10-21',
+      reportType: 'Filters', format: 'Excel', recordCount: 0, period: 'month', search: 'AHU-1', startDate: '2026-10-01', endDate: '2026-10-21', filters: {},
     });
   });
 
