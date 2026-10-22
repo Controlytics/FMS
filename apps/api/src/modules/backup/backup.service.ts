@@ -37,6 +37,7 @@ import {
   listParkSchemas,
   dropParkSchemas,
   preserveUnbackedAuditRows,
+  dropRecordedDeletions,
   resyncSequencesAfterRestore,
   type BackupChainReport,
 } from './backup.repository.js';
@@ -835,6 +836,7 @@ export async function restoreDump(
 
   let auditRowsPreserved = 0;
   let auditRowsFromEarlierFailedRestore = 0;
+  let auditRowsSkippedAsDeleted = 0;
   try {
     await writeFile(archivePath, fileBuffer);
 
@@ -865,8 +867,17 @@ export async function restoreDump(
         async (tx: unknown) => {
           let kept = await preserveUnbackedAuditRows(tx, `${park}.audit_trail`);
           // Then each earlier park, with the same dedupe: only rows the restored
-          // trail (and this run's park) do not already hold come back.
+          // trail (and this run's park) do not already hold come back — and never
+          // a row a recorded hard delete names, in the restored trail or in any
+          // earlier park: a restore must not undo a deletion (2026-10-22).
+          const deletionSources = ['audit_trail', ...earlierParks.map((e) => `${e.now}.audit_trail`)];
           for (const p of earlierParks) {
+            const skipped = await dropRecordedDeletions(tx, `${p.now}.audit_trail`, deletionSources);
+            if (skipped > 0) {
+              backupLog.warn({ schema: p.now, was: p.was, skipped },
+                'Audit rows an earlier failed restore kept were not carried over: a recorded hard delete names them');
+            }
+            auditRowsSkippedAsDeleted += skipped;
             const n = await preserveUnbackedAuditRows(tx, `${p.now}.audit_trail`);
             kept += n;
             auditRowsFromEarlierFailedRestore += n;
@@ -922,7 +933,7 @@ export async function restoreDump(
       targetId: 'database_restore',
       afterValue: {
         format: 'dump', timestamp, bytes: fileBuffer.length, auditRowsPreserved,
-        ...(earlierParks.length > 0 ? { auditRowsFromEarlierFailedRestore } : {}),
+        ...(earlierParks.length > 0 ? { auditRowsFromEarlierFailedRestore, auditRowsSkippedAsDeleted } : {}),
       },
       signatureMeaning: 'Database restored from pg_dump archive by administrator (full schema + data)',
       ipAddress: ctx.ipAddress,

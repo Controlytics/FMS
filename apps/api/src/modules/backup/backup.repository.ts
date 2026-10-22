@@ -869,6 +869,45 @@ export async function preserveUnbackedAuditRows(tx: any, keepTable: string): Pro
   return n;
 }
 
+/** `"schema"."table"` or `"table"` for a name the caller built; both parts checked. */
+function quotedTableRef(table: string): string {
+  const [schema, name] = table.includes('.') ? table.split('.') : [null, table];
+  assertSafeIdentifier(name);
+  if (schema) assertSafeIdentifier(schema);
+  return schema ? `"${schema}"."${name}"` : `"${name}"`;
+}
+
+/**
+ * Remove from a parked copy of the trail every row that a RECORDED hard delete
+ * names, so carrying the copy over cannot undo a deletion (operator decision
+ * 2026-10-22). The deletions are read from each of `sources` (audit_trail tables):
+ * `AUDIT_RECORD_DELETED` names its row in target_id (the audit routes and the
+ * Super Admin replacement delete both write it so), `AUDIT_RECORDS_BULK_DELETED`
+ * in before_value.records[].id. A source or target that does not exist is skipped.
+ * Returns how many rows were removed.
+ */
+export async function dropRecordedDeletions(tx: any, keepTable: string, sources: string[]): Promise<number> {
+  const exists = async (ref: string): Promise<boolean> => {
+    const r: Array<{ ok: boolean }> = await tx.$queryRawUnsafe(`SELECT to_regclass($1) IS NOT NULL AS ok`, ref);
+    return r[0]?.ok === true;
+  };
+  const keepRef = quotedTableRef(keepTable);
+  if (!(await exists(keepRef))) return 0;
+  const refs: string[] = [];
+  for (const s of sources) {
+    const ref = quotedTableRef(s);
+    if (await exists(ref)) refs.push(ref);
+  }
+  if (refs.length === 0) return 0;
+  const named = refs.map((ref) =>
+    `SELECT d.target_id AS id FROM ${ref} d WHERE d.action = 'AUDIT_RECORD_DELETED' AND d.target_id IS NOT NULL`
+    + ` UNION SELECT r->>'id' FROM ${ref} d CROSS JOIN LATERAL jsonb_array_elements(`
+    + `CASE WHEN jsonb_typeof(d.before_value->'records') = 'array' THEN d.before_value->'records' ELSE '[]'::jsonb END) r`
+    + ` WHERE d.action = 'AUDIT_RECORDS_BULK_DELETED'`,
+  ).join(' UNION ');
+  return Number(await tx.$executeRawUnsafe(`DELETE FROM ${keepRef} k WHERE k.id::text IN (${named})`));
+}
+
 /**
  * After a self-referential table has been populated (with self-ref columns NULLed),
  * fill in the actual self-ref values. Uses jsonb_populate_recordset so PostgreSQL

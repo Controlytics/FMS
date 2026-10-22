@@ -433,20 +433,26 @@ describe('restoreDump (pg_dump archive restore)', () => {
   // the trail is kept there). It is trusted: its rows come back like live rows the
   // backup lacks, and it is dropped only once they have. Before this, the next
   // successful restore dropped it unread.
-  const tracingTx = (keepQueries: unknown[][]) => ({
+  /** A carry-over transaction: records which park each step reads; one recorded deletion per earlier park. */
+  const tracingTx = (keepQueries: unknown[][], deletionChecks: string[] = []) => ({
     $queryRawUnsafe: vi.fn(async (q: string, ...args: unknown[]) => {
       if (q.includes('table_schema = $1')) { keepQueries.push(args); return [{ column_name: 'id' }, { column_name: 'chain_position' }]; }
       if (q.includes("table_name = 'audit_trail'")) return [{ column_name: 'id' }, { column_name: 'chain_position' }];
       if (q.includes('COUNT(*)')) return [{ n: 2 }];
+      if (q.includes('to_regclass')) return [{ ok: true }];
       throw new Error(`unexpected tx query: ${q}`);
     }),
-    $executeRawUnsafe: vi.fn(async () => 0),
+    $executeRawUnsafe: vi.fn(async (q: string) => {
+      if (q.includes("'AUDIT_RECORD_DELETED'")) { deletionChecks.push(q); return 1; }
+      return 0;
+    }),
   });
 
   it('a park an earlier failed restore left is carried over: renamed out of any archive\'s reach, its rows brought back, dropped only after', async () => {
     wireDump({ liveParks: ['digilog_keep', 'digilog_keep_00000000000000aa'], archiveParks: ['digilog_keep'] });
     const keepQueries: unknown[][] = [];
-    m.prisma.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => { order.push('preserve audit rows'); return fn(tracingTx(keepQueries)); });
+    const deletionChecks: string[] = [];
+    m.prisma.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => { order.push('preserve audit rows'); return fn(tracingTx(keepQueries, deletionChecks)); });
     await restoreDump(archive, sa);
 
     // renamed after the safety dump and before anything destructive, to names no archive holds
@@ -457,12 +463,19 @@ describe('restoreDump (pg_dump archive restore)', () => {
     expect(order.indexOf(renames[1][0])).toBeLessThan(order.indexOf('DROP SCHEMA public CASCADE'));
     // this run's park first, then each earlier one
     expect(keepQueries).toEqual([[park, 'audit_trail'], [renamedTo[0], 'audit_trail'], [renamedTo[1], 'audit_trail']]);
+    // a row a recorded hard delete names is removed from each EARLIER park before it
+    // is carried (never from this run's park), checked against the restored trail and every earlier park
+    expect(deletionChecks.map(q => /^DELETE FROM "(\w+)"\."audit_trail"/.exec(q)?.[1])).toEqual(renamedTo);
+    for (const q of deletionChecks) {
+      expect(q).toContain('FROM "audit_trail" d');
+      for (const r of renamedTo) expect(q).toContain(`FROM "${r}"."audit_trail" d`);
+    }
     // every park is gone once the rows are back - the archive's digilog_keep included
     expect(order.indexOf('preserve audit rows')).toBeLessThan(order.indexOf(`DROP SCHEMA IF EXISTS "${renamedTo[0]}" CASCADE`));
     expect(schemas.size).toBe(0);
     expect(m.auditLog).toHaveBeenCalledWith(expect.objectContaining({
       action: 'BACKUP_RESTORED',
-      afterValue: expect.objectContaining({ auditRowsPreserved: 6, auditRowsFromEarlierFailedRestore: 4 }),
+      afterValue: expect.objectContaining({ auditRowsPreserved: 6, auditRowsFromEarlierFailedRestore: 4, auditRowsSkippedAsDeleted: 2 }),
     }));
   });
 
