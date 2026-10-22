@@ -17,11 +17,17 @@ import { __setAuditChainKeyForTest, __setAuditChainKeyedFromForTest } from '../l
  * Proves:
  *   (1) New rows written via auditLog() chain to the prior row's checksum
  *       (previous_checksum is non-NULL after the first chained row).
- *   (2) verifyAuditChain() reports intact == true on the unmolested chain.
+ *   (2) verifyAuditChain() reports no anomaly on an unmolested segment.
  *   (3) An in-place mutation of an audit row's after_value is detected as
- *       PER_ROW_CHECKSUM_MISMATCH AND breaks the chain link of every row
- *       written after it.
+ *       PER_ROW_CHECKSUM_MISMATCH.
  *   (4) GET /api/audit/verify-chain endpoint surfaces the same anomalies.
+ *
+ * Other writers share this table (other files, other test processes on the same
+ * database), so every assertion is about THIS file's rows, found by the ids
+ * auditLog() returns — never "every row above a high-water mark" (2026-10-22: the
+ * count of rows above the mark read 5, not 3, when another process wrote in
+ * between). A row's link is checked against the row directly before it in the
+ * chain, whoever wrote that row.
  */
 
 const TEST_USERNAME = 'audit_chain_admin';
@@ -65,6 +71,39 @@ async function buildChainApp(): Promise<FastifyInstance> {
   return app;
 }
 
+interface ChainRow { id: string; action: string; checksum: string; previous_checksum: string | null; chain_position: bigint }
+
+/** This file's rows, by id, in chain order. */
+async function rowsById(ids: string[]): Promise<ChainRow[]> {
+  return prisma.$queryRaw<ChainRow[]>`
+    SELECT id::text AS id, action, checksum, previous_checksum, chain_position
+    FROM audit_trail
+    WHERE id = ANY(${ids}::uuid[])
+    ORDER BY chain_position ASC
+  `;
+}
+
+/** The checksum of the row directly before `position` in the chain, whoever wrote it. */
+async function checksumBefore(position: bigint): Promise<string | null> {
+  const r = await prisma.$queryRaw<Array<{ checksum: string }>>`
+    SELECT checksum FROM audit_trail
+    WHERE chain_position < ${position}
+    ORDER BY chain_position DESC
+    LIMIT 1
+  `;
+  return r[0]?.checksum ?? null;
+}
+
+/** verifyAuditChain over the span of these rows; only anomalies on THESE rows. */
+async function verifyOwn(rows: ChainRow[]) {
+  const result = await verifyAuditChain({
+    fromPosition: Number(rows[0].chain_position),
+    toPosition: Number(rows[rows.length - 1].chain_position),
+  });
+  const mine = new Set(rows.map((r) => r.id));
+  return { result, anomalies: result.anomalies.filter((a) => mine.has(a.id) && !a.informational) };
+}
+
 describe('Audit hash chain — C3', () => {
   let app: FastifyInstance;
   let token: string;
@@ -80,144 +119,94 @@ describe('Audit hash chain — C3', () => {
   });
 
   it('chains consecutive audit rows via previous_checksum', async () => {
-    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
-      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
-    `;
-    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
+    const ids = [
+      await auditLog({ userId: TEST_USERNAME, action: 'CHAIN_TEST_A', targetType: 'test', targetId: 'a-1', afterValue: { i: 1 }, ipAddress: '127.0.0.1' }),
+    ];
+    // Another writer lands in between, as other files and processes do.
+    const otherId = await auditLog({ userId: 'audit_chain_other', action: 'CHAIN_TEST_OTHER', targetType: 'test', targetId: 'o-1' });
+    ids.push(
+      await auditLog({ userId: TEST_USERNAME, action: 'CHAIN_TEST_B', targetType: 'test', targetId: 'b-1', afterValue: { i: 2 }, ipAddress: '127.0.0.1' }),
+      await auditLog({ userId: TEST_USERNAME, action: 'CHAIN_TEST_C', targetType: 'test', targetId: 'c-1', afterValue: { i: 3 }, ipAddress: '127.0.0.1' }),
+    );
 
-    await auditLog({
-      userId: TEST_USERNAME, action: 'CHAIN_TEST_A',
-      targetType: 'test', targetId: 'a-1',
-      afterValue: { i: 1 }, ipAddress: '127.0.0.1',
-    });
-    await auditLog({
-      userId: TEST_USERNAME, action: 'CHAIN_TEST_B',
-      targetType: 'test', targetId: 'b-1',
-      afterValue: { i: 2 }, ipAddress: '127.0.0.1',
-    });
-    await auditLog({
-      userId: TEST_USERNAME, action: 'CHAIN_TEST_C',
-      targetType: 'test', targetId: 'c-1',
-      afterValue: { i: 3 }, ipAddress: '127.0.0.1',
-    });
-
-    const newRows = await prisma.$queryRaw<Array<{
-      action: string;
-      checksum: string;
-      previous_checksum: string | null;
-      chain_position: bigint;
-    }>>`
-      SELECT action, checksum, previous_checksum, chain_position
-      FROM audit_trail
-      WHERE chain_position > ${beforeMax}
-      ORDER BY chain_position ASC
-    `;
-
-    expect(newRows.length).toBe(3);
-    // Every new row carries a previous_checksum (chain era).
-    for (const r of newRows) {
+    const rows = await rowsById(ids);
+    // Written in order, so chained in order.
+    expect(rows.map((r) => r.action)).toEqual(['CHAIN_TEST_A', 'CHAIN_TEST_B', 'CHAIN_TEST_C']);
+    for (const r of rows) {
+      // Every new row carries a previous_checksum (chain era)...
       expect(r.previous_checksum).not.toBeNull();
+      // ...which is the checksum of the row directly before it.
+      expect(r.previous_checksum).toBe(await checksumBefore(r.chain_position));
     }
-    // The chain link is monotonic — row[i].previous_checksum == row[i-1].checksum.
-    expect(newRows[1].previous_checksum).toBe(newRows[0].checksum);
-    expect(newRows[2].previous_checksum).toBe(newRows[1].checksum);
+    // The other writer's row sits between A and B, so B does not link to A.
+    const [other] = await rowsById([otherId]);
+    expect(other.chain_position > rows[0].chain_position && other.chain_position < rows[1].chain_position).toBe(true);
+    expect(rows[1].previous_checksum).not.toBe(rows[0].checksum);
   });
 
-  it('verifyAuditChain reports intact==true on a freshly written chain segment', async () => {
-    // Capture the high-water mark, write a fresh segment, scope the verifier
-    // to only those rows. We can't assume the rest of the dev-DB audit_trail
-    // is clean (other tests + seed leave artifacts; the pre-chain era may
-    // have rows whose original checksum was computed with a slightly
-    // different field-shape than today's verifyAuditChecksum); the meaningful
-    // assertion for C3 is that NEW chain writes through auditLog() are
-    // tamper-evident, which this scoped check proves directly.
-    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
-      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
-    `;
-    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
+  it('verifyAuditChain reports no anomaly on a freshly written chain segment', async () => {
+    // Scoped to this segment: we can't assume the rest of the test DB's
+    // audit_trail is clean (other tests + seed leave artifacts; the pre-chain era
+    // may have rows whose original checksum was computed with a slightly different
+    // field-shape than today's verifyAuditChecksum); the meaningful assertion for
+    // C3 is that NEW chain writes through auditLog() are tamper-evident.
+    const rows = await rowsById([
+      await auditLog({ userId: TEST_USERNAME, action: 'INTACT_1', targetType: 'test', targetId: '1' }),
+      await auditLog({ userId: TEST_USERNAME, action: 'INTACT_2', targetType: 'test', targetId: '2' }),
+      await auditLog({ userId: TEST_USERNAME, action: 'INTACT_3', targetType: 'test', targetId: '3' }),
+    ]);
 
-    await auditLog({ userId: TEST_USERNAME, action: 'INTACT_1', targetType: 'test', targetId: '1' });
-    await auditLog({ userId: TEST_USERNAME, action: 'INTACT_2', targetType: 'test', targetId: '2' });
-    await auditLog({ userId: TEST_USERNAME, action: 'INTACT_3', targetType: 'test', targetId: '3' });
-
-    const result = await verifyAuditChain({ fromPosition: beforeMax + 1 });
-    expect(result.intact).toBe(true);
-    expect(result.anomalies).toEqual([]);
-    expect(result.totalRowsChecked).toBe(3);
-    expect(result.chainedRows).toBe(3);
+    const { result, anomalies } = await verifyOwn(rows);
+    expect(anomalies).toEqual([]);
+    // the walk covered at least these three rows, every one of them chained
+    expect(result.totalRowsChecked).toBeGreaterThanOrEqual(3);
     expect(result.preChainRows).toBe(0);
   });
 
   it('verifyAuditChain accepts a signed row (signature_audit_id is inside the checksum)', async () => {
     // 2026-10-17: the verifier's SELECT omitted signature_audit_id, so every
     // row signed through re-auth was reported as PER_ROW_CHECKSUM_MISMATCH.
-    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
-      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
-    `;
-    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
-
     const signatureId = await auditLog({ userId: TEST_USERNAME, action: 'SIGNED_REAUTH', targetType: 'test', targetId: 's0' });
-    await auditLog({ userId: TEST_USERNAME, action: 'SIGNED_ACTION', targetType: 'test', targetId: 's1', signatureAuditId: signatureId });
+    const actionId = await auditLog({ userId: TEST_USERNAME, action: 'SIGNED_ACTION', targetType: 'test', targetId: 's1', signatureAuditId: signatureId });
 
     const signed = await prisma.$queryRaw<Array<{ signature_audit_id: string | null }>>`
-      SELECT signature_audit_id FROM audit_trail WHERE action = 'SIGNED_ACTION' AND chain_position > ${beforeMax}
+      SELECT signature_audit_id::text AS signature_audit_id FROM audit_trail WHERE id = ${actionId}::uuid
     `;
     expect(signed[0]?.signature_audit_id).toBe(signatureId);
 
-    const result = await verifyAuditChain({ fromPosition: beforeMax + 1 });
-    expect(result.anomalies).toEqual([]);
-    expect(result.intact).toBe(true);
+    const { anomalies } = await verifyOwn(await rowsById([signatureId, actionId]));
+    expect(anomalies).toEqual([]);
   });
 
-  it('detects in-place mutation as PER_ROW_CHECKSUM_MISMATCH and breaks the chain', async () => {
-    // Insert a fresh chain segment we can tamper with.
-    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
-      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
-    `;
-    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
-
-    await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_BASE', targetType: 'test', targetId: 'tb' });
-    await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_VICTIM', targetType: 'test', targetId: 'tv', afterValue: { honest: true } });
-    await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_AFTER', targetType: 'test', targetId: 'ta' });
-
-    const tampered = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM audit_trail
-      WHERE action = 'TAMPER_VICTIM' AND chain_position > ${beforeMax}
-      LIMIT 1
-    `;
-    expect(tampered[0]).toBeDefined();
+  it('detects in-place mutation as PER_ROW_CHECKSUM_MISMATCH', async () => {
+    // A fresh chain segment we can tamper with.
+    const rows = await rowsById([
+      await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_BASE', targetType: 'test', targetId: 'tb' }),
+      await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_VICTIM', targetType: 'test', targetId: 'tv', afterValue: { honest: true } }),
+      await auditLog({ userId: TEST_USERNAME, action: 'TAMPER_AFTER', targetType: 'test', targetId: 'ta' }),
+    ]);
+    const victim = rows.find((r) => r.action === 'TAMPER_VICTIM')!;
 
     // Tamper: rewrite after_value WITHOUT recomputing checksum. This is the
     // class of attack the chain detects — silent in-place mutation.
     await prisma.$executeRaw`
       UPDATE audit_trail
       SET after_value = ${JSON.stringify({ honest: false, attacker: true })}::jsonb
-      WHERE id = ${tampered[0].id}::uuid
+      WHERE id = ${victim.id}::uuid
     `;
-
-    const result = await verifyAuditChain({ fromPosition: beforeMax + 1 });
-    expect(result.intact).toBe(false);
-    expect(result.anomalies.some(a => a.kind === 'PER_ROW_CHECKSUM_MISMATCH')).toBe(true);
-
-    // Cleanup: the audit_trail no-delete trigger is conditional on the
-    // production seed (compliance invariants live in seed.ts, not migrations
-    // — see data-layer review C2). In dev DBs the trigger may not exist;
-    // try to disable it but tolerate failure, then attempt the delete. If
-    // the trigger IS active and blocks delete, the rows stay (subsequent
-    // tests still pass — verify-chain accepts them as legitimately persisted
-    // anomalies left by this test, and the test scope filter `fromPosition`
-    // confines this to fresh rows only).
     try {
-      await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`);
-      try {
-        await prisma.$executeRaw`DELETE FROM audit_trail WHERE chain_position > ${beforeMax}`;
-      } finally {
-        await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`);
-      }
-    } catch {
-      // Trigger not installed — fall through; rows remain but are scoped
-      // to this test's chain segment via fromPosition.
+      const { result, anomalies } = await verifyOwn(rows);
+      expect(result.intact).toBe(false);
+      expect(anomalies.map((a) => [a.id, a.kind])).toEqual([[victim.id, 'PER_ROW_CHECKSUM_MISMATCH']]);
+    } finally {
+      // Undo the tamper rather than delete the rows: deleting would need the
+      // no-delete trigger off, and a delete scoped by position took other
+      // writers' rows with it. Put back, the segment verifies again.
+      await prisma.$executeRaw`
+        UPDATE audit_trail SET after_value = ${JSON.stringify({ honest: true })}::jsonb WHERE id = ${victim.id}::uuid
+      `;
     }
+    expect((await verifyOwn(rows)).anomalies).toEqual([]);
   });
 
   it('detects a keyed-era downgrade (v3 relabelled unkeyed) as KEYED_ERA_DOWNGRADE', async () => {
@@ -230,35 +219,35 @@ describe('Audit hash chain — C3', () => {
     // it. This test proves the enforcement is wired into verifyAuditChain.
     const KEY = 'test-audit-hmac-key-keyed-era-downgrade';
     __setAuditChainKeyForTest(KEY);
-    const beforeMaxRow = await prisma.$queryRaw<Array<{ chain_position: bigint | null }>>`
-      SELECT chain_position FROM audit_trail ORDER BY chain_position DESC NULLS LAST LIMIT 1
-    `;
-    const beforeMax = beforeMaxRow[0]?.chain_position == null ? 0 : Number(beforeMaxRow[0].chain_position);
-    __setAuditChainKeyedFromForTest(beforeMax + 1);
+    const ids: string[] = [];
 
     try {
       // auditLog writes v3 rows because the key is set.
-      await auditLog({ userId: TEST_USERNAME, action: 'KEYED_1', targetType: 'test', targetId: 'k1' });
-      await auditLog({ userId: TEST_USERNAME, action: 'KEYED_2', targetType: 'test', targetId: 'k2' });
+      ids.push(await auditLog({ userId: TEST_USERNAME, action: 'KEYED_1', targetType: 'test', targetId: 'k1' }));
+      ids.push(await auditLog({ userId: TEST_USERNAME, action: 'KEYED_2', targetType: 'test', targetId: 'k2' }));
+      const rows = await rowsById(ids);
+      __setAuditChainKeyedFromForTest(Number(rows[0].chain_position));
 
-      const clean = await verifyAuditChain({ fromPosition: beforeMax + 1 });
+      const clean = await verifyOwn(rows);
       expect(clean.anomalies.filter(a => a.kind === 'KEYED_ERA_DOWNGRADE')).toEqual([]);
 
       // Attack: relabel the keyed-era rows as unkeyed.
-      await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`).catch(() => {});
-      await prisma.$executeRaw`UPDATE audit_trail SET checksum_version = NULL WHERE chain_position >= ${beforeMax + 1}`;
-      await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`).catch(() => {});
+      await prisma.$executeRaw`UPDATE audit_trail SET checksum_version = NULL WHERE id = ANY(${ids}::uuid[])`;
 
-      const tampered = await verifyAuditChain({ fromPosition: beforeMax + 1 });
-      expect(tampered.intact).toBe(false);
-      expect(tampered.anomalies.some(a => a.kind === 'KEYED_ERA_DOWNGRADE')).toBe(true);
+      const tampered = await verifyOwn(rows);
+      expect(tampered.result.intact).toBe(false);
+      expect(tampered.anomalies.filter(a => a.kind === 'KEYED_ERA_DOWNGRADE').map(a => a.id).sort()).toEqual([...ids].sort());
     } finally {
-      // Cleanup: remove the test rows and reset the cached key/cutover.
-      try {
-        await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`);
-        try { await prisma.$executeRaw`DELETE FROM audit_trail WHERE chain_position > ${beforeMax}`; }
-        finally { await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`); }
-      } catch { /* trigger absent — rows scoped by fromPosition */ }
+      // Cleanup: these rows carry an HMAC under a key nothing else holds, so they
+      // can never verify again — remove THESE rows, by id. (A delete scoped by
+      // chain position took other writers' rows with it.)
+      if (ids.length > 0) {
+        try {
+          await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail DISABLE TRIGGER audit_trail_no_delete`);
+          try { await prisma.$executeRaw`DELETE FROM audit_trail WHERE id = ANY(${ids}::uuid[])`; }
+          finally { await prisma.$executeRawUnsafe(`ALTER TABLE audit_trail ENABLE TRIGGER audit_trail_no_delete`); }
+        } catch { /* trigger absent — the rows stay, scoped by their positions */ }
+      }
       __setAuditChainKeyForTest(undefined);
       __setAuditChainKeyedFromForTest(undefined);
     }
