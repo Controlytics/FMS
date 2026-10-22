@@ -411,8 +411,13 @@ function projectEquipmentGroup(
  * carries `pendingChecklist[].checklistProfileId`. Mirrors the server loader
  * behaviour (single profile per call). Falls back to v5 sync store when the
  * legacy cache has no inline questions array.
+ *
+ * Exported (2026-10-22) as the ONE answer to "can this tablet read the
+ * checklist it would ask here?" — the tablet refuses offline at START when it
+ * cannot (the executor drops a checklist it cannot resolve, and the offline
+ * replay exempts START_CHECKLIST).
  */
-async function resolveChecklistProfile(
+export async function resolveChecklistProfile(
   cachedState: CachedFilterState | null,
 ): Promise<ChecklistProfileSlice | null> {
   const pending = cachedState?.pendingChecklist;

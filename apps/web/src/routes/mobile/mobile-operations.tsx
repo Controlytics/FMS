@@ -43,7 +43,9 @@ import {
   splitByReadings,
   equipmentGroupChoice,
   groupHasStageInstruments,
+  startChecklistProfileIds,
 } from '@/lib/filter-ops';
+import { resolveChecklistProfile } from '@/lib/local-context';
 import type { PendingChecklistBatchItem, LeftItem, PendingChecklist } from '@/lib/filter-ops';
 // D1/D2/D4 refactor Day 3b (2026-05-18) — useFilterOperationsCore is now
 // authoritative. All dialog state lives in core.dialogState; all writes
@@ -1076,6 +1078,31 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
     return groups.length > 0 ? { groups, blockFallback: true } : null;
   };
 
+  /**
+   * Offline, a cycle waiting at START (started, no stage entered): can this
+   * tablet tell whether its checklist before the first stage is answered? The
+   * executor drops a checklist it cannot resolve and the offline replay exempts
+   * START_CHECKLIST, so what it cannot read is refused, never skipped (fail
+   * CLOSED, 2026-10-22):
+   *   - no pipeline graph cached → it cannot know whether there is one;
+   *   - one there, unanswered on this tablet for this cycle, and its questions
+   *     cached nowhere (local-context resolveChecklistProfile — the same source
+   *     the tape is built from).
+   * Returns the reason, or null when the tape can be trusted.
+   */
+  const offlineStartRefusal = async (state: any, cycleId: string | null): Promise<string | null> => {
+    if (!state?.pipelineGraph?.stages) return 'its cleaning profile is not on this tablet — go online to continue its cycle';
+    const ids = startChecklistProfileIds(state);
+    if (ids.length === 0) return null;
+    const answered = (state.checklistCompletions ?? []).some(
+      (c: any) => (c.afterStage ?? null) === null && (c.cycleId ?? null) === cycleId,
+    );
+    if (answered) return null;
+    const slice = await resolveChecklistProfile({ ...state, currentCycle: state.currentCycle ?? (cycleId ? { id: cycleId } : null) });
+    if (slice && ids.includes(slice.id) && slice.questions.length > 0) return null;
+    return 'its first checklist could not be loaded — go online to load its questions';
+  };
+
   const handleSubmitQueue = async () => {
     // Dry In multi-select (2026-09-04): only the ticked rows are submitted.
     const batchQueue = scanQueue.filter(q => selectedQueueIds.has(q.filterId));
@@ -1268,6 +1295,15 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
         // tape. (Same rationale as buildOfflineState above.)
         const itemGated = !online && !!cachedState.stageLookup?.[currentLifecycle ?? '']?.interlockGated;
         let itemActions = await getCurrentActions(item.filterId, itemGated ? null : cachedState.actions);
+        // Offline at START (fail CLOSED, 2026-10-22): a checklist this tablet
+        // cannot read is dropped from the tape, and the replay exempts it.
+        if (!online && cycleInProgress && !currentLifecycle) {
+          const refusal = await offlineStartRefusal(cachedState, cachedState.currentCycle?.id ?? cached?.currentCycleId ?? null);
+          if (refusal) {
+            failed.push(`${item.filterName}: ${refusal}`);
+            continue;
+          }
+        }
 
         const runGate = () => validateOfflineGate({
           activeStageKey: activeStage.key,
@@ -2109,9 +2145,17 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId }: {
       }
       states.set(f.filterId, st);
     }
+    // Offline, a filter with no pipeline graph cached cannot tell whether its
+    // profile asks a checklist before the first stage — it is not started blind
+    // (fail CLOSED: the replay would skip that checklist). Online the server
+    // decides the start and refuses the first entry without it.
+    const noGraph: LeftItem[] = online ? [] : all
+      .filter((f) => states.get(f.filterId) && !states.get(f.filterId)?.pipelineGraph?.stages)
+      .map((item) => ({ item, note: 'its cleaning profile is not on this tablet — go online, then submit it again' }));
+    const known = all.filter((f) => !noGraph.some((n) => n.item.filterId === f.filterId));
     const stateOf = (id: string) => states.get(id) ?? null;
-    const plan = await planStartChecklistBatch(all, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
-    const left: LeftItem[] = [...plan.left];
+    const plan = await planStartChecklistBatch(known, stateOf, (id) => resolveStartChecklists(stateOf(id), online));
+    const left: LeftItem[] = [...noGraph, ...plan.left];
     if (plan.none.length > 0) {
       left.push(...plan.ask.map(item => ({ item, note: 'its first checklist is asked on its own — submit it again' })));
     }

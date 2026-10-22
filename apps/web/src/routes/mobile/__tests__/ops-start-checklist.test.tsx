@@ -397,6 +397,60 @@ describe('a cycle-start batch member whose state is not cached (offline)', () =>
   });
 });
 
+describe('offline, a START checklist this tablet cannot read: fail CLOSED (2026-10-22)', () => {
+  // The offline replay exempts START_CHECKLIST, so anything sent past an
+  // unreadable START checklist would skip it for good. Refuse, say why.
+  const LINEAR = [{ stateKey: 'WASH_OUT', sortOrder: 1 }, { stateKey: 'STORAGE_IN', sortOrder: 2 }];
+  const BASE = {
+    'identifier-map': { E3: { filterId: 'f3', filterName: 'F-003' } },
+    'cleaning-reasons': [{ key: 'PM', name: 'Preventive Maintenance', isActive: true }],
+  };
+  const AT_START = (over: any = {}) => ({
+    currentState: null, currentCycle: { id: 'cyc-s', status: 'IN_PROGRESS' }, actions: [], pendingChecklist: [],
+    pipelineGraph: startGraph(['WASH_OUT', 'STORAGE_IN']), homeBlock: { id: 'b1', name: 'North' }, blockChangeStatus: 'MATCH', ...over,
+  });
+
+  it('a cycle waiting at START whose first checklist\'s questions are cached nowhere: refused, nothing queued', async () => {
+    await renderOps({ stage: 'WASH_OUT', online: false, cachedFilters: [{ ...F3, currentCycleId: 'cyc-s' }], cache: { ...BASE, 'filter-state-f3': AT_START() } });
+    offlineFetch();
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await message(/F-003: its first checklist could not be loaded — go online to load its questions/)).toBeInTheDocument();
+    expect(queuedOps()).toHaveLength(0);
+  });
+
+  it('…its questions cached: the checklist is asked as usual (the rule only refuses what it cannot read)', async () => {
+    await renderOps({ stage: 'WASH_OUT', online: false, cachedFilters: [{ ...F3, currentCycleId: 'cyc-s' }], cache: { ...BASE, 'filter-state-f3': AT_START(), 'checklist-profiles': [START_PROFILE] } });
+    offlineFetch();
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Bay cleared of debris?')).toBeInTheDocument();
+    expect(queuedOps()).toHaveLength(0);
+  });
+
+  it('a cycle waiting at START with no pipeline graph cached (only the linear stage list): refused, nothing queued', async () => {
+    await renderOps({ stage: 'WASH_OUT', online: false, cachedFilters: [{ ...F3, currentCycleId: 'cyc-s' }], cache: { ...BASE, 'filter-state-f3': AT_START({ pipelineGraph: null, pipelineStages: LINEAR }) } });
+    offlineFetch();
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await message(/F-003: its cleaning profile is not on this tablet — go online/)).toBeInTheDocument();
+    expect(queuedOps()).toHaveLength(0);
+  });
+
+  it('a NEW cycle with no pipeline graph cached: not started (it could ask a checklist before the first stage); stays queued', async () => {
+    await renderOps({ stage: 'WASH_OUT', online: false, cachedFilters: [F3], cache: { ...BASE, 'filter-state-f3': NO_CYCLE(null, { pipelineStages: LINEAR }) } });
+    offlineFetch();
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog();
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    expect(await message(/F-003: its cleaning profile is not on this tablet — go online/)).toBeInTheDocument();
+    expect(queuedOps()).toHaveLength(0);
+    await dismissAll();
+    await inQueue('F-003');
+  });
+});
+
 describe('a compound start is never sent for a filter with a START checklist', () => {
   it('online bulk: the START-checklist filter is planned out of /bulk-operate', async () => {
     // Guarded at use-core too (a caller that skips the planner is refused).
