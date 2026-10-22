@@ -8,7 +8,7 @@ import { PmScheduleService } from './pm-schedule.service.js';
 import { sweepOverdueDeviations, listDeviations, acknowledgeDeviation } from './pm-deviations.js';
 import { canSeeQnn, listQnn } from './qnn.js';
 import { getPmWorkflowConfig } from './pm-workflow.js';
-import { readPmSettings, isPmEnabled } from './pm-shared.js';
+import { readPmSettings, isPmEnabled, PM_YEAR_MIN, PM_YEAR_MAX } from './pm-shared.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
@@ -684,7 +684,7 @@ export default async function pmScheduleRoutes(app: FastifyInstance) {
         required: ['entityId', 'year', 'entries'],
         properties: {
           entityId: { type: 'string', format: 'uuid' },
-          year: { type: 'integer' },
+          year: { type: 'integer', minimum: PM_YEAR_MIN, maximum: PM_YEAR_MAX },
           entries: {
             type: 'array',
             items: {

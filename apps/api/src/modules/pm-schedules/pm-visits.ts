@@ -28,7 +28,7 @@ import { AppError } from '../../lib/errors.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
-import { checkPmEnabled, readPmSettings } from './pm-shared.js';
+import { checkPmEnabled, readPmSettings, assertLiveAhu, assertPmYear } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
 import { assertSeparation } from './pm-separation-guard.js';
 import { submissionApprovalFields } from './pm-submission.js';
@@ -51,17 +51,14 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
   const wf = await getPmWorkflowConfig();
   assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
 
-  // Only a live AHU can carry visits — the same candidates the upload resolves names against.
-  const ahu = await prisma.assetInstance.findFirst({
-    where: { id: data.entityId, isActive: true, template: { templateKind: 'AHU' } },
-    select: { id: true, name: true },
-  });
-  if (!ahu) throw new AppError(404, 'NOT_FOUND', 'AHU not found');
+  // Only a live AHU can carry visits (the one check, shared with POST /).
+  const ahu = await assertLiveAhu(data.entityId);
 
   // UTC midnight, like every stored plannedDate (pm-import.ts parses the same way).
   const [y, m, d] = data.plannedDate.split('-').map(Number);
   const plannedDate = new Date(Date.UTC(y, m - 1, d));
   const year = y;
+  assertPmYear(year);
   const month = m;
   const windowStart = new Date(plannedDate.getTime() - toleranceDays * DAY_MS);
   const windowEnd = new Date(plannedDate.getTime() + toleranceDays * DAY_MS);

@@ -50,6 +50,35 @@ export async function checkPmEnabled() {
  * spread would overwrite (or be overwritten by) a sibling OR such as My Tasks'
  * window filter.
  */
+/**
+ * The years a PM schedule may cover (P5R-01, 2026-10-22): one range for
+ * POST / (route schema + service) and /visits (the year of `plannedDate`). POST /
+ * took any integer, so `year: 1` made an ACTIVE schedule.
+ */
+export const PM_YEAR_MIN = 2000;
+export const PM_YEAR_MAX = 2100;
+
+export function assertPmYear(year: number): void {
+  if (!Number.isInteger(year) || year < PM_YEAR_MIN || year > PM_YEAR_MAX) {
+    throw new AppError(400, 'VALIDATION_ERROR', `The schedule year must be between ${PM_YEAR_MIN} and ${PM_YEAR_MAX}.`);
+  }
+}
+
+/**
+ * Only a live AHU can carry PM visits (P5R-01, 2026-10-22) — the ONE check for
+ * POST / and /visits, and the same candidates the upload resolves AHU names
+ * against. POST / never looked the entity up, so a random id got an ACTIVE
+ * schedule. 404 NOT_FOUND for an unknown id, a non-AHU or a deactivated AHU.
+ */
+export async function assertLiveAhu(entityId: string): Promise<{ id: string; name: string }> {
+  const ahu = await prisma.assetInstance.findFirst({
+    where: { id: entityId, isActive: true, template: { templateKind: 'AHU' } },
+    select: { id: true, name: true },
+  });
+  if (!ahu) throw new AppError(404, 'NOT_FOUND', 'AHU not found');
+  return ahu;
+}
+
 export const PM_ENTRY_IN_FORCE = {
   OR: [
     { approvalStatus: 'APPROVED' as const },

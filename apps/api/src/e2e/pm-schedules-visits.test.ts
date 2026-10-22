@@ -263,6 +263,30 @@ describe('follow-ups: create() checks the upload role; a new schedule takes the 
     expect(ok.statusCode).toBe(201);
   });
 
+  // P5R-01 (2026-10-22): POST / never looked the entity up — a random id, or year 1,
+  // created an ACTIVE schedule for nothing. Same rules as /visits now: ONE live-AHU
+  // check, ONE year range.
+  it('POST / only a live AHU can carry a schedule: an unknown id, a BLOCK and a deactivated AHU are each a 404, nothing written', async () => {
+    const ghost = '00000000-0000-4000-8000-0000000000aa';
+    for (const entityId of [ghost, blockId, ahuGone]) {
+      const res = await post('', 'sa', { entityId, year: YEAR, entries: [{ month: 6, plannedDate: `${YEAR}-06-06` }] });
+      expect([res.statusCode, res.json().error], entityId).toEqual([404, 'NOT_FOUND']);
+    }
+    expect(await prisma.pmSchedule.count({ where: { entityId: { in: [ghost, blockId, ahuGone] } } })).toBe(0);
+  });
+
+  it('POST / and /visits accept only years 2000-2100 (400 VALIDATION_ERROR), nothing written', async () => {
+    for (const year of [1, 1999, 2101]) {
+      const res = await post('', 'sa', { entityId: ahuCreateArch, year, entries: [{ month: 6, plannedDate: `${String(year).padStart(4, '0')}-06-06` }] });
+      expect([res.statusCode, res.json().error], String(year)).toEqual([400, 'VALIDATION_ERROR']);
+    }
+    for (const plannedDate of ['0001-06-06', '1999-12-31', '2101-01-01']) {
+      const res = await post('/visits', 'sa', visit(ahuCreateArch, plannedDate));
+      expect([res.statusCode, res.json().error], plannedDate).toEqual([400, 'VALIDATION_ERROR']);
+    }
+    expect(await prisma.pmSchedule.count({ where: { entityId: ahuCreateArch, year: { not: YEAR } } })).toBe(0);
+  });
+
   it('POST / on an AHU-year that holds only an ARCHIVED version creates the next version (it used to collide on v1)', async () => {
     const res = await post('', 'sa', { entityId: ahuCreateArch, year: YEAR, entries: [{ month: 8, plannedDate: `${YEAR}-08-08` }] });
     expect(res.statusCode).toBe(201);

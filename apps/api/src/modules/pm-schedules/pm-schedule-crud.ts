@@ -6,7 +6,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled, isPmEntryInForce } from './pm-shared.js';
+import { checkPmEnabled, isPmEntryInForce, assertLiveAhu, assertPmYear } from './pm-shared.js';
 import { assertSetSeparation } from './pm-separation-guard.js';
 import { getPmWorkflowConfig, assertPmRole } from './pm-workflow.js';
 import { nextScheduleVersion } from './pm-schedule-version.js';
@@ -48,6 +48,10 @@ export async function create(ctx: RequestContext, data: any) {
   // role is configured.
   const wf = await getPmWorkflowConfig();
   assertPmRole(ctx.userRole, wf.uploadRole, 'upload');
+
+  // The same rules as /visits (P5R-01): a live AHU, a year in range.
+  await assertLiveAhu(entityId);
+  assertPmYear(year);
 
   // Check for existing active schedule
   const existing = await prisma.pmSchedule.findFirst({
