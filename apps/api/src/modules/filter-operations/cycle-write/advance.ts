@@ -28,21 +28,19 @@ import { findExistingByClientOpId, findExistingByClientOpIdInLatestCycle, withCl
 import { validateOfflinePerformedAt, assertOfflineReplayPayload, latestEventAt } from '../../../lib/offline-time-window.js';
 import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
-import { computeChecksum, activeChecklistIdsAfterStage, describeSkippedChecklists, prettyStageLabel } from '../helpers.js';
+import { computeChecksum, describeSkippedChecklists } from '../helpers.js';
 import { completeCycleTx } from './complete-cycle.js';
+import { decideStageEntry } from './stage-entry.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
   getInterlockConfig,
   isInterlockStage,
-  getApproverRoleForStage,
   assertStageApprovedToLeave,
-  collectFilterApprovalDetails,
   requestStageApprovalTx,
   notifyStageApprovalRequested,
   type FilterApprovalDetails,
 } from '../stage-interlock.js';
-import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 type TxClient = Prisma.TransactionClient;
@@ -451,164 +449,18 @@ export async function prepareAdvance(
   // `replayExemptGates` to the event attributes and the checksum must cover
   // the attributes as written. See `buildEventData` at the end of prepare.
 
-  // Check if target stage leads to END (walking through any CHECKLIST nodes).
-  // Cross-cutting cleanup: was an inline recursive `checkEnd` walker; replaced
-  // with the canonical `executor.findReachable` (packages/shared/src/
-  // pipeline-executor/transitions.ts:279) — same semantics, single source of
-  // truth shared with submit-checklist.ts and current-state.ts.
-  const reachFromTarget = executor.findReachable(targetStage.id, localCtx.profile.nodes, localCtx.profile.edges);
-  const leadsToEnd = reachFromTarget.hasEndNext;
-  const hasMoreStages = reachFromTarget.reachableStages.length > 0;
-
-  // Defer auto-complete when an active CHECKLIST node sits between the
-  // target stage and END. Without this, pipelines like WASH_IN→CHECKLIST→END
-  // would complete the cycle the instant the operator advances to WASH_IN,
-  // never letting them answer the post-stage checklist. submitChecklist
-  // performs the completion in that case instead.
-  let hasPendingChecklistAfterTarget = false;
-  let activePostChecklistIds: string[] = [];
-  if (leadsToEnd && !hasMoreStages) {
-    activePostChecklistIds = await activeChecklistIdsAfterStage(targetStage, cp.stages, cp.connections);
-    hasPendingChecklistAfterTarget = activePostChecklistIds.length > 0;
-  }
-
-  // A-01 (operator decision 2026-10-21; Phase 2 of ATOMIC-ADVANCE-CHECKLIST-PLAN).
-  // A BARE advance into the final stage whose mandatory checklist follows it used
-  // to commit the checksummed STATE_TRANSITION event + hash-chained audit row
-  // before the checklist was answered - a §11 record of an attestation that may
-  // never come (Close on the dialog sends nothing). Every client has entered
-  // stages dialog-first through advance-with-checklist since 2026-07-16, so the
-  // bare route is refused online. Offline replay is let through so a queue
-  // written by an older client is not lost, and the skip is RECORDED on the
-  // event and audit row like every other replay exemption.
-  //
-  // NOT refused when the final stage is a QA-interlock stage (WASH_OUT / DRY_OUT
-  // with the interlock on): there the design is two-step - the bare advance
-  // ENTERS the stage and raises the PENDING approval, the checklist is refused
-  // until QA approves, and the approved checklist completes the cycle. The bare
-  // advance is the only correct call in that flow (session 2026-10-08).
-  const finalStageAwaitsQa = interlockConfig.enabled && isInterlockStage(targetState);
-  // The ONE rule, shared with the web batch path, which asks the checklist first
-  // by the same predicate (packages/shared advanceMustCarryChecklist, 2026-10-22).
-  // For a final Dry In the checklist rides on SUBMIT_READINGS, never on the entry.
-  const mustCarryChecklist = executor.advanceMustCarryChecklist({
-    leadsToEnd,
-    nextStages: reachFromTarget.reachableStages,
-    pendingChecklistProfileIds: activePostChecklistIds,
-    interlockGated: finalStageAwaitsQa,
-  }, undefined, { targetState, dryerAction });
-  if (mustCarryChecklist && opts.composedWithChecklist !== true) {
-    if (!ctx.isOfflineReplay) {
-      throw new AppError(
-        409,
-        'CHECKLIST_REQUIRED',
-        `${prettyStageLabel(targetState)} is the last stage and its checklist must be answered in the same step. Open the checklist and submit it to complete this stage.`,
-      );
-    }
-    replayExemptGates.push('TERMINAL_CHECKLIST');
-  }
-
-  // What finishes a FINAL stage's work (2026-10-22, every pipeline shape must
-  // complete):
-  //  - Dry In: the readings at half time, not the entry (callCompletesStageWork) —
-  //    entering a final Dry In used to complete the cycle the moment the dryer
-  //    STARTED, so its readings were never taken;
-  //  - a QA-gated stage (online, bare advance): its approval. The approval
-  //    completes the cycle when no enabled checklist follows the stage
-  //    (stage-approvals approve()); with one, the checklist after approval does,
-  //    as before. This advance used to answer 422 INTERLOCK_TERMINAL_STAGE, so a
-  //    pipeline ending at a gated stage could never complete. The composed
-  //    advance-with-checklist into it keeps that 422 (two-step design), and an
-  //    offline replay is never gated (completes here, recorded below).
-  const workDoneByThisCall = executor.callCompletesStageWork(targetState, dryerAction);
-  const approvalCompletesStage = finalStageAwaitsQa && !ctx.isOfflineReplay && opts.composedWithChecklist !== true;
-
-  // advance's OWN completion. When a checklist follows the target stage the
-  // checklist half completes the cycle, composed or not.
-  const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget
-    && workDoneByThisCall && !approvalCompletesStage;
-
-  // Stage interlock — entry step. When this advance ENTERS an interlock stage
-  // (WASH_OUT / DRY_OUT) and the cycle is NOT auto-completing here, a PENDING
-  // approval is created inside the tx (atomic with the state change) so there is
-  // no window where the filter sits at the gated stage with no gate. The details
-  // snapshot (DB reads) is gathered BEFORE the tx; the notification fires AFTER
-  // commit (best-effort).
-  //
-  // 2026-07-16: interlock judges against whether the CYCLE completes here, which
-  // in the composed path includes the checklist landing in the same tx. In the
-  // bare path `composedWithChecklist` is false and this is identical to
-  // `completesCycle` — i.e. unchanged behaviour for every existing caller.
-  const cycleWillComplete = leadsToEnd && !hasMoreStages && workDoneByThisCall && !approvalCompletesStage
-    && (!hasPendingChecklistAfterTarget || opts.composedWithChecklist === true);
-
-  // #5 fix (audit 2026-07-04): a terminal interlock stage — WASH_OUT / DRY_OUT that
-  // leads straight to END — would auto-complete with NO QA sign-off. `willComplete`
-  // zeroes `enteringInterlock` below, so no PENDING CleaningStageApproval is ever
-  // created and the interlock gate ("no filter leaves WASH_OUT/DRY_OUT without QA
-  // approval") is silently defeated. Fail SAFE: reject the completing advance rather
-  // than complete without the required approval (21 CFR §11). Since 2026-10-22
-  // only the composed advance-with-checklist reaches this: the bare advance into
-  // a final gated stage enters it and raises the approval, which completes the
-  // cycle (approvalCompletesStage above). Offline replay is exempt (offline work
-  // is never gated — same carve-out as `enteringInterlock`).
-  if (interlockConfig.enabled && isInterlockStage(targetState) && cycleWillComplete) {
-    if (!ctx.isOfflineReplay) {
-      throw new AppError(
-        422,
-        'INTERLOCK_TERMINAL_STAGE',
-        `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
-      );
-    }
-    replayExemptGates.push('INTERLOCK_TERMINAL');
-  }
-
-  // ── AHU completion interlock (2026-08-10) ───────────────────────────────────
-  // Twin of the gate in submit-checklist.ts:243. That one covers pipelines that
-  // end `… → FINAL STAGE → CHECKLIST → END`, where the checklist submit completes
-  // the cycle. This one covers `… → FINAL STAGE → END`, where THIS advance
-  // completes it — previously ungated, so on such a pipeline INTERLOCK silently
-  // allowed a filter to finish while its AHU siblings were still mid-cleaning
-  // (mode read from config, so the whole check is a single indexed lookup for
-  // the NONE/POPUP majority).
-  //
-  // `completesCycle` is the exact discriminator and the two gates cannot both
-  // fire for one cycle: it is false whenever an ACTIVE checklist follows the
-  // target stage (`hasPendingChecklistAfterTarget`), which is precisely the case
-  // submit-checklist owns. Note it uses `isActive`-filtered checklist profiles,
-  // so a pipeline pointing at a DEACTIVATED checklist — which auto-completes
-  // here — is correctly gated by this branch rather than falling through both.
-  //
-  // Placed BEFORE the returned plan (and therefore before any transaction), so a
-  // thrown 422 aborts with no partial write — same contract as submit-checklist.
-  // Offline replay is exempt inside the assert itself (D2 best-effort decision).
-  if (completesCycle) {
-    // Operator's runtime filter-set choice rides in the advance body exactly as
-    // it does in the submit-checklist body, so the server scopes to the SAME
-    // roster the pre-popup chooser showed — no UI-says-green / server-422 split.
-    const set: 'ALL' | 'SET_A' | 'SET_B' | undefined =
-      data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
-        ? data.filterSet
-        : undefined;
-    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
-    if (ahuGate?.exempt) replayExemptGates.push('AHU_COMPLETION');
-  }
-
-  // Offline exemption (see leave-gate note above): don't raise the gate for an
-  // offline-replayed entry into WASH_OUT / DRY_OUT — offline work isn't gated, so
-  // creating a PENDING approval would leave a stuck request no operator can clear.
-  const enteringInterlock =
-    interlockConfig.enabled && isInterlockStage(targetState) && !cycleWillComplete && !ctx.isOfflineReplay;
-  if (ctx.isOfflineReplay && interlockConfig.enabled && isInterlockStage(targetState) && !cycleWillComplete) {
-    replayExemptGates.push('INTERLOCK_ENTRY');
-  }
-  let interlockSnapshot: FilterApprovalDetails | null = null;
-  const interlockApproverRole: string | null = enteringInterlock
-    ? getApproverRoleForStage(targetState, interlockConfig)
-    : null;
-  if (enteringInterlock) {
-    interlockSnapshot = await collectFilterApprovalDetails(filterId);
-  }
+  // What entering the target stage means for the cycle — the A-01 carry rule,
+  // completion, the QA interlock and the AHU gate. ONE decision, shared with
+  // bypass() (stage-entry.ts, 2026-10-22).
+  const {
+    leadsToEnd, hasMoreStages, workDoneByThisCall, completesCycle,
+    enteringInterlock, interlockSnapshot, interlockApproverRole,
+  } = await decideStageEntry({
+    ctx, filterId, localCtx, cp, targetState, targetStage, dryerAction, interlockConfig,
+    composedWithChecklist: opts.composedWithChecklist === true,
+    filterSet: data.filterSet,
+    replayExemptGates,
+  });
 
   // 2026-10-12: a DISABLED checklist is skipped, not asked. Name each one this
   // transition passes over on the event, so the record says why no answers

@@ -32,6 +32,7 @@ import { computeChecksum, activeChecklistIdsAfterStage } from '../filter-operati
 import { lockAndVerifyFilterState } from '../filter-operations/cycle-write/locking.js';
 import { completeCycleTx } from '../filter-operations/cycle-write/complete-cycle.js';
 import { loadLocalContext } from '../filter-operations/local-context.js';
+import { readFilterSetChoice } from '../filter-operations/cycle-write/stage-entry.js';
 import { assertAhuInterlockSatisfied } from '../filter-operations/ahu-completion-gate.js';
 import { prettyStage } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
@@ -353,10 +354,17 @@ export const stageApprovalService = {
     // A final gated stage with nothing after it: this approval completes the
     // cycle. The AHU-completion gate is the completion's gate, checked BEFORE the
     // transaction like advance()/submit-checklist — a 422 refuses the approval
-    // and writes nothing (the approval stays PENDING).
+    // and writes nothing (the approval stays PENDING). Its roster is the filter
+    // set the OPERATOR chose on the entering advance/bypass, frozen on the row
+    // (2026-10-22): the completing advance carried that choice before; the
+    // approval is now the completing act, so it honours it.
     const completion = await approvalCompletesCycle(ctx, row);
     if (completion) {
-      await assertAhuInterlockSatisfied({ filterId: row.filterId, isOfflineReplay: false });
+      await assertAhuInterlockSatisfied({
+        filterId: row.filterId,
+        isOfflineReplay: false,
+        set: readFilterSetChoice((row.detailsSnapshot as { completionFilterSet?: unknown } | null)?.completionFilterSet),
+      });
     }
 
     const updated = await prisma.$transaction(async (tx) => {

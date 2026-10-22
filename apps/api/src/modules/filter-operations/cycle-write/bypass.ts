@@ -1,9 +1,18 @@
 /**
  * Filter Operations — bypass() implementation.
  *
- * Extracted byte-for-byte from filter-operations.service.ts. The orchestrator
- * (FilterOperationsService.bypass) is now a thin forward to this function.
- * Pure module-decomposition move; no behavioral changes.
+ * Extracted from filter-operations.service.ts. The orchestrator
+ * (FilterOperationsService.bypass) is a thin forward to this function.
+ *
+ * 2026-10-22: entering the target stage follows the SAME rules as an advance
+ * into it (stage-entry.ts decideStageEntry). A bypass into the LAST stage used
+ * to leave the cycle IN_PROGRESS there with nothing on the tape that finished
+ * it — an advance answered CYCLE_COMPLETE — so it could only be terminated.
+ * Now it completes the cycle when nothing follows the stage; carries the
+ * checklist that follows it in the same call (`answers`, composed with
+ * prepareChecklist / executeChecklistTx exactly as advance-with-checklist does);
+ * raises the QA approval at a gated final stage (the approval completes it); and
+ * at a final Dry In waits for the dryer and its readings.
  */
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
@@ -16,7 +25,16 @@ import { loadLocalContext, throwIfFailed } from '../local-context.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum } from '../helpers.js';
 import { lockAndVerifyFilterState } from './locking.js';
-import { assertStageApprovedToLeave, getInterlockConfig, isInterlockStage } from '../stage-interlock.js';
+import {
+  assertStageApprovedToLeave,
+  getInterlockConfig,
+  isInterlockStage,
+  requestStageApprovalTx,
+  notifyStageApprovalRequested,
+} from '../stage-interlock.js';
+import { completeCycleTx } from './complete-cycle.js';
+import { decideStageEntry } from './stage-entry.js';
+import { prepareChecklist, executeChecklistTx } from './submit-checklist.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
 /** @param data - Validated by Fastify JSON schema before reaching this method */
@@ -102,6 +120,25 @@ export async function bypassImpl(
     if (interlockConfig.enabled) replayExemptGates.push('INTERLOCK_LEAVE');
   }
 
+  // Entering the target stage — the advance's rules (2026-10-22). `answers` is
+  // the checklist after the target, carried in the same call.
+  const carriesChecklist = !!data.answers && typeof data.answers === 'object';
+  const targetStage = cp.stages.find(s => s.stateKey === targetState)!;
+  const entry = await decideStageEntry({
+    ctx, filterId, localCtx, cp, targetState, targetStage,
+    dryerAction: null,
+    interlockConfig: await getInterlockConfig(),
+    composedWithChecklist: carriesChecklist,
+    filterSet: data.filterSet,
+    replayExemptGates,
+  });
+  // The carried checklist belongs to the stage the bypass moves TO; every
+  // checklist gate runs here, before anything is written. It completes the cycle
+  // when the target is the final stage.
+  const clPrep = carriesChecklist
+    ? await prepareChecklist(service, ctx, filterId, data, { stateOverride: targetState, skipDedup: true })
+    : null;
+
   const eventData = {
     filterId, cycleId: filterCurrentCycleId ?? undefined,
     eventType: 'BYPASS_DEVIATION' as const,
@@ -120,7 +157,7 @@ export async function bypassImpl(
   };
   const checksum = computeChecksum(eventData);
 
-  await prisma.$transaction(async (tx) => {
+  const createdApproval = await prisma.$transaction(async (tx) => {
     // Phase 5b.4: SELECT FOR UPDATE row lock — prevents concurrent bypass
     // and concurrent advance from interleaving on the same filter.
     // Phase 8.7 follow-up: also rechecks current_cycle_id (was missing — see
@@ -145,6 +182,27 @@ export async function bypassImpl(
       data: { currentLifecycleState: targetState },
     });
 
+    // Entering a QA-gated stage raises its approval, atomic with the entry.
+    let approval: { id: string } | null = null;
+    if (entry.enteringInterlock && entry.interlockSnapshot && entry.interlockApproverRole && filterCurrentCycleId) {
+      approval = await requestStageApprovalTx(tx, {
+        cycleId: filterCurrentCycleId,
+        filterId,
+        stageKey: targetState,
+        approverRole: entry.interlockApproverRole,
+        detailsSnapshot: entry.interlockSnapshot,
+        ctx,
+      });
+    }
+
+    // A final stage with nothing after it: this bypass completes the cycle.
+    if (entry.completesCycle && filterCurrentCycleId && cycle) {
+      await completeCycleTx(tx, {
+        filterId, cycleId: filterCurrentCycleId, sequenceNumber: cycle.sequenceNumber, ctx,
+        finalStage: targetState, offlineTime, clientOpId,
+      });
+    }
+
     // Audit §1.1 (2026-05-16): audit-write inside business tx.
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole, action: 'BYPASS_DEVIATION',
@@ -156,7 +214,20 @@ export async function bypassImpl(
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
+
+    // The carried checklist: re-locks and verifies the filter is at the target
+    // stage (set above, in this tx), records it, and completes a final stage.
+    if (clPrep?.kind === 'plan') await executeChecklistTx(tx, clPrep.plan);
+    return approval;
   });
+
+  if (createdApproval && entry.interlockApproverRole) {
+    await notifyStageApprovalRequested(
+      { id: createdApproval.id, filterId, stageKey: targetState, approverRole: entry.interlockApproverRole },
+      entry.interlockSnapshot?.filterName ?? null,
+      ctx,
+    );
+  }
 
   return service.getCurrentState(ctx, filterId);
 }

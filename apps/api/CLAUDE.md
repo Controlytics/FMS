@@ -277,12 +277,16 @@ GET  /api/equipment-groups           — List equipment groups
 - **FilterCleaningProfile versioning** — immutable-rowful via `lineageId` UUID set at first create; updates archive the old row and insert a new row with `version+1` carrying the same lineageId. Cycles freeze `profileId` at start, so audit replay reads the exact archived row that was active at cycle start. Phase A.2 (2026-05-01) introduced `lineageId` (replacing `name`-based grouping) and exposed version history endpoints.
 - **FilterProfile versioning** — Phase A.3 (2026-05-01). Sidecar pattern (mirrors A.1 ChecklistProfile): `FilterProfile.version` is a monotonic counter on the live row; `FilterProfileVersion` is a snapshot-then-bump sidecar capturing the OUTGOING state on every `update()`. First version is created lazily — live row IS v1 until first edit. No cycle pinning needed because cycles already pin `cleaning_cycles.profileId` to a FilterCleaningProfile row at start; FilterProfile drift cannot reach a running cycle. Per-block override is explicitly out of scope (FilterProfile uniform across all blocks).
 - **EquipmentGroup composite versioning** — Phase A.4 (2026-05-02). Composite sidecar pattern (mirrors A.1 ChecklistProfile + questions): `EquipmentGroup.version` is the live counter, `EquipmentGroupVersion` snapshots the WHOLE composite (group + 3 instruments ordered by sortOrder) inside the same transaction as the live mutation. **P1 (2026-05-02)** added cycle-side pinning via `cleaning_cycles.equipmentGroupVersionPin Int?`. Reading validation reads `operatingMin/Max` from the pinned `EquipmentGroupVersion.snapshot.instruments[]`, with fallback to the live row when pin is NULL (legacy cycles). `FilterEvent.attributes.instrumentReadings` continues to immutably snapshot the submitted values — that's the audit-trail layer, P1 is the validation-rule layer. **Cleaning reasons are NOT versioned** — already drift-resistant via `CleaningCycle.cleaningReasonKey` + `cleaningReasonLabel` columns set at cycle start.
-- Auto-complete on last stage (STAGE leads to END node)
+- Auto-complete on last stage — at the call that FINISHES its work, the same rules for advance and bypass (2026-10-22; `cycle-write/stage-entry.ts`, see root CLAUDE.md "Pipeline Flow")
 
 ### Pipeline Flow
 CHECKLIST nodes between STAGE nodes trigger automatic question dialogs.
 Server-side enforcement: advance() blocks if pending checklist not completed.
-Cycle auto-completes when last STAGE leads to END node.
+The cycle completes at the call that finishes the LAST stage's work (2026-10-22): the entry when nothing
+enabled follows it; the checklist after it (carried on the entry, A-01); a final Dry In's readings
+(`SUBMIT_READINGS`); a final QA-gated stage's approval (`stage-approvals` `approve()`). A bypass into the
+last stage follows the same rules. Checklists between START and the first stage are asked after
+start-cycle and gate the first entry. Guard: `filter-operations/__tests__/pipeline-shape-matrix.e2e.test.ts`.
 Stage types: WASH_IN, WASH_OUT, DRY_IN, DRY_OUT, STORAGE_IN, STORAGE_OUT
 
 ---

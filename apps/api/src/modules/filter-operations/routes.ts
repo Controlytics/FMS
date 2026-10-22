@@ -595,6 +595,22 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
           targetState: { type: 'string', pattern: STATE_KEY_PATTERN },
           justification: { type: 'string', minLength: 10, maxLength: MAX_TEXT_LEN },
           parameters: { type: 'object', maxProperties: MAX_OBJECT_PROPS },
+          // 2026-10-22: a bypass into a stage enters it under the advance's rules —
+          // into the LAST stage whose checklist follows it, the checklist rides in
+          // the same call (409 CHECKLIST_REQUIRED without it, as for the advance).
+          answers: {
+            type: 'object',
+            additionalProperties: true,
+            maxProperties: MAX_OBJECT_PROPS,
+            description: 'Map of questionId -> answer value, for the checklist AFTER targetState (recorded in the same transaction)',
+          },
+          expectedProfileVersions: {
+            type: 'object',
+            additionalProperties: { type: 'integer' },
+            maxProperties: MAX_OBJECT_PROPS,
+            description: 'Client-cached version per checklistProfileId. 409 SCHEMA_DRIFT on mismatch.',
+          },
+          filterSet: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'], description: 'AHU-completion filter-set scope for the INTERLOCK gate' },
           offlinePerformedAt: { type: 'string', format: 'date-time' },
           clientOpId: { type: 'string', description: 'Client-generated UUID for idempotent replay' },
           // Phase 8.7 cutover (decision-tape architecture): required staleness guard.
@@ -631,7 +647,10 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('BYPASS_FILTER_STAGE', req, reply);
+    // Carrying the checklist performs both writes, so it clears both gates —
+    // the same pair advance-with-checklist enforces for its checklist half.
+    const carries = !!(req.body as { answers?: unknown }).answers;
+    const { ok } = await enforceReauth(carries ? ['BYPASS_FILTER_STAGE', 'SUBMIT_CHECKLIST_WITH_SIGNATURE'] : 'BYPASS_FILTER_STAGE', req, reply);
     if (!ok) return;
     const ctx = buildContext(req);
     const { id } = req.params as { id: string };

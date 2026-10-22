@@ -127,6 +127,14 @@ export interface FilterApprovalDetails {
   filterType: string | null;
   filterDimensions: string | null;
   filterSet: string | null;
+  /**
+   * The AHU-completion filter set the OPERATOR chose on the entering advance /
+   * bypass (2026-10-22) — absent when no choice was sent. Not part of the
+   * filter's identity: the operator's input, frozen with the request, which the
+   * approval's AHU gate honours when the approval completes the cycle (a final
+   * gated stage). Distinct from `filterSet`, the filter's own set.
+   */
+  completionFilterSet?: 'ALL' | 'SET_A' | 'SET_B';
 }
 
 /**

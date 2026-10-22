@@ -29,6 +29,13 @@
  * step the tape cannot offer, or a call the server refuses, ends the drive as
  * STUCK with the reason.
  *
+ * BYPASS variants (2026-10-22, follow-up 6.1): on a BYPASS_ENABLED profile the
+ * client bypasses from the first stage straight into the LAST stage, then carries
+ * on as above. A bypass into a final stage completes under the same rules as an
+ * advance into it — carrying the checklist that follows it (shared
+ * advanceMustCarryChecklist), raising the QA approval at a gated stage, and at a
+ * final Dry In waiting for the dryer (set in place) and its readings.
+ *
  * OFFLINE variants (one shape per root cause of the 2026-10-22 failures): the same
  * steps sent the way the tablet's sync engine replays them — the offline-replay
  * grant header, `offlinePerformedAt` and a `clientOpId` on every write. The
@@ -125,7 +132,7 @@ const write = (offline: boolean, url: string, payload: Record<string, unknown>) 
     : call('POST', url, opH, payload);
 
 /** START → tokens → END, chained; a FilterProfile on top. Returns ids + node ids per token. */
-async function buildPipeline(name: string, tokens: string[]) {
+async function buildPipeline(name: string, tokens: string[], flowMode: 'STRICT' | 'BYPASS_ENABLED' = 'STRICT') {
   const nodes: any[] = [{ nodeType: 'START', stateKey: null, sortOrder: 0 }];
   tokens.forEach((t, i) => {
     if (t === 'CL' || t === 'CLX') {
@@ -137,7 +144,7 @@ async function buildPipeline(name: string, tokens: string[]) {
   nodes.push({ nodeType: 'END', stateKey: null, sortOrder: tokens.length + 1 });
   const cp = await prisma.filterCleaningProfile.create({
     data: {
-      name: fx.name(name.slice(0, 40)), lineageId: randomUUID(), status: 'ACTIVE', flowMode: 'STRICT',
+      name: fx.name(name.slice(0, 40)), lineageId: randomUUID(), status: 'ACTIVE', flowMode,
       createdBy: randomUUID(), cleaningReasons: DEFAULT_REASONS as any, stages: { create: nodes },
     },
     include: { stages: true },
@@ -155,9 +162,21 @@ async function buildPipeline(name: string, tokens: string[]) {
 }
 
 type Drive = { ok: true } | { ok: false; reason: string };
+type DriveOpts = {
+  offline?: boolean;
+  /** Waiting-state checks that ran (see below). */
+  checks?: string[];
+  /** Bypass from the first stage straight into this stage (once). */
+  bypassTo?: string;
+  /** 'rule' carries the checklist the shared rule asks for; 'never' is a pre-2026-10-22 client. */
+  carry?: 'rule' | 'never';
+};
 
 /** The reference client. Returns how the drive ended. */
-async function drive(filterId: string, blockId: string, offline = false, checks: string[] = []): Promise<Drive> {
+async function drive(filterId: string, blockId: string, opts: DriveOpts = {}): Promise<Drive> {
+  const offline = opts.offline === true;
+  const checks = opts.checks ?? [];
+  let bypassed = false;
   const started = await write(offline, `/api/filters/${filterId}/start-cycle`, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: blockId });
   if (started.statusCode !== 201) return { ok: false, reason: `start-cycle ${started.statusCode} ${started.json().error}` };
   const cycleId = started.json().id as string;
@@ -187,9 +206,11 @@ async function drive(filterId: string, blockId: string, offline = false, checks:
     const cyc = s.currentCycle;
     if (atFinal && s.currentState === 'DRY_IN' && cyc.dryerStartedAt && !cyc.dryerReadingsSubmitted
       && Date.now() - new Date(cyc.dryerStartedAt).getTime() >= (cyc.dryerDurationMinutes * 60_000) / 2) {
-      // A final Dry In at half time: the readings — and only the readings — finish it.
+      // A final Dry In at half time: the readings — and only the readings — finish
+      // it (a bypass elsewhere stays available on a BYPASS_ENABLED profile: it is
+      // the justified deviation, not a way to finish the stage).
       checks.push('final-dry-in');
-      if (JSON.stringify(onward) !== '["SUBMIT_DRYER_READINGS"]') return { ok: false, reason: `final Dry In offers [${onward.join(', ')}], not just the readings` };
+      if (JSON.stringify(onward.filter((t) => t !== 'BYPASS_STAGE')) !== '["SUBMIT_DRYER_READINGS"]') return { ok: false, reason: `final Dry In offers [${onward.join(', ')}], not just the readings` };
     }
 
     // QA stage interlock: the approver releases the operator.
@@ -200,11 +221,33 @@ async function drive(filterId: string, blockId: string, offline = false, checks:
     }
 
     const actions: any[] = s.actions ?? [];
+    const tapeVersion = s.tapeVersion;
+
+    // Bypass variant: from the first stage straight into the target stage.
+    if (opts.bypassTo && !bypassed && s.currentState && s.currentState !== opts.bypassTo) {
+      const byp = actions.find((a) => a.type === 'BYPASS_STAGE' && a.params.targetState === opts.bypassTo);
+      if (byp) {
+        bypassed = true;
+        const entry = s.stageLookup?.[opts.bypassTo];
+        const answers: Record<string, string> = {};
+        if (opts.carry !== 'never' && advanceMustCarryChecklist(entry, s.disabledChecklistProfileIds, { targetState: opts.bypassTo })) {
+          for (const p of entry.pendingChecklistProfileIds) for (const q of questionsByProfile.get(p) ?? []) answers[q] = 'YES';
+        }
+        const b = await write(offline, `/api/filters/${filterId}/bypass`, {
+          targetState: opts.bypassTo, justification: 'line down - deviation recorded', tapeVersion,
+          ...(Object.keys(answers).length ? { answers } : {}),
+        });
+        if (b.statusCode !== 200) return { ok: false, reason: `bypass ${at} → ${opts.bypassTo}: ${b.statusCode} ${b.json().error}` };
+        // A bypass that carried the checklist is the stage's completing act.
+        if (Object.keys(answers).length && b.json().currentCycle) return { ok: false, reason: `bypass into ${opts.bypassTo} carried its checklist but did not complete the cycle` };
+        continue;
+      }
+    }
+
     const checklists = actions.filter((a) => a.type === 'SUBMIT_CHECKLIST');
     const readings = actions.find((a) => a.type === 'SUBMIT_DRYER_READINGS');
     const setDur = actions.find((a) => a.type === 'SET_DRYER_DURATION');
     const adv = actions.find((a) => a.type === 'ADVANCE_TO_STAGE');
-    const tapeVersion = s.tapeVersion;
 
     let r;
     let what = '';
@@ -293,7 +336,7 @@ afterAll(async () => {
   try { await fx.cleanup(); } finally { await app?.close(); }
 }, 120_000);
 
-async function runCase(shape: string, tokens: string[], variant: Variant, offline: boolean) {
+async function runCase(shape: string, tokens: string[], variant: Variant, offline: boolean, bypass?: { carry: 'rule' | 'never' }) {
   cfg.enabled = variant.interlock;
   internalErrors.length = 0;
   const block = await fx.node('BLOCK', 'B');
@@ -305,28 +348,30 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
       { stageKey: 'WASH_IN', min: 10, max: 20 }, { stageKey: 'WASH_IN', min: 1, max: 5 }, { stageKey: 'DRY_IN', min: 60, max: 80 },
     ]);
   }
-  const { filterProfileId, checklistNodes } = await buildPipeline(shape, tokens);
+  const stages = tokens.filter((t) => t !== 'CL' && t !== 'CLX');
+  const last = stages[stages.length - 1];
+  const { filterProfileId, checklistNodes } = await buildPipeline(shape, tokens, bypass ? 'BYPASS_ENABLED' : 'STRICT');
   const f = await fx.filter('F', ahu, filterProfileId);
 
   const checks: string[] = [];
-  const outcome = await drive(f, block, offline, checks);
+  const outcome = await drive(f, block, { offline, checks, ...(bypass ? { bypassTo: last, carry: bypass.carry } : {}) });
   const problems: string[] = outcome.ok ? [] : [outcome.reason];
 
   if (outcome.ok) {
     const cycle = (await prisma.cleaningCycle.findFirst({ where: { filterId: f } }))!;
     const events = await prisma.filterEvent.findMany({ where: { cycleId: cycle.id }, orderBy: { performedAt: 'asc' } });
     // Every stage entered, in pipeline order (in-place dryer steps are not entries).
+    // A bypass is an entry too: the bypass variants enter the first and the last stage.
     const entered = events
-      .filter((e) => e.eventType === 'STATE_TRANSITION' && !!e.toState && isEntryIntoStage(e, e.toState))
+      .filter((e) => (e.eventType === 'STATE_TRANSITION' || e.eventType === 'BYPASS_DEVIATION') && !!e.toState && isEntryIntoStage(e, e.toState))
       .map((e) => e.toState);
-    const stages = tokens.filter((t) => t !== 'CL' && t !== 'CLX');
+    const expected = bypass ? [stages[0], last] : stages;
     // The waiting-state checks in drive() really ran where they apply.
-    const last = stages[stages.length - 1];
     if (last === 'DRY_IN' && !checks.includes('final-dry-in')) problems.push('final Dry In offer never checked');
     if (variant.interlock && !offline && (last === 'WASH_OUT' || last === 'DRY_OUT') && !checks.includes('final-pending')) {
       problems.push('final gated stage offer never checked');
     }
-    if (JSON.stringify(entered) !== JSON.stringify(stages)) problems.push(`entered ${JSON.stringify(entered)} ≠ ${JSON.stringify(stages)}`);
+    if (JSON.stringify(entered) !== JSON.stringify(expected)) problems.push(`entered ${JSON.stringify(entered)} ≠ ${JSON.stringify(expected)}`);
     if (events.filter((e) => e.eventType === 'CYCLE_COMPLETED').length !== 1) problems.push('CYCLE_COMPLETED not exactly once');
     // Every enabled checklist node recorded once; disabled never.
     const recorded = new Map<string, number>();
@@ -339,7 +384,7 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
       if (!n.enabled && got !== 0) problems.push(`disabled checklist recorded ${got}×`);
     }
     // Dryer timing (+ the temperature when a Dry In instrument exists).
-    if (stages.includes('DRY_IN')) {
+    if (expected.includes('DRY_IN')) {
       if (!cycle.dryerStartedAt || !cycle.dryerDurationMinutes) problems.push('dryer never started');
       if (!cycle.dryerReadingsSubmitted) problems.push('dryer readings never submitted');
       if (variant.group === true && !events.some((e) => (e.attributes as any)?.action === 'DRYER_READINGS_SUBMITTED' && ((e.attributes as any)?.instrumentReadings ?? []).length > 0)) {
@@ -348,12 +393,16 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
     }
     // Offline: every write really took the replay path (it records the skipped re-auth).
     if (offline) {
-      const writes = events.filter((e) => e.eventType === 'STATE_TRANSITION' || e.eventType === 'CHECKLIST_COMPLETED');
+      const writes = events.filter((e) => ['STATE_TRANSITION', 'CHECKLIST_COMPLETED', 'BYPASS_DEVIATION'].includes(e.eventType));
       if (writes.some((e) => !((e.attributes as any)?.replayExemptGates ?? []).includes('REAUTH'))) problems.push('a write did not go through offline replay');
     }
   }
   if (internalErrors.length) problems.push(`500: ${internalErrors.map((e) => e.err.message).join('; ')}`);
-  results.push({ shape, variant: vLabel({ ...variant, offline }), outcome: problems.length ? problems.join(' / ') : 'COMPLETES' });
+  results.push({
+    shape: bypass ? `${shape} — bypass into ${last}${bypass.carry === 'never' ? ' (old client)' : ''}` : shape,
+    variant: vLabel({ ...variant, offline }),
+    outcome: problems.length ? problems.join(' / ') : 'COMPLETES',
+  });
   return problems;
 }
 
@@ -374,6 +423,45 @@ describe('pipeline shapes — a group with no Dry In instrument', () => {
   it.each(NO_DRY_IN_INSTRUMENT)('%s completes (offline replay: %s)', async (shape, offline) => {
     const tokens = SHAPES.find(([n]) => n === shape)![1];
     expect(await runCase(shape, tokens, { interlock: false, group: 'washOnly' }, offline)).toEqual([]);
+  });
+});
+
+// 6.1 (2026-10-22): a bypass into the LAST stage completes under the advance's rules.
+const BYPASS_CASES: Array<[shape: string, variant: Variant, offline: boolean, carry: 'rule' | 'never']> = [
+  ['standard six stages', { interlock: false, group: true }, false, 'rule'],                    // final, nothing after → completes on the bypass
+  ['Wash Out last', { interlock: false, group: false }, false, 'rule'],
+  ['Wash Out last', { interlock: true, group: false }, false, 'rule'],                   // gated → PENDING → the approval completes
+  ['checklist after the last stage', { interlock: false, group: false }, false, 'rule'], // carries the checklist → completes
+  ['Wash Out last + checklist', { interlock: true, group: false }, false, 'rule'],       // gated → approval → the checklist completes
+  ['Dry In last', { interlock: false, group: true }, false, 'rule'],                     // dryer set in place → readings complete
+  ['Dry In last + checklist', { interlock: false, group: true }, false, 'rule'],         // readings + checklist complete
+  ['Dry Out last', { interlock: true, group: true }, false, 'rule'],                     // gated Dry Out, Dry In skipped
+  ['standard six stages', { interlock: false, group: false }, true, 'rule'],
+  ['checklist after the last stage', { interlock: false, group: false }, true, 'rule'],
+  ['checklist after the last stage', { interlock: false, group: false }, true, 'never'], // old queue: bare bypass, then the checklist
+  ['Wash Out last', { interlock: true, group: false }, true, 'rule'],                    // offline is never gated: completes on the bypass
+];
+
+describe('pipeline shapes — bypass into the last stage', () => {
+  it.each(BYPASS_CASES)('%s %o (offline %s, carry %s) completes', async (shape, variant, offline, carry) => {
+    const tokens = SHAPES.find(([n]) => n === shape)![1];
+    expect(await runCase(shape, tokens, variant, offline, { carry })).toEqual([]);
+  });
+
+  it('online, a BARE bypass into a final stage whose checklist follows it is refused like the advance (409 CHECKLIST_REQUIRED), nothing written', async () => {
+    cfg.enabled = false;
+    const block = await fx.node('BLOCK', 'BB');
+    const ahu = await fx.node('AHU', 'BA', block);
+    const { filterProfileId } = await buildPipeline('bypass bare final checklist', ['WASH_IN', 'STORAGE_IN', 'CL'], 'BYPASS_ENABLED');
+    const f = await fx.filter('BF', ahu, filterProfileId);
+    expect((await call('POST', `/api/filters/${f}/start-cycle`, opH, { cleaningReasonKey: 'ROUTINE', cleaningAreaId: block })).statusCode).toBe(201);
+    let s = (await call('GET', `/api/filters/${f}/current-state`, opH)).json();
+    expect((await call('POST', `/api/filters/${f}/advance`, opH, { targetState: 'WASH_IN', tapeVersion: s.tapeVersion })).statusCode).toBe(200);
+    s = (await call('GET', `/api/filters/${f}/current-state`, opH)).json();
+    const res = await call('POST', `/api/filters/${f}/bypass`, opH, { targetState: 'STORAGE_IN', justification: 'line down - deviation recorded', tapeVersion: s.tapeVersion });
+    expect([res.statusCode, res.json().error]).toEqual([409, 'CHECKLIST_REQUIRED']);
+    expect(await prisma.filterEvent.count({ where: { filterId: f, eventType: 'BYPASS_DEVIATION' } })).toBe(0);
+    expect((await prisma.filterDetails.findUnique({ where: { assetInstanceId: f } }))!.currentLifecycleState).toBe('WASH_IN');
   });
 });
 

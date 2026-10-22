@@ -222,13 +222,28 @@ Response: { filter, currentStage, nextActions[], pendingChecklist?, cycle? }
 POST /api/filters/:id/start-cycle      Permission: FILTER_OPERATE, Reauth: START_CLEANING_CYCLE
 Body: { cleaningReasonKey, cleaningJustification?, equipmentGroupId? }
 
-POST /api/filters/:id/advance          Permission: FILTER_OPERATE
-Body: { remarks? }
+POST /api/filters/:id/advance          Permission: FILTER_OPERATE, Reauth: ADVANCE_FILTER_STAGE (+ the STAGE_* row of targetState)
+Body: { targetState, tapeVersion, remarks?, equipmentGroupId?, instrumentReadings?, readingSources?,
+        dryerAction?: 'SET_DURATION' | 'SUBMIT_READINGS', dryerDurationMinutes?, filterSet?: 'ALL' | 'SET_A' | 'SET_B',
+        offlinePerformedAt?, clientOpId? }
+  409 CHECKLIST_REQUIRED: into the LAST stage whose enabled checklist follows it (A-01) - use
+  /advance-with-checklist. A final Dry In completes on its SUBMIT_READINGS call, never at dryer start.
 
-POST /api/filters/:id/bypass           Permission: FILTER_OPERATE
-Body: { reason, remarks }
+POST /api/filters/:id/advance-with-checklist   Permission: FILTER_OPERATE,
+     Reauth: ADVANCE_FILTER_STAGE + SUBMIT_CHECKLIST_WITH_SIGNATURE (+ the STAGE_* row of targetState)
+Body: the /advance fields + { answers, expectedProfileVersions? } (required: targetState, answers, tapeVersion)
+  The entry and the checklist after it are ONE transaction.
 
-POST /api/filters/:id/submit-checklist Permission: FILTER_OPERATE, Reauth: SUBMIT_CHECKLIST
+POST /api/filters/:id/bypass           Permission: FILTER_BYPASS, Reauth: BYPASS_FILTER_STAGE
+                                       (+ SUBMIT_CHECKLIST_WITH_SIGNATURE when `answers` is sent)
+Body: { targetState, justification (10+ chars), tapeVersion, parameters?, answers?, expectedProfileVersions?,
+        filterSet?, offlinePerformedAt?, clientOpId? }
+  Records a BYPASS_DEVIATION. Since 2026-10-22 it enters the target under the advance's rules
+  (cycle-write/stage-entry.ts decideStageEntry): into the last stage it completes the cycle; with a
+  checklist after that stage the answers ride in the same call (409 CHECKLIST_REQUIRED without them);
+  into a QA-gated stage it raises the approval. No web or tablet page calls it today.
+
+POST /api/filters/:id/submit-checklist Permission: FILTER_OPERATE, Reauth: SUBMIT_CHECKLIST_WITH_SIGNATURE
 Body: { answers: { [questionId]: answer },
         offlinePerformedAt?: ISO timestamp,         // Phase 5b.1: regulatory time
         clientOpId?: UUID,                          // idempotent replay

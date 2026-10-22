@@ -300,12 +300,37 @@ GET  /api/config/password-policy/current — Password policy (public endpoint)
 ## Pipeline Flow
 - CHECKLIST nodes between STAGE nodes trigger automatic question dialogs
 - Server-side enforcement: `advance()` blocks if pending checklist not completed
-- Cycle auto-completes when last STAGE leads to END node
+- 🔴 **Every pipeline shape completes (2026-10-22, operator: "any stage anywhere and checklist also").**
+  The cycle completes at the call that FINISHES the last stage's work — the same rules for an advance
+  and a bypass (`cycle-write/stage-entry.ts` `decideStageEntry`; one write set, `complete-cycle.ts`):
+  - last stage, nothing enabled after it → on the entry (advance or bypass);
+  - last stage with an enabled checklist after it → on that checklist, carried on the entry (A-01 below);
+  - last **Dry In** → on its readings (`SUBMIT_READINGS`), never at dryer start (shared
+    `callCompletesStageWork`); the checklist after it rides on the readings call;
+  - last **QA-gated** stage (interlock on, online) → the entry raises PENDING and the **approval**
+    completes the cycle, as the approver, under the approval's signature (`stage-approvals` `approve()`;
+    its AHU gate uses the operator's set choice frozen on the approval, `completionFilterSet`). With a
+    checklist after it, the checklist answered after approval completes it. A composed entry (carrying
+    answers) still answers 422 `INTERLOCK_TERMINAL_STAGE`; offline replay is never gated (completes,
+    recorded `INTERLOCK_TERMINAL`).
+  - Checklists between START and the first stage are asked after start-cycle (`afterStage: null`) and
+    gate the first entry (`CHECKLIST_PENDING`; an older tablet's offline queue is applied, recorded
+    `START_CHECKLIST`). An in-place dryer step is not an entry into Dry In (shared `isEntryIntoStage`),
+    so it never voids an answered checklist; "answered" is ONE rule, `checklistAnsweredInCurrentEntry`,
+    for the gate, the tape and current-state.
+  - Regression guard: `apps/api/src/modules/filter-operations/__tests__/pipeline-shape-matrix.e2e.test.ts`
+    drives every shape × interlock × equipment group, plus bypass and offline-replay variants, through
+    the real routes. Add the shape there before changing any of these rules.
 - Stage chain may include multiple consecutive CHECKLIST nodes — server uses `stageLookup` to resolve
-- 🔴 **Final stage + checklist = ONE call (2026-10-21, A-01).** A bare `/advance` into the last stage whose
-  enabled checklist follows it is refused online (409 `CHECKLIST_REQUIRED`); clients use
-  `/advance-with-checklist`. Exceptions: a QA-interlock final stage (enter → PENDING approval → checklist
-  after approval) and offline replay (applied, recorded `replayExemptGates: TERMINAL_CHECKLIST`).
+- 🔴 **Final stage + checklist = ONE call (2026-10-21, A-01).** A bare `/advance` — or `/bypass`, since
+  2026-10-22 — into the last stage whose enabled checklist follows it is refused online (409
+  `CHECKLIST_REQUIRED`); the server contract is `/advance-with-checklist`, or `/bypass` with `answers`.
+  Exceptions: a QA-interlock final stage (enter → PENDING approval → checklist after approval), the entry
+  into a final Dry In (the checklist rides on `SUBMIT_READINGS` through `/advance-with-checklist`), and
+  offline replay (applied, recorded `replayExemptGates: TERMINAL_CHECKLIST`). ⚠ As of 2026-10-22 the
+  SERVER implements the Dry In / START-checklist / bypass parts; the web + tablet half (readings carrying
+  the checklist at a final Dry In, asking the START checklist, readings with no Dry In instrument) is
+  scheduled, not shipped. No web or tablet page issues `/bypass` at all today (API only).
 - 🔴 **A DISABLED checklist is skipped wherever it sits (2026-10-12)** — mid-pipeline and before END
   alike, read live (not pinned at cycle start). One rule: `enabledChecklistNodes()` (shared
   `transitions.ts`) over `LocalContext.disabledChecklistProfileIds`, filled by

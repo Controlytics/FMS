@@ -16,11 +16,13 @@
  *  - `createNotification`: passes through to the real function unless a test
  *    flips `notify.fail`, to show a notification failure never undoes a decision.
  *  - `assertAhuInterlockSatisfied` (ahu-completion-gate.js): passes through
- *    unless a test flips `ahuGate.refuse`. The AHU-completion mode lives in the
- *    shared `system_config['ahu-completion-process']` row (and the gate reads it
- *    from inside its own module, out of a mock's reach), so a refusal is
- *    simulated at the export the approval calls — to show a refused completion
- *    gate refuses the approval and writes nothing.
+ *    unless a test flips `ahuGate.refuse` or `ahuGate.interlock`. The
+ *    AHU-completion mode lives in the shared `system_config['ahu-completion-process']`
+ *    row (and the gate reads it from inside its own module, out of a mock's
+ *    reach), so INTERLOCK mode is simulated at the export the approval calls:
+ *    `refuse` always answers 422; `interlock` answers 422 exactly when the REAL
+ *    roster computation (`computeAhuCompletionStatus`, with the set the caller
+ *    passed) finds a sibling not ready — so the set choice is exercised for real.
  *
  * queue / list are only ever called as non-SUPER_ADMIN users in this file's own
  * roles: as SUPER_ADMIN, queue() supersedes EVERY orphaned PENDING approval in
@@ -32,7 +34,7 @@ import type { FastifyInstance } from 'fastify';
 
 const cfg = vi.hoisted(() => ({ enabled: true, washOutApproverRole: 'UNSET', dryOutApproverRole: 'UNSET' }));
 const notify = vi.hoisted(() => ({ fail: false }));
-const ahuGate = vi.hoisted(() => ({ refuse: false, calls: [] as string[] }));
+const ahuGate = vi.hoisted(() => ({ refuse: false, interlock: false, calls: [] as Array<{ filterId: string; set: string | undefined }> }));
 vi.mock('../../filter-operations/stage-interlock.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../filter-operations/stage-interlock.js')>();
   return { ...actual, getInterlockConfig: async () => ({ ...cfg }) };
@@ -43,9 +45,17 @@ vi.mock('../../filter-operations/ahu-completion-gate.js', async (importOriginal)
   return {
     ...actual,
     assertAhuInterlockSatisfied: async (params: Parameters<typeof actual.assertAhuInterlockSatisfied>[0]) => {
-      ahuGate.calls.push(params.filterId);
+      ahuGate.calls.push({ filterId: params.filterId, set: params.set });
       if (ahuGate.refuse) {
         throw new AppError(422, 'AHU_INTERLOCK_PENDING', 'All filters belonging to this AHU must be ready for the final cleaning stage before submission.');
+      }
+      if (ahuGate.interlock && !params.isOfflineReplay) {
+        const ahuId = await actual.resolveAhuId(params.filterId);
+        const status = ahuId ? await actual.computeAhuCompletionStatus(ahuId, params.filterId, params.set) : null;
+        if (status && !status.allAtFinal) {
+          throw new AppError(422, 'AHU_INTERLOCK_PENDING', 'All filters belonging to this AHU must be ready for the final cleaning stage before submission.', { pendingFilters: status.pending });
+        }
+        return { exempt: false };
       }
       return actual.assertAhuInterlockSatisfied(params);
     },
@@ -77,7 +87,7 @@ let apr2H: Record<string, string>;
 let otherH: Record<string, string>;
 let sa: { id: string; username: string }; let saH: Record<string, string>;
 let opGrant = '';
-let B1 = ''; let FP = ''; let FP_BYP = ''; let FP_TERM = ''; let FP_CLWO = ''; let CLQ = '';
+let B1 = ''; let FP = ''; let FP_BYP = ''; let FP_TERM = ''; let FP_BYP_TERM = ''; let FP_CLWO = ''; let CLQ = '';
 let CP = '';
 
 const call = (method: 'GET' | 'POST', url: string, h: Record<string, string>, payload?: Record<string, unknown>) =>
@@ -137,6 +147,7 @@ beforeAll(async () => {
   ({ filterProfileId: FP, cleaningProfileId: CP } = await fx.pipeline({ name: 'INT', stages }, sa.id));
   ({ filterProfileId: FP_BYP } = await fx.pipeline({ name: 'IBYP', stages, flowMode: 'BYPASS_ENABLED' }, sa.id));
   ({ filterProfileId: FP_TERM } = await fx.pipeline({ name: 'ITERM', stages: ['WASH_IN', 'WASH_OUT'] }, sa.id));
+  ({ filterProfileId: FP_BYP_TERM } = await fx.pipeline({ name: 'IBTRM', stages: ['WASH_IN', 'WASH_OUT'], flowMode: 'BYPASS_ENABLED' }, sa.id));
   const cl = await fx.checklist('WOCL', [{ question: 'Wash out inspected?' }]);
   CLQ = cl.questionIds[0];
   ({ filterProfileId: FP_CLWO } = await fx.pipeline({ name: 'ICLWO', stages: ['WASH_IN', 'WASH_OUT'], checklistAfter: { 1: cl.id } }, sa.id));
@@ -152,7 +163,7 @@ afterAll(async () => {
   try { await fx.cleanup(); } finally { await app?.close(); }
 }, 60_000);
 
-beforeEach(() => { internalErrors.length = 0; cfg.enabled = true; notify.fail = false; ahuGate.refuse = false; ahuGate.calls.length = 0; });
+beforeEach(() => { internalErrors.length = 0; cfg.enabled = true; notify.fail = false; ahuGate.refuse = false; ahuGate.interlock = false; ahuGate.calls.length = 0; });
 
 describe('the operator side: entering a gated stage raises the gate', () => {
   let ctx: Awaited<ReturnType<typeof atWashOut>>;
@@ -451,13 +462,13 @@ describe('self-heal: a filter parked at a gated stage with no approval', () => {
 
 describe('a FINAL gated stage with nothing after it: the approval completes the cycle (2026-10-22)', () => {
   /** WASH_IN → WASH_OUT (gated, last, no checklist) → END, parked at Wash Out with its approval PENDING. */
-  async function atFinalWashOut(label: string) {
-    const ahu = await fx.node('AHU', `AHU-${label}`, B1);
-    const f = await fx.filter(label, ahu, FP_TERM);
+  async function atFinalWashOut(label: string, opts: { ahu?: string; ownSet?: 'SET_A' | 'SET_B'; chosenSet?: 'SET_A' | 'SET_B' | 'ALL' } = {}) {
+    const ahu = opts.ahu ?? await fx.node('AHU', `AHU-${label}`, B1);
+    const f = await fx.filter(label, ahu, FP_TERM, opts.ownSet ? { filterSet: opts.ownSet } : {});
     const cycleId = await start(f);
     expect((await advance(f, { targetState: 'WASH_IN' })).statusCode).toBe(200);
     // Used to be 422 INTERLOCK_TERMINAL_STAGE: such a pipeline could never complete online.
-    const entered = await advance(f, { targetState: 'WASH_OUT' });
+    const entered = await advance(f, { targetState: 'WASH_OUT', ...(opts.chosenSet ? { filterSet: opts.chosenSet } : {}) });
     expect(entered.statusCode).toBe(200);
     expect(entered.json().currentState).toBe('WASH_OUT');
     expect((await state(f)).interlock).toMatchObject({ status: 'PENDING', blocksLeaving: true });
@@ -471,7 +482,7 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
     const c = await atFinalWashOut('FIN');
     const res = await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H, { remarks: 'final wash ok' });
     expect(res.statusCode).toBe(200);
-    expect(ahuGate.calls).toEqual([c.f]);
+    expect(ahuGate.calls).toEqual([{ filterId: c.f, set: undefined }]);
 
     expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
     expect(await prisma.filterDetails.findUnique({ where: { assetInstanceId: c.f } }))
@@ -511,6 +522,51 @@ describe('a FINAL gated stage with nothing after it: the approval completes the 
     ahuGate.refuse = false;
     expect((await signed(`/api/stage-approvals/${c.approvalId}/approve`, apr1H)).statusCode).toBe(200);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: c.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+  });
+
+  it('the AHU gate at approval uses the set the OPERATOR chose on the entering advance, not the filter\'s own set', async () => {
+    // AHU with a SET_A sibling that never started a cycle: it is NOT ready, so it
+    // blocks an AHU-completion check over ALL filters or over SET_A.
+    const ahu = await fx.node('AHU', 'AHU-SETS', B1);
+    await fx.filter('SIB-A', ahu, FP_TERM, { filterSet: 'SET_A' });
+    ahuGate.interlock = true;
+
+    // The filter's own set is SET_A; at the entering advance the operator chose SET_B.
+    const chose = await atFinalWashOut('SETB', { ahu, ownSet: 'SET_A', chosenSet: 'SET_B' });
+    const row = await prisma.cleaningStageApproval.findUnique({ where: { id: chose.approvalId } });
+    expect((row!.detailsSnapshot as any).completionFilterSet).toBe('SET_B');
+    const ok = await signed(`/api/stage-approvals/${chose.approvalId}/approve`, apr1H);
+    expect(ok.statusCode).toBe(200);
+    expect(ahuGate.calls).toEqual([{ filterId: chose.f, set: 'SET_B' }]);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: chose.cycleId } })).toMatchObject({ status: 'COMPLETED' });
+
+    // Control: no choice on the advance → the whole roster → the SET_A sibling blocks.
+    ahuGate.calls.length = 0;
+    const none = await atFinalWashOut('SETNONE', { ahu, ownSet: 'SET_A' });
+    const refused = await signed(`/api/stage-approvals/${none.approvalId}/approve`, apr1H);
+    expect([refused.statusCode, refused.json().error]).toEqual([422, 'AHU_INTERLOCK_PENDING']);
+    expect(ahuGate.calls).toEqual([{ filterId: none.f, set: undefined }]);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: none.cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
+  });
+
+  it('a BYPASS into the final gated stage raises the approval with the bypass (and its set choice); the approval completes the cycle', async () => {
+    const ahu = await fx.node('AHU', 'AHU-BYPFIN', B1);
+    const f = await fx.filter('BYPFIN', ahu, FP_BYP_TERM, { filterSet: 'SET_A' });
+    const cycleId = await start(f);
+    expect((await advance(f, { targetState: 'WASH_IN' })).statusCode).toBe(200);
+    const byp = await signed(`/api/filters/${f}/bypass`, opH, {
+      targetState: 'WASH_OUT', justification: 'wash line deviation recorded', filterSet: 'SET_B', tapeVersion: (await state(f)).tapeVersion,
+    });
+    expect(byp.statusCode).toBe(200);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: cycleId } })).toMatchObject({ status: 'IN_PROGRESS' });
+    const [row] = await approvals(f);
+    // Raised by the bypass itself (a self-healed one could not know the operator's choice).
+    expect(row).toMatchObject({ status: 'PENDING', stageKey: 'WASH_OUT', requestedBy: op.id });
+    expect((row.detailsSnapshot as any).completionFilterSet).toBe('SET_B');
+    expect((await signed(`/api/stage-approvals/${row.id}/approve`, apr1H)).statusCode).toBe(200);
+    expect(ahuGate.calls).toEqual([{ filterId: f, set: 'SET_B' }]);
+    expect(await prisma.cleaningCycle.findUnique({ where: { id: cycleId } })).toMatchObject({ status: 'COMPLETED' });
+    expect(await prisma.filterEvent.count({ where: { cycleId, eventType: 'CYCLE_COMPLETED' } })).toBe(1);
   });
 
   it('bulk-decide (the page\'s select-all) completes it the same way', async () => {

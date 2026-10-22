@@ -357,26 +357,45 @@ describe('bypass', () => {
     expect([res.statusCode, res.json().error]).toEqual([400, 'INVALID_TARGET']);
   });
 
+  // Into a MID stage (WASH_OUT): the bypass moves the filter and the cycle runs on.
+  // (Into the last stage it completes the cycle — the next test, 2026-10-22.)
   it('records a deviation event + audit row and moves the filter', async () => {
-    const res = await post(`/api/filters/${f}/bypass`, { targetState: 'STORAGE_IN', justification: 'wash line down for repair', clientOpId: op, tapeVersion: await tape(f) });
+    const res = await post(`/api/filters/${f}/bypass`, { targetState: 'WASH_OUT', justification: 'wash line down for repair', clientOpId: op, tapeVersion: await tape(f) });
     expect(res.statusCode).toBe(200);
-    expect(res.json().currentState).toBe('STORAGE_IN');
+    expect(res.json().currentState).toBe('WASH_OUT');
     const ev = await events(f, 'BYPASS_DEVIATION');
     expect(ev).toHaveLength(1);
-    expect(ev[0]).toMatchObject({ fromState: 'WASH_IN', toState: 'STORAGE_IN', remarks: 'wash line down for repair' });
-    expect(ev[0].deviationDetails).toMatchObject({ type: 'BYPASS', fromState: 'WASH_IN', toState: 'STORAGE_IN' });
+    expect(ev[0]).toMatchObject({ fromState: 'WASH_IN', toState: 'WASH_OUT', remarks: 'wash line down for repair' });
+    expect(ev[0].deviationDetails).toMatchObject({ type: 'BYPASS', fromState: 'WASH_IN', toState: 'WASH_OUT' });
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'BYPASS_DEVIATION', targetId: f } });
-    expect(audit!.afterValue).toMatchObject({ state: 'STORAGE_IN', justification: 'wash line down for repair' });
+    expect(audit!.afterValue).toMatchObject({ state: 'WASH_OUT', justification: 'wash line down for repair' });
+    expect(await events(f, 'CYCLE_COMPLETED')).toHaveLength(0);
   });
 
   it('a retry with the same op id is a no-op, also after the cycle has ended', async () => {
-    const again = await post(`/api/filters/${f}/bypass`, { targetState: 'STORAGE_IN', justification: 'wash line down for repair', clientOpId: op, tapeVersion: 0 });
+    const again = await post(`/api/filters/${f}/bypass`, { targetState: 'WASH_OUT', justification: 'wash line down for repair', clientOpId: op, tapeVersion: 0 });
     expect(again.statusCode).toBe(200);
     const term = await post(`/api/filters/${f}/terminate-cycle`, { justification: 'cycle abandoned after bypass', tapeVersion: await tape(f) });
     expect(term.statusCode).toBe(200);
-    const late = await post(`/api/filters/${f}/bypass`, { targetState: 'STORAGE_IN', justification: 'wash line down for repair', clientOpId: op, tapeVersion: 0 });
+    const late = await post(`/api/filters/${f}/bypass`, { targetState: 'WASH_OUT', justification: 'wash line down for repair', clientOpId: op, tapeVersion: 0 });
     expect(late.statusCode).toBe(200);
     expect(await events(f, 'BYPASS_DEVIATION')).toHaveLength(1);
+  });
+
+  it('into the LAST stage with nothing after it, the bypass completes the cycle (2026-10-22: it used to strand it there)', async () => {
+    const g = await fx.filter('BYPF', AHU1, FP_BYP);
+    const cycleId = (await start(g)).id;
+    expect((await advance(g, { targetState: 'WASH_IN' })).statusCode).toBe(200);
+    const res = await post(`/api/filters/${g}/bypass`, { targetState: 'STORAGE_IN', justification: 'wash line down for repair', tapeVersion: await tape(g) });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().currentCycle).toBeNull();
+    expect(res.json().currentState).toBe('CLEANING_CYCLE_COMPLETED');
+    expect(await events(g, 'BYPASS_DEVIATION')).toHaveLength(1);
+    const done = await events(g, 'CYCLE_COMPLETED');
+    expect(done).toHaveLength(1);
+    expect(done[0].cycleId).toBe(cycleId);
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'CYCLE_COMPLETED', targetId: g } });
+    expect(audit!.afterValue).toMatchObject({ finalStage: 'STORAGE_IN' });
   });
 
   it('an offline bypass is applied with its instant, marked offline, and the skipped re-auth recorded', async () => {
