@@ -3,9 +3,9 @@
 Deliverable 04 of the production-readiness campaign (rules: `test-results/README.md`). Two parts:
 
 1. **Role × route permission matrix** — QA Phase 4 re-run at `723afdd` (qa-phase4-matrix), §1.
-2. **Write-path abuse** — QA Phase 5 re-run at `ebb5244` (qa-phase5-writes), §2.
+2. **Write-path abuse** — QA Phase 5 re-run at `e7312ca` (qa-phase5-writes), §2.
 
-The two parts measured different commits. §1 ran at the later `723afdd`, where SEC-03 (`4eeb864`) had removed `POST /api/notification-settings/send`, so it answers 404 to every role there. §2's note that the route still answers 200 to ADMIN describes `ebb5244`, not a defect at `723afdd`.
+The two parts measured different commits: §1 at `723afdd`, §2 at the later `e7312ca`. Both include SEC-03 (`4eeb864`), so `POST /api/notification-settings/send` answers 404 to every role in both.
 
 ---
 
@@ -153,92 +153,98 @@ The first pass at `ebb5244` is in `QA/results/phase4/2026-10-22-ebb5244/`.
 
 ---
 
-## 2. Write-path abuse — QA Phase 5 re-run on HEAD — EXECUTED 2026-10-22
+## 2. Write-path abuse — QA Phase 5 re-run at `e7312ca` — EXECUTED 2026-10-22
 
-Baseline: `QA/PHASE5_WRITE_ABUSE.md` (EXECUTED 2026-10-21 against the then-current build on :3104).
-Everything below was re-run; the 2026-10-21 numbers appear only as the "before" column of the diff.
+Baseline: `QA/PHASE5_WRITE_ABUSE.md` (EXECUTED 2026-10-21 on the :3104 build, before `70adf40`). Every
+category was re-run twice today: first at `ebb5244`, then — because OD-01 part 2 (`8372478`), SEC-03
+(`4eeb864`) and the identifier-lock follow-up (`dfa6073`) landed during the run — again in full at
+**`e7312ca`** (HEAD at 20:45). The results below are `e7312ca`; the `ebb5244` run is kept only to show
+which commit moved each verdict (`QA/results/phase5-rerun-ebb5244/`).
 
 ### 2.1 Set-up
 
 | Item | Value |
 |---|---|
-| Source | git worktree **pinned at `ebb5244`** (HEAD when the run started), `tsx` from source. The main tree held 58 uncommitted files from in-flight work (OD-01 part 2, SEC-03 `/send` removal, `identifier-locks.ts`); a worktree keeps every verdict attributable to a commit. `@digilog/shared` built from the same commit. Launcher: `QA/tests/phase5/start-scratch-head.sh` |
+| Source | git worktree pinned at the commit under test (`tsx` from source; `@digilog/shared` built from the same commit). The main tree carried other agents' uncommitted work, so a worktree keeps each verdict attributable. Launcher: `QA/tests/phase5/start-scratch-head.sh <worktree>` |
 | API | `https://localhost:3112`, `NODE_ENV=production`, own `LOG_DIR` / `UPLOAD_DIR` in `%LOCALAPPDATA%\Temp\digilog-p5-scratch` |
-| Database | `digilog_qa_perf` only (launcher and `qa.mjs` both refuse anything else). Shared with qa-phase4-matrix (:3111) and a deliverable-03 agent — table-level snapshot deltas below include their writes; my own mutations are listed from my records (§2.7) |
-| Actors | perf user **index 3** of each role (`perf_user_004/224/254/275/290/299`); wrong-password probes use index 4 (`_005/225/255/276/291/300`). Index 0 is left to the other agents (a login here is `force:true`). Role permissions are byte-identical to 2026-10-21 (`whoami.json` diff: 0 added, 0 removed per role) |
-| Not used | SUPER_ADMIN (no password available) — see §2.6 |
-| Inventory | `/docs/json` on HEAD: 430 operations = 2026-10-21's 429 + `POST /api/pm-schedules/visits` (5e7f488); none removed |
+| Database | `digilog_qa_perf` only (launcher and `qa.mjs` refuse anything else). Shared with qa-phase4-matrix and a deliverable-03 agent: table snapshot deltas include their writes; my own mutations are listed from my records (§2.7) |
+| Actors | perf user **index 3** of each role (`perf_user_004/224/254/275/290/299`); wrong-password probes on index 4 (`_005/225/255/276/291/300`, at most 2 wrong attempts each, counters reset to 0 afterwards). Role permissions identical to 2026-10-21 (0 added / 0 removed per role) |
+| Not used | SUPER_ADMIN (no password) — §2.6 |
+| Inventory | `/docs/json` at `e7312ca`: 429 operations = 2026-10-21's 429 + `POST /api/pm-schedules/visits` (5e7f488) − `POST /api/notification-settings/send` (4eeb864) |
 
-Re-run: `PERF_TARGET=https://localhost:3112 P5_OUT=phase5-rerun P5_USER_IDX=3 node QA/tests/phase5/<script>.mjs`
-(Git Bash: `export MSYS_NO_PATHCONV=1`). Raw results: `QA/results/phase5-rerun/*.json` (git-ignored).
+Re-run: `PERF_TARGET=https://localhost:3112 P5_OUT=<dir> P5_USER_IDX=3 node QA/tests/phase5/<script>.mjs`
+(Git Bash: `export MSYS_NO_PATHCONV=1`). Raw results: `QA/results/phase5-head-e7312ca/` (git-ignored; `run.log` is the whole battery).
 
-### 2.2 Results by category
+### 2.2 Results by category (`e7312ca`)
 
-| Category | Probes | Result on HEAD | vs 2026-10-21 |
+| Category | Probes | Result | vs 2026-10-21 |
 |---|---|---|---|
-| 1 Authorization (every write op × every role lacking its gate, + no token) | 1063 role + 218 no-token (`authz-sweep`) + 18 (`authz-fixups`) + 12 (`report-reviews-authz`) | **0 bypass.** All 403 / 401; 2xx = 0 | 1291 rows identical; 6 changed rows = a schema change (§2.3 #1), re-probed → 403 |
-| 2 Re-auth (no pw / wrong pw body+header / grant on and off replay routes / foreign / forged / legacy header / typed `_currentPassword`) | 21 (`reauth`) + 22 (`reauth2`) + 11 (`reauth3`, new) | **0 bypass.** Literal password search over all 62 tables: 0 hits before and after; 0 hits in the scratch logs | 4 changed rows, all the P5-02 fix (§2.3 #2) |
-| 3 Mass assignment (DB-checked) | 15 (`mass-assign`) | **0 privileged field persisted** | 5 changed rows: P5-01 + P5-04 fixes (§2.3 #3, #4) |
-| 4 Scope / IDOR (notifications) | 4 | 404 / 403 as before | unchanged |
-| 5 Input abuse | 1127 (`input-fuzz`, 94 ops × 7 body mutators + 5 path-id + 4 raw) | **0 × 5xx, 0 leaks** (scratch http log: 0 lines `→ 5xx` for the whole run) | was 4 × 500 — P5-03 fixed (§2.3 #5); other changes §2.3 #6–#10 |
-| 5 SSRF / upload | 6 + 4 | blocked / magic-byte checked, as before | unchanged |
-| 6 Segregation of duties | stage self-approve (single + bulk), **self-reject (single + bulk, new)**, report-export gates (7), admin-request subject = SUPER_ADMIN | all refused | export "Filters" for OPERATOR 200 → 403 (§2.3 #11) |
-| New: concurrent RFID assign | 5 scenarios (`ident-race`) | **5/5 PASS** | new (§2.4) |
+| 1 Authorization — every write op × every role lacking its gate, + no token | 1063 role + 218 no-token (`authz-sweep`), 18 (`authz-fixups`), 12 (`report-reviews-authz`) | **0 × 2xx.** 1264 PASS (403 / 401); 12 stopped at schema validation and were re-sent with valid bodies → 403 (the 3 report-review `review` bodies still 400 at validation, as on 10-21); 5 "SUSPECT" = `/send` 404 because the route no longer exists | §2.3 #1, #12 |
+| 2 Re-auth — no pw / wrong pw (body + header) / offline grant on and off replay routes / foreign / forged / legacy header / typed `_currentPassword` | 21 + 22 + 11 (`reauth`, `reauth2`, `reauth3`) + 8 (`od01p2`, new) | **0 bypass.** Literal password search over all 62 tables: 0 hits before and after; 0 hits in the scratch logs | §2.3 #2 |
+| 3 Mass assignment (DB-checked) | 15 (`mass-assign`) | **0 privileged field persisted** | §2.3 #3, #4 |
+| 4 Scope / IDOR (notifications) | 4 | 404 / 404 / 404 / 403 | unchanged |
+| 5 Input abuse | 1120 (`input-fuzz`: 94 ops × 7 body mutators + 5 path-id + 4 raw bodies) | **0 × 5xx, 0 leaks.** Histogram `{200:66, 201:9, 400:709, 403:9, 404:262, 406:4, 409:10, 413:1, 414:50}`. (Two `/send` 404s were flagged by the probe's own drive-letter regex — `Route POST:/api/…` matches `T:/`; Fastify's not-found text, not a leak.) 7 fewer requests than 10-21: `/send` lost its body schema with the route | §2.3 #5–#10 |
+| 5 SSRF (instrument URL tester) / photo upload | 6 + 4 | metadata, loopback, IPv6 loopback, `file:`, `gopher:` blocked; magic-byte check holds | unchanged |
+| 6 Segregation of duties | stage self-approve + self-**reject** (single and bulk), report-export gates (7), admin request against SUPER_ADMIN | all refused | §2.3 #11 |
+| New: concurrent RFID assign | 5 scenarios × 2 runs (`ident-race`, at `ebb5244` and `e7312ca`) | **10/10 PASS** | new (§2.4) |
 
-### 2.3 Every changed verdict, with its commit
+### 2.3 Every changed verdict since 2026-10-21, with its commit
 
-| # | Probe | 2026-10-21 | HEAD | Explained by |
+| # | Probe | 2026-10-21 | `e7312ca` | Explained by |
 |---|---|---|---|---|
-| 1 | `POST /api/dashboards/{id}/assign`, 6 roles | 403 | 400 VALIDATION (sweep body) | 06fc578 added an `if/then` (`assigneeType` USER→`userId`, ROLE→`roleValue`) the sweep's sampler cannot model. Re-sent valid USER and ROLE bodies: **403 for all 6 roles** (`authz-fixups.json`). No gate change |
-| 2 | `/retire` + valid grant, no replay fields (SUPERVISOR) | **404 = password gate skipped (P5-02)** | 401 REAUTH_REQUIRED | 70adf40: `OFFLINE_REPLAY_ROUTES` (`plugins/auth.ts:483`) lists only the 6 cycle-write routes; elsewhere the grant header is not read. The two other `/retire` rows (foreign / forged grant) moved from 401 `OFFLINE_REPLAY_TOKEN_*` to 401 REAUTH_REQUIRED for the same reason; token verification itself re-proved on a replay route (`reauth3`: foreign → 401 `OFFLINE_REPLAY_TOKEN_USER_MISMATCH`, forged → 401 `OFFLINE_REPLAY_TOKEN_INVALID`) |
+| 1 | `POST /api/dashboards/{id}/assign`, 6 roles | 403 | 400 VALIDATION (sweep body) | 06fc578 added an `if/then` (USER→`userId`, ROLE→`roleValue`) the sweep's sampler cannot model. Re-sent valid USER and ROLE bodies: **403 for all 6 roles**. No gate change |
+| 2 | `/retire` + valid offline grant, no replay fields (SUPERVISOR) | **404 = password skipped (P5-02)** | 401 REAUTH_REQUIRED | 70adf40: `OFFLINE_REPLAY_ROUTES` (`plugins/auth.ts:483`) lists only the 6 cycle-write routes; elsewhere the grant header is not read. The foreign / forged-grant rows on `/retire` therefore also read 401 REAUTH_REQUIRED now; grant verification itself re-proved on a replay route (`terminate-cycle`: foreign → 401 `OFFLINE_REPLAY_TOKEN_USER_MISMATCH`, forged → 401 `OFFLINE_REPLAY_TOKEN_INVALID`) |
 | 3 | `PUT /api/assets/instances/{id}` `status` on a Retired filter / to Retired / to `<img…>` (SHIFTOFFICER) | **200, retirement record dropped from the list (P5-01)** | 409 `FILTER_STATUS_LIFECYCLE_OWNED`, row unchanged | 70adf40 (`instance.service.ts:89`) |
 | 4 | `PUT /api/auth/profile` `photoUrl` = traversal text / external URL | 200, stored (P5-04) | 400 "Photo must be uploaded through the profile page" | 70adf40 |
 | 5 | NUL byte → checklist-profiles / user-groups / sms test; `year:-2147483649` → pm-schedules | **500** (P5-03) | 400 | 70adf40 (`lib/errors.ts:43` maps `PrismaClientUnknownRequestError`) |
-| 6 | `POST /api/assets/instances/{review,approve,reject}` (fuzzed, no remarks) | 404 | 400 "Remarks are required…" | e0dcb3c (remarks checked before the lookup). Direct probes in `reauth3`: review / approve / blank-remark reject → 400 |
+| 6 | `POST /api/assets/instances/{review,approve,reject}` (fuzzed, no remarks) | 404 | 400 "Remarks are required…" | e0dcb3c (remarks checked before the lookup); direct probes in `reauth3` agree |
 | 7 | `PUT /api/pm-schedules/entries/{id}/edit` (SHIFTOFFICER) | 404 (passed the gate) | **403** | 70adf40 (P4-04): route now `requirePermission('PM_EDIT_ENTRY')` (was `PM_UPDATE` or `PM_EDIT_ENTRY`). SHIFTOFFICER holds `PM_UPDATE` (= `pm.edit`), and the operator's target matrix gives it `pm.edit`, not `pm.edit_entry` — intended. **Note for the operator:** no non-SA role on the clone holds `PM_EDIT_ENTRY`, so editing an approved visit is SUPER_ADMIN-only until a role is granted "Edit PM Entries" |
-| 8 | `PUT /api/notifications/bulk-{read,unread}` (fuzzed) | 400 DATA_CONSTRAINT | 200 `{count:0}` | 06fc578 made `ids` `format: uuid`, so the sampler now sends random UUIDs: no row of anyone else's matched (count 0). Not a scope change — IDOR rows (§2.2 cat 4) unchanged |
-| 9 | `PUT /api/hierarchy/filters/{id}` unknown id | 400 | 404 | 98a9abc (D2: unknown filter → 404) |
+| 8 | `PUT /api/notifications/bulk-{read,unread}` (fuzzed) | 400 DATA_CONSTRAINT | 200 `{count:0}` | 8d43bec made `ids` items `format: uuid`, so the sampler now sends random UUIDs that match nobody's rows (count 0). Not a scope change — the IDOR probes (cat 4) are unchanged |
+| 9 | `PUT /api/hierarchy/filters/{id}` unknown id | 400 | 404 | 70adf40 (P4-09: `update()` throws `NotFoundError`; 98a9abc later did the same for DELETE) |
 | 10 | `POST /api/users/reset-requests/{id}/process` (fuzzed, no remarks) | 404 | 400 "Remarks are required…" | edb2154 (remarks rule) |
-| — | `POST /api/user-groups`, `/notification-settings/templates` | 200 | 409 | **Data, not code:** the same names were created by the 2026-10-21 fuzz (duplicates) |
+| — | `POST /api/user-groups`, `/notification-settings/templates` | 200 | 409 | **Data, not code:** duplicates of names the 10-21 fuzz created |
 | — | `PUT /api/notification-settings/email` with `{}` | 200, **config wiped to `{}`** (P5-05) | 200, stored value unchanged | 70adf40 (merge over the stored value) |
-| 11 | report-export-log "Filters" as OPERATOR | 200 | 403 "You cannot export the Filters report" | 70adf40 (P4-02: the export log gates on the Export button's permission, `FILTER_LIST_EXPORT`, `audit/routes.ts:51`) |
+| 11 | report-export-log "Filters" as OPERATOR | 200 | 403 "You cannot export the Filters report" | 70adf40 (P4-02: gates on the Export button's permission `FILTER_LIST_EXPORT`, `audit/routes.ts:51`) |
+| 12 | `POST /api/notification-settings/send`, every role | 403 (5 roles) / 200 (ADMIN) | **404** (route not found) | 4eeb864 (SEC-03 removed the route) |
 
-No verdict changed without a commit that explains it.
+No verdict changed without a commit that explains it. Between `ebb5244` and `e7312ca` only row 12 moved.
 
-### 2.4 New cases for today's changes
+### 2.4 New cases for today's changes (`e7312ca` unless stated)
 
 | Change | Case | Result |
 |---|---|---|
-| D-DB-2 identifier locks (df5e6a1) | Fixtures: SUPERVISOR creates 2 filters under the empty AHU-3 → MANAGER reviews → QA approves (filter workflow ON). Then, as OPERATOR, simultaneously: **A** 2 assigns, different tags, untagged filter · **B** 5 assigns, untagged filter · **C** 2 `replaceExisting` on one filter · **D** one new tag to both filters at once · **E** delete a tag while a replace runs | **A** [409 `ENTITY_HAS_IDENTIFIER`, 201], 1 tag · **B** one 201 + four 409, 1 tag · **C** [201, 201], 1 tag · **D** [201, 409 `DUPLICATE_IDENTIFIER_VALUE`], tag on 1 filter · **E** [404, 201], 1 tag. **5/5 PASS**, no 5xx. One run per scenario (not a statistical trial) |
-| P5-02 / replay rules (70adf40) | grant on `/bypass` and `/advance-with-checklist` without replay fields; grant + fields; `bulk-operate` with a grant and an item without replay fields | 400 `OFFLINE_REPLAY_FIELDS_REQUIRED` · 404 (gates passed) · bulk item `NOT_FOUND`, identical to the no-grant control = grant ignored on bulk-operate |
-| Bypass completion (f745d8c) | `/bypass` with `answers` (A-01 carry), OPERATOR, random filter | 404 (FILTER_BYPASS held, no re-auth row for OPERATOR); 403 for roles without FILTER_BYPASS (sweep) |
-| A-03 SoD (98c79bb) | SHIFTOFFICER advances a real cycle into Wash Out, then **rejects** its own approval (single + bulk) | 403 `SELF_APPROVAL_FORBIDDEN` / bulk item failed with the same code; a second SHIFTOFFICER then approved |
+| D-DB-2 identifier locks (df5e6a1, dfa6073) | Fixtures: SUPERVISOR creates 2 filters under the empty AHU-3 → MANAGER reviews → QA approves (filter workflow ON). Then, as OPERATOR, simultaneously: **A** 2 assigns, different tags, untagged filter · **B** 5 assigns · **C** 2 `replaceExisting` on one filter · **D** one new tag to both filters · **E** delete a tag while a replace runs | **A** one 201 + one 409 `ENTITY_HAS_IDENTIFIER`, 1 tag · **B** one 201 + four 409, 1 tag · **C** 201 + 201, 1 tag · **D** 201 + 409 `DUPLICATE_IDENTIFIER_VALUE`, tag on 1 filter · **E** 404 + 201, 1 tag. **5/5 PASS on each of 2 runs**, no 5xx. Two runs, not a statistical trial |
+| OD-01 part 2 (8372478) | unsigned: ADMIN user edit, backup restore (junk multipart file), LDAP config save, admin-request approval; SUPERVISOR manual lifecycle move | **401 REAUTH_REQUIRED ×5**, nothing written. For these roles the clone's policy already listed the action, so this proves the password is asked, not that it is *always* asked — that half needs an SA session (§2.6). Roles without the gate: 403 (sweep) |
+| SEC-03 (4eeb864) | `/send` as ADMIN; email and SMS test-sends | 404 · each test-send wrote one `NOTIFICATION_TEST_SENT` row (`{mode: SEND, channel, success:false, recipient}`, no error text, no config value); email/SMS are disabled on the clone, nothing left the machine |
+| Replay rules (70adf40) | grant on `/bypass`, `/advance-with-checklist` without replay fields; with them; `bulk-operate` with a grant and an item without replay fields | 400 `OFFLINE_REPLAY_FIELDS_REQUIRED` ×2 · 404 (gates passed) · bulk item `NOT_FOUND`, identical to the no-grant control = grant ignored on bulk-operate |
+| Bypass completion (f745d8c) | `/bypass` with `answers`, OPERATOR, random filter | 404 (FILTER_BYPASS held, no re-auth row); roles without FILTER_BYPASS 403 (sweep) |
+| A-03 SoD (98c79bb) — at `ebb5244` (stage-approval code unchanged to `e7312ca`) | SHIFTOFFICER advances a real cycle into Wash Out, then **approves** (cycle `d82551de…`) / **rejects** (cycle `23a256a0…`) its own approval, single and bulk | 403 `SELF_APPROVAL_FORBIDDEN`; bulk item failed with the same code; a second SHIFTOFFICER then approved both |
 | PM visits (5e7f488) | `POST /api/pm-schedules/visits` × 6 roles, random AHU | 403 ×4 (no PM_CREATE) · SHIFTOFFICER 404 "AHU not found" · SUPERVISOR 401 REAUTH_REQUIRED |
 | e0dcb3c | filter review / approve / reject without or with blank remarks | 400 ×3 |
-| Redaction of a meta row (54f23fc) | non-SA: `/api/audit/{id}/redact`, `/bulk-redact` | 403 for all 6 roles (sweep — the routes are SUPER_ADMIN-only). The SA half (409 `META_AUDIT_IMMUTABLE`) is in §2.6 |
+| Meta-row redaction (54f23fc) | non-SA: `/api/audit/{id}/redact`, `/bulk-redact` | 403 for all 6 roles (sweep; SUPER_ADMIN-only routes). SA half in §2.6 |
 
-### 2.5 Defects found (reported to the lead)
+### 2.5 Defects (reported to the lead)
 
 | ID | Sev | Endpoint | Repro | Observed | Expected | Source |
 |---|---|---|---|---|---|---|
-| **P5R-01** | P3 | `POST /api/pm-schedules` | SHIFTOFFICER (PM_CREATE, no re-auth row) `{entityId:<random uuid>, year:1, entries:[]}` | **201**, an ACTIVE `pm_schedules` row for an entity that does not exist, year 1, no visits (row `6c6980a0…`). The same id on `POST /api/pm-schedules/visits` → 404 "AHU not found" | 404 / 400 like `/visits`: entity must be an active AHU; year bounded; at least one visit | `modules/pm-schedules/pm-schedule-crud.ts:41-56` (`create()` reads `entityId`/`year` and never checks the entity; contrast `pm-visits.ts:55-59`); schema `routes.ts:684-687` (`year: {type:'integer'}`, no bounds). **Also present on 2026-10-21** (fuzz row `2f1d2ac1…`) — I recorded it only as a mutation then, not as a defect; reported now |
-| P5R-02 | P3 (wording) | `POST /api/stage-approvals/{id}/reject`, bulk reject | performer rejects own stage | 403 with message "…cannot **approve** it…" on a **reject** | message naming the action taken | `modules/stage-approvals/service.ts:77` (one message for both decisions) |
+| **P5R-01** | P3 | `POST /api/pm-schedules` | SHIFTOFFICER (PM_CREATE, no re-auth row) `{entityId:<random uuid>, year:1, entries:[]}` | **201** — an ACTIVE `pm_schedules` row for an entity that does not exist, year 1, no visits (`6c6980a0…`; the fuzz made two more, `6238bc13…`, `8b4a06f6…`). The same id on `POST /api/pm-schedules/visits` → 404 "AHU not found" | the `/visits` rule: entity must be an active AHU; year bounded; at least one visit. CLAUDE.md (2026-10-22) says every PM door applies the same rules — this one does not check the entity | `modules/pm-schedules/pm-schedule-crud.ts:41-56` (`create()` never looks the entity up; contrast `pm-visits.ts:55-59`); schema `routes.ts:684-687` (`year: {type:'integer'}`, no bounds). **Severity check:** with 3 orphans present, 12 PM reads (entries, pending-counts, export.xlsx with and without `year=1`, pending-tasks-map, due, ahu-configs, deviations, qnn, the orphan's own page and history) × 4 roles = 47 × 200 + 1 × 403 (QNN visibility), no 5xx (`pm-orphan-impact.mjs`). The 03:00 overdue sweep was not run against them. **Also present on 2026-10-21** (row `2f1d2ac1…`): I recorded it then only as a mutation, not as a defect |
+| P5R-02 | P3 (wording) | `POST /api/stage-approvals/{id}/reject`, bulk reject | performer rejects own stage | 403 with "…cannot **approve** it…" on a reject | message naming the action taken | `modules/stage-approvals/service.ts:77` (one message for both decisions) |
 
-Still as on 2026-10-21 (benign, unchanged): public `POST /api/admin-requests/` with a trailing slash → 401 (`plugins/auth.ts:245` matches the exact path; the web client posts without the slash).
+Unchanged since 2026-10-21 (benign): public `POST /api/admin-requests/` with a trailing slash → 401 (`plugins/auth.ts:245` matches the exact path; the web client posts without it).
 
-### 2.6 Not covered / not at HEAD
+### 2.6 Not covered
 
-- **SUPER_ADMIN writes** (OD-01 part 1 always-on gates on user delete, role / permission saves, re-auth policy, FDM; audit redact/edit/delete; 409 `META_AUDIT_IMMUTABLE` on a meta row): every one of these routes is SUPER_ADMIN-only or `ROLE_MANAGE` (held by no other role), so non-SA callers get 403 (sweep) and the "always asks the password" half needs an SA session. **Prepared, NOT EXECUTED:** `QA/tests/phase5/sa-meta-redact.mjs` (S1–S3 unsigned SA destructive writes → expect 401; S4 signed redaction of the SA's own login row as fixture; S5–S7 redact / bulk-redact / edit of the resulting meta row → expect 409; S8 meta row unchanged). Operator runs it with the password at a hidden prompt; deliverable 06's `sa-session-probes.mjs` covers the same unsigned writes on :3110.
-- **Not at HEAD `ebb5244`** (uncommitted when the run started), so not tested here: SEC-03 removal of `POST /api/notification-settings/send` — on HEAD it still answers 200 to ADMIN (the fuzz sent 3; email/SMS are disabled on the clone, 8 FAILED `notification_logs`, nothing left the machine); OD-01 part 2 (backup restore, user edit, per-user overrides, filter / hierarchy delete, manual lifecycle change); the `identifier-locks.ts` follow-up. Re-run `reauth*.mjs` + `input-fuzz.mjs` once they are committed.
-- Multipart file parsing of bulk filter / PM / replacement uploads; destructive config and backup fuzzing (excluded on purpose, as on 2026-10-21).
-- Filter / PM / replacement approval self-approval end-to-end: no non-SA role holds both the submit and the approve permission (unchanged from 2026-10-21).
+- **SUPER_ADMIN writes** — OD-01's always-on gates (user delete, role / permission saves, re-auth policy, FDM, audit edit / redact / delete, restore, user edit …) and 409 `META_AUDIT_IMMUTABLE` on a meta row. Every such route is SUPER_ADMIN-only or `ROLE_MANAGE` (held by no other role), so non-SA callers get 403 (sweep) and the "always, even for SA" half needs an SA session. **Prepared, NOT EXECUTED:** `QA/tests/phase5/sa-meta-redact.mjs` — S1–S3 unsigned SA destructive writes (expect 401), S4 signed redaction of the SA's own login row as the fixture, S5–S7 redact / bulk-redact / edit of the resulting meta row (expect 409), S8 meta row unchanged. Operator runs it against the :3112 scratch API with the password at a hidden prompt or `--password-file`. Deliverable 06's `sa-session-probes.mjs` covers the same unsigned writes on :3110.
+- Whether the always-on gates stay on for a non-SA role the policy does NOT list: proving it means removing rows from the shared clone's re-auth policy, which would move qa-phase4-matrix's verdicts — not done. The commits' own tests cover it.
+- Multipart parsing of bulk filter / PM / replacement uploads; destructive config and backup fuzzing (excluded on purpose, as on 2026-10-21).
+- Filter / PM / replacement approval self-approval end-to-end: no non-SA role holds both the submit and the approve permission.
 
 ### 2.7 My mutations on `digilog_qa_perf` (for the clone reset)
 
-- Filters: `QAP5-RACE-MVJNA7QX-1` (`24a7bf60…`) and `-2` (`b223585c…`) under AHU-3 — created, reviewed, approved, tagged, then **retired** (each keeps its last RFID tag, per the retire invariant); `QAP5-MA-FILTER-RR1` (`f5797a23…`, PENDING_REVIEW, under AHU-3).
-- Cycles advanced WASH_IN → WASH_OUT and approved by `perf_user_225`: filters `d82551de…` (approval `e87d1ec5…`) and `23a256a0…` (approval `42cd36b1…`).
-- `pm_schedules`: `6238bc13…` and `6c6980a0…` (orphans, P5R-01).
-- From the fuzz: 5 `checklist_profiles`, 3 `admin_requests` + 1 FORGOT_PASSWORD(superadmin) request (`d3a7e4f0…`, refused on approval), 8 `notification_logs`, 3 `USER_CREATION_REQUEST_SUBMITTED` notifications; plus the stage-approval requested / approved notifications of the two SoD advances.
-- Restored by me: `perf_user_004.full_name` (my M1 body sent another user's name; fixed in the script), `system_config` `notification-email` / `-sms` attribution (values were unchanged).
-- Uploaded test PNG in the scratch `UPLOAD_DIR` (temp folder, not the repo).
-- `audit_trail` grew 57777 → 58175 (all agents on the DB; chain **not re-verified** here).
+- Filters under AHU-3: `QAP5-RACE-MVJNA7QX-1/-2` (`24a7bf60…`, `b223585c…`) and `QAP5-RACE-MVJOW8I4-1/-2` (`affcaf6b…`, `70410796…`) — created, reviewed, approved, tagged, then **retired** (each keeps its last RFID tag, per the retire invariant); `QAP5-MA-FILTER-RR1` (`f5797a23…`) and `-RR2` (`5ba9ec10…`), PENDING_REVIEW.
+- Cycles advanced WASH_IN → WASH_OUT by `perf_user_224` and approved by `perf_user_225`: filters `d82551de…` (approval `e87d1ec5…`) and `23a256a0…` (approval `42cd36b1…`).
+- `pm_schedules` orphans (P5R-01): `6238bc13…`, `6c6980a0…`, `8b4a06f6…`.
+- From the two fuzz runs: 10 `checklist_profiles`, 6 `admin_requests` + 2 FORGOT_PASSWORD(superadmin) requests (refused on approval), `notification_logs` (test-sends, all FAILED — channels disabled), 2 `NOTIFICATION_TEST_SENT` audit rows, the `USER_CREATION_REQUEST_SUBMITTED` and stage-approval notifications of these requests.
+- Restored by me: `perf_user_004.full_name` (my mass-assign body had sent another user's name; script fixed), `system_config` `notification-email` / `-sms` attribution after each fuzz (values were unchanged).
+- Uploaded test PNGs in the scratch `UPLOAD_DIR` (temp folder, not the repo).
+- `audit_trail` 57777 → 58554 over the session (all agents on the DB; chain **not re-verified** here).

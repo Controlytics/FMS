@@ -8,11 +8,11 @@
 // All bodies target random ids where the re-auth gate precedes the record lookup, so a refusal
 // writes nothing and a bypass shows up as a 404 (gate passed, record missing) — no mutation.
 import { randomUUID } from 'node:crypto';
-import { raw, tok, save, sql, PASSWORD } from './lib5.mjs';
+import { raw, tok, save, sql, PASSWORD, second, ROLES } from './lib5.mjs';
 import { loginAs } from '../lib/qa.mjs';
 
-const SECOND = { OPERATOR: 'perf_user_002', SHIFTOFFICER: 'perf_user_222', SUPERVISOR: 'perf_user_252', QA: 'perf_user_273', MANAGER: 'perf_user_288', ADMIN: 'perf_user_297' };
-const target = sql(`select id from users where username='perf_user_200'`);
+const SECOND = Object.fromEntries(ROLES.map((r) => [r, second(r)]));
+const target = sql(`select id from users where username='${process.env.P5_TARGET_USER ?? 'perf_user_200'}'`);
 const rid = () => randomUUID();
 
 const cases = [

@@ -4,13 +4,25 @@
 import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ctx, tokenFor, sql, QA_RESULTS, TARGET, DB, PASSWORD } from '../lib/qa.mjs';
+import { ctx, tokenFor, loginAs, sql, QA_RESULTS, TARGET, DB, PASSWORD } from '../lib/qa.mjs';
+import { REPO } from '../../../tests/performance/lib/http.mjs';
 
 export { sql, TARGET, DB, PASSWORD };
-export const OUT = path.join(QA_RESULTS, 'phase5');
+// P5_OUT: results sub-folder (10-21 run = phase5; re-runs pass their own so the baseline survives).
+export const OUT = path.join(QA_RESULTS, process.env.P5_OUT ?? 'phase5');
 fs.mkdirSync(OUT, { recursive: true });
 
 export const ROLES = ['OPERATOR', 'SHIFTOFFICER', 'SUPERVISOR', 'QA', 'MANAGER', 'ADMIN'];
+
+// P5_USER_IDX: which perf user of each role acts (unset = the first, via tokenFor, as on 10-21).
+// Set it when another agent drives the first users on the same database: a login here is
+// force:true and would end their session. users(role)[i] lists that role's perf usernames.
+const PERF = JSON.parse(fs.readFileSync(path.join(REPO, 'tests/performance/results/perf-users.json'), 'utf8')).users;
+export const users = (role) => PERF.filter((u) => u.role === role).map((u) => u.username);
+export const USER_IDX = process.env.P5_USER_IDX === undefined ? null : Number(process.env.P5_USER_IDX);
+/** The username that tok(role) acts as, and the "second user" of the role for wrong-password probes. */
+export const actor = (role) => users(role)[USER_IDX ?? 0];
+export const second = (role) => users(role)[(USER_IDX ?? 0) + 1];
 
 /** raw(method, path, {token, body, rawBody, headers}) -> {status, json, text} */
 export function raw(method, urlPath, { token, body, rawBody, headers = {}, timeoutMs = 30000 } = {}) {
@@ -44,7 +56,7 @@ export const leaks = (r) => LEAK.filter((re) => re.test(r.text ?? '')).map(Strin
 
 const tokCache = {};
 export async function tok(role) {
-  if (!tokCache[role]) tokCache[role] = await tokenFor(role);
+  if (!tokCache[role]) tokCache[role] = USER_IDX === null ? await tokenFor(role) : await loginAs(actor(role));
   return tokCache[role];
 }
 

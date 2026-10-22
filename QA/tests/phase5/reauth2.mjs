@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { raw, tok, save, sql, PASSWORD } from './lib5.mjs';
 
-const target = sql(`select id from users where username='perf_user_200'`);
+const target = sql(`select id from users where username='${process.env.P5_TARGET_USER ?? 'perf_user_200'}'`);
 const rid = () => randomUUID();
 const slim = (r) => r && { status: r.status, error: r.json?.error, message: String(r.json?.message ?? '').slice(0, 160) };
 const grant = async (role) => (await raw('POST', '/api/auth/offline-grant', { token: (await tok(role)).token, body: { _currentPassword: PASSWORD } })).json?.token;

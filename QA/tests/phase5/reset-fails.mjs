@@ -2,7 +2,7 @@
 import { raw, sql, PASSWORD } from './lib5.mjs';
 import fs from 'node:fs'; import path from 'node:path'; import { QA_RESULTS } from '../lib/qa.mjs';
 const users = process.argv.slice(2);
-const cacheFile = path.join(QA_RESULTS, 'tokens-qa-3104.json');
+const cacheFile = path.join(QA_RESULTS, `tokens-qa-${new URL(process.env.PERF_TARGET ?? 'https://localhost:3104').port}.json`);
 const cache = fs.existsSync(cacheFile) ? JSON.parse(fs.readFileSync(cacheFile, 'utf8')) : {};
 for (const u of users) {
   const r = await raw('POST', '/api/auth/login', { body: { username: u, password: PASSWORD, force: true, client: 'web' } });
