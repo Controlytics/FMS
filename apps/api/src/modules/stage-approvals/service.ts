@@ -27,6 +27,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum, activeChecklistIdsAfterStage } from '../filter-operations/helpers.js';
 import { lockAndVerifyFilterState } from '../filter-operations/cycle-write/locking.js';
@@ -67,14 +68,18 @@ function assertRoleAllowed(ctx: RequestContext, approverRole: string) {
   }
 }
 
-/** Segregation of duties — the performer cannot sign their own stage. */
-async function assertDifferentApprover(ctx: RequestContext, requestedBy: string) {
+/**
+ * Segregation of duties — the performer cannot sign their own stage, either way.
+ * The message names the action actually refused (P5R-02, 2026-10-22: a
+ * self-REJECT was told it "cannot approve"); the code stays SELF_APPROVAL_FORBIDDEN.
+ */
+async function assertDifferentApprover(ctx: RequestContext, requestedBy: string, action: 'approve' | 'reject') {
   // Fail closed (A-07): a missing caller id is never "a different person".
   if (!ctx.userSub || ctx.userSub === requestedBy) {
     throw new AppError(
       403,
       'SELF_APPROVAL_FORBIDDEN',
-      'The operator who performed this stage cannot approve it. A different user must sign off.',
+      `The operator who performed this stage cannot ${action} it. A different user must decide it.`,
     );
   }
 }
@@ -358,15 +363,16 @@ export const stageApprovalService = {
 
   /** APPROVE — release the operator. Records APPROVAL_GRANTED + audit signature. */
   async approve(ctx: RequestContext, id: string, remarks?: string) {
+    const why = requireDecisionRemarks(remarks); // an approval says why too (D03-13)
     const row = await prisma.cleaningStageApproval.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Stage approval not found.');
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
     assertRoleAllowed(ctx, row.approverRole);
-    await assertDifferentApprover(ctx, row.requestedBy);
+    await assertDifferentApprover(ctx, row.requestedBy, 'approve');
     // Refuse a stale orphan (filter already advanced past the gate offline).
     await assertFilterStillAtGate(row);
 
-    const cleanRemarks = typeof remarks === 'string' ? remarks.trim() || null : null;
+    const cleanRemarks = why;
 
     // A final gated stage with nothing after it: this approval completes the
     // cycle. The AHU-completion gate is the completion's gate, checked BEFORE the
@@ -498,7 +504,7 @@ export const stageApprovalService = {
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Stage approval not found.');
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
     assertRoleAllowed(ctx, row.approverRole);
-    await assertDifferentApprover(ctx, row.requestedBy);
+    await assertDifferentApprover(ctx, row.requestedBy, 'reject');
     // Refuse a stale orphan — rejecting after the filter advanced past the gate
     // offline would yank an already-progressed filter back to WASH_IN / DRY_IN.
     await assertFilterStillAtGate(row);

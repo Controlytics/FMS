@@ -299,7 +299,18 @@ describe('approve: guards and the decision record', () => {
     expect(q.selfRequested).toBe(true);
     const res = await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr1H);
     expect([res.statusCode, res.json().error]).toEqual([403, 'SELF_APPROVAL_FORBIDDEN']);
+    expect(res.json().message).toContain('cannot approve it');
     expect((await signed(`/api/stage-approvals/${own.approvalId}/approve`, apr2H)).statusCode).toBe(200);
+  });
+
+  // P5R-02 (2026-10-22): a self-REJECT was answered "cannot approve it".
+  it('the performer of the stage cannot reject it either, and the refusal says reject', async () => {
+    const own = await atWashOut('SELFREJ', apr1H);
+    const res = await signed(`/api/stage-approvals/${own.approvalId}/reject`, apr1H, { remarks: 'my own stage' });
+    expect([res.statusCode, res.json().error]).toEqual([403, 'SELF_APPROVAL_FORBIDDEN']);
+    expect(res.json().message).toContain('cannot reject it');
+    expect(res.json().message).not.toContain('approve');
+    expect((await prisma.cleaningStageApproval.findUnique({ where: { id: own.approvalId } }))!.status).toBe('PENDING');
   });
 
   it('a notification outage never undoes a decision', async () => {
