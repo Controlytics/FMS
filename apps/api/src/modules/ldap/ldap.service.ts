@@ -3,9 +3,106 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { invalidateUserAuthCache } from '../../plugins/auth.js';
 import { getLogger } from '../../lib/logger.js';
+import { isIP } from 'node:net';
+import { checkOutboundHost } from '../../lib/ssrf.js';
 
 /** Log type 6 — an external system we depend on; its failures are ops events. */
 const ldapLog = getLogger('ldap', 'services');
+
+/**
+ * What test-connection tells the caller (SEC-08, security assessment 2026-10-22).
+ *
+ * The server URL is admin-typed and the server opens a socket to it, so it gets
+ * the same resolved-destination check as every outbound HTTP call
+ * (lib/ssrf.ts): loopback / link-local / unspecified refused, private LAN
+ * allowed. And the raw error is no longer echoed: "read ECONNRESET" (port open),
+ * "connect ECONNREFUSED" (closed) and "Connection timeout" (filtered) made
+ * test-connection a port scanner. Every failure below the LDAP protocol now
+ * answers with ONE sentence; the raw error goes to the services log, where the
+ * operator diagnosing a real directory can read it. An LDAP result code is still
+ * reported — it means the configured server was reached and spoke LDAP, which is
+ * what the admin is testing.
+ */
+const LDAP_FAILED = 'LDAP connection failed: ';
+/**
+ * The same sentence was not enough: the TIME still told the port state. Measured
+ * 2026-10-22 against this PC's own LAN address (allowed — it is private LAN):
+ * an open non-LDAP port answered in 112 ms (reset), a closed one in 2024 ms
+ * (Windows retries a refused SYN), a filtered one at the connect timeout. So a
+ * failure below the LDAP protocol is answered no sooner than this, or than the
+ * configured connect timeout when that is longer — the time a filtered port
+ * takes anyway.
+ */
+export const LDAP_TEST_FAILURE_FLOOR_MS = 5000;
+const MSG_BLOCKED = `${LDAP_FAILED}the server address is not allowed (loopback and link-local addresses are refused).`;
+const MSG_UNREACHABLE = `${LDAP_FAILED}could not reach the LDAP server. Check the address and port, and that the server is reachable from this machine.`;
+const MSG_NO_HOST = 'Server URL must include a host name or address';
+
+/**
+ * Where to actually connect. SEC-14 (DNS rebinding): the address that passed the
+ * check is the one connected to — the URL's host is replaced by it, so a second
+ * resolution inside ldapts cannot return a different (loopback) answer. A host
+ * NAME is kept as the TLS servername, so an ldaps:// certificate is still
+ * verified against the name the admin typed.
+ */
+type LdapDestination =
+  | { ok: true; connectUrl: string; servername?: string }
+  | { ok: false; message: string; reason: string };
+
+/** Scheme + host of the LDAP server, checked before any socket is opened. */
+async function checkLdapDestination(serverUrl: string): Promise<LdapDestination> {
+  // Audit 2026-09-24 (F4): only ldap:// and ldaps:// — anything else is a
+  // request to open a socket to an arbitrary host from the server.
+  if (!/^ldaps?:\/\//i.test(serverUrl)) {
+    return { ok: false, message: 'Server URL must start with ldap:// or ldaps://', reason: 'SCHEME' };
+  }
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    return { ok: false, message: MSG_NO_HOST, reason: 'INVALID_URL' };
+  }
+  const hostname = url.hostname;
+  if (!hostname) return { ok: false, message: MSG_NO_HOST, reason: 'NO_HOST' };
+  const dest = await checkOutboundHost(hostname);
+  if (dest.ok) {
+    const { address, family } = dest.addresses[0];
+    const bare = hostname.replace(/^\[(.*)\]$/, '$1');
+    url.hostname = family === 6 ? `[${address}]` : address;
+    // An IP literal is its own name; Node refuses an IP as servername.
+    return { ok: true, connectUrl: url.toString(), ...(isIP(bare) ? {} : { servername: bare }) };
+  }
+  // A name that does not resolve answers like any other unreachable server, so
+  // test-connection is not a DNS oracle for internal names either.
+  return dest.error === 'Destination address not allowed'
+    ? { ok: false, message: MSG_BLOCKED, reason: 'BLOCKED_DESTINATION' }
+    : { ok: false, message: MSG_UNREACHABLE, reason: dest.error };
+}
+
+/** ldapts options for a checked destination — the pinned address, the typed name for TLS. */
+function clientOptions(cfg: Pick<LdapConfig, 'connectionTimeout' | 'tlsRejectUnauthorized'>, dest: { connectUrl: string; servername?: string }) {
+  return {
+    url: dest.connectUrl,
+    connectTimeout: cfg.connectionTimeout || 5000,
+    tlsOptions: {
+      rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true,
+      ...(dest.servername ? { servername: dest.servername } : {}),
+    },
+  };
+}
+
+/** The caller-facing sentence for a bind failure. Never the raw error text. */
+function describeBindFailure(err: unknown): string {
+  // ldapts ResultCodeError (InvalidCredentialsError, UnavailableError, …) carries
+  // the numeric LDAP result code; socket / TLS / timeout errors do not.
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'number') {
+    return code === 49
+      ? `${LDAP_FAILED}the server rejected the bind credentials.`
+      : `${LDAP_FAILED}the server answered with LDAP result code ${code}.`;
+  }
+  return MSG_UNREACHABLE;
+}
 
 /**
  * Escape a string for safe use as an LDAP search-filter assertion value.
@@ -141,8 +238,6 @@ export const ldapService = {
     if (!cfg.serverUrl || !cfg.bindDN || !cfg.bindPassword) {
       return { success: false, message: 'Server URL, Bind DN, and Bind Password are required' };
     }
-    // Audit 2026-09-24 (F4): only ldap:// and ldaps:// — anything else is a
-    // request to open a socket to an arbitrary host from the server.
     if (!/^ldaps?:\/\//i.test(cfg.serverUrl)) {
       return { success: false, message: 'Server URL must start with ldap:// or ldaps://' };
     }
@@ -159,18 +254,35 @@ export const ldapService = {
       return { success: false, message: 'Enter the Bind Password to test a different server URL or with TLS verification disabled.' };
     }
 
-    const client = new Client({
-      url: cfg.serverUrl,
-      connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-    });
+    // SEC-08: an "unreachable" answer waits out the floor (see
+    // LDAP_TEST_FAILURE_FLOOR_MS), so open / closed / filtered take the same time.
+    const started = Date.now();
+    const padTo = Math.max(LDAP_TEST_FAILURE_FLOOR_MS, cfg.connectionTimeout || 5000);
+    const answer = async (message: string) => {
+      if (message === MSG_UNREACHABLE) {
+        const wait = padTo - (Date.now() - started);
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      return { success: false, message };
+    };
+
+    // SEC-08: destination check BEFORE any socket (see checkLdapDestination).
+    const dest = await checkLdapDestination(cfg.serverUrl);
+    if (!dest.ok) {
+      ldapLog.warn({ serverUrl: cfg.serverUrl, reason: dest.reason }, 'LDAP test-connection refused before connecting');
+      return answer(dest.message);
+    }
+
+    const client = new Client(clientOptions(cfg, dest));
 
     try {
       await client.bind(cfg.bindDN, cfg.bindPassword);
       await client.unbind();
       return { success: true, message: 'Successfully connected and authenticated to LDAP server' };
     } catch (err: any) {
-      return { success: false, message: `LDAP connection failed: ${err.message || err}` };
+      // The raw error is for the operator's log, not the response (SEC-08).
+      ldapLog.warn({ err, serverUrl: cfg.serverUrl }, 'LDAP test-connection failed');
+      return answer(describeBindFailure(err));
     }
   },
 
@@ -178,11 +290,15 @@ export const ldapService = {
     const cfg = await this.getConfig();
     if (!cfg.enabled) return null;
 
-    const client = new Client({
-      url: cfg.serverUrl,
-      connectTimeout: cfg.connectionTimeout || 5000,
-      tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-    });
+    // SEC-08: the login bind connects to the same admin-typed address as
+    // test-connection, so it gets the same check. Refused = no directory login.
+    const dest = await checkLdapDestination(cfg.serverUrl);
+    if (!dest.ok) {
+      ldapLog.error({ serverUrl: cfg.serverUrl, reason: dest.reason }, 'LDAP login bind refused: server address not usable');
+      return null;
+    }
+
+    const client = new Client(clientOptions(cfg, dest));
 
     try {
       // Step 1: Bind as service account
@@ -242,11 +358,7 @@ export const ldapService = {
       await client.unbind();
 
       // Step 3: Verify user's password by binding as the user
-      const userClient = new Client({
-        url: cfg.serverUrl,
-        connectTimeout: cfg.connectionTimeout || 5000,
-        tlsOptions: { rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true },
-      });
+      const userClient = new Client(clientOptions(cfg, dest));
 
       try {
         await userClient.bind(userDn, password);

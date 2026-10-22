@@ -42,7 +42,9 @@ const { deleteUsers, runSuffix } = await import('../../../e2e/support/owned-fixt
 
 const BASE = {
   enabled: true,
-  serverUrl: 'ldaps://dir.cvo.local:636',
+  // A private-LAN literal: since SEC-08 (2026-10-22) the host is resolved and
+  // checked before any bind, and a name that does not resolve is never connected to.
+  serverUrl: 'ldaps://10.20.30.40:636',
   bindDN: 'cn=svc,dc=cvo,dc=local',
   bindPassword: 'svc-pw',
   searchBase: 'dc=cvo,dc=local',
@@ -175,10 +177,14 @@ describe('testConnection', () => {
     expect(ldap.instances[0].bind).toHaveBeenCalledWith(BASE.bindDN, 'svc-pw');
   });
 
-  it('a bind error is reported, including a non-Error rejection', async () => {
+  it('a bind error is reported generically, including a non-Error rejection', async () => {
     useConfig();
     ldap.queue.push({ bind: async () => { throw 'plain string failure'; } });
-    expect(await ldapService.testConnection()).toEqual({ success: false, message: 'LDAP connection failed: plain string failure' });
+    // SEC-08: the raw error is logged, never echoed — it worked as a port-scan oracle.
+    expect(await ldapService.testConnection()).toEqual({
+      success: false,
+      message: 'LDAP connection failed: could not reach the LDAP server. Check the address and port, and that the server is reachable from this machine.',
+    });
   });
 });
 

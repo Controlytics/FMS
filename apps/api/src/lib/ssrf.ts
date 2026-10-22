@@ -52,6 +52,34 @@ export function isBlockedAddress(ip: string, family: number): boolean {
 }
 
 export type UrlCheck = { ok: true; url: URL } | { ok: false; error: string };
+export type HostCheck =
+  | { ok: true; addresses: { address: string; family: number }[] }
+  | { ok: false; error: string };
+
+/**
+ * Resolve a host and refuse a blocked destination. Never throws.
+ *
+ * The destination half of `checkOutboundUrl`, for admin-typed addresses that are
+ * NOT http(s) — the LDAP server (SEC-08, 2026-10-22) and, the other such socket,
+ * the SMTP host. Same policy: refuse if ANY resolved address is blocked, allow
+ * the private LAN. Takes `URL.hostname` as is; an IPv6 literal's brackets are
+ * stripped before it is resolved.
+ */
+export async function checkOutboundHost(hostname: string | null | undefined): Promise<HostCheck> {
+  const host = (hostname ?? '').trim().replace(/^\[(.*)\]$/, '$1');
+  if (!host) return { ok: false, error: 'No host' };
+
+  let addrs: { address: string; family: number }[];
+  try {
+    addrs = await lookup(host, { all: true });
+  } catch {
+    return { ok: false, error: 'DNS resolution failed' };
+  }
+  if (addrs.length === 0 || addrs.some((a) => isBlockedAddress(a.address, a.family))) {
+    return { ok: false, error: 'Destination address not allowed' };
+  }
+  return { ok: true, addresses: addrs };
+}
 
 /** Validate scheme + resolved destination. Never throws. */
 export async function checkOutboundUrl(rawUrl: string | null | undefined): Promise<UrlCheck> {
@@ -67,15 +95,8 @@ export async function checkOutboundUrl(rawUrl: string | null | undefined): Promi
     return { ok: false, error: 'URL must use http or https' };
   }
 
-  let addrs: { address: string; family: number }[];
-  try {
-    addrs = await lookup(url.hostname, { all: true });
-  } catch {
-    return { ok: false, error: 'DNS resolution failed' };
-  }
-  if (addrs.length === 0 || addrs.some((a) => isBlockedAddress(a.address, a.family))) {
-    return { ok: false, error: 'Destination address not allowed' };
-  }
+  const dest = await checkOutboundHost(url.hostname);
+  if (!dest.ok) return dest;
   return { ok: true, url };
 }
 

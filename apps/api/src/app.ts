@@ -68,7 +68,7 @@ import { sweepPasswordExpiryNotifications } from './modules/auth/password-expiry
 import { sweepOrphanPhotos } from './lib/photo-orphan-sweep.js';
 import { failStrandedRetries } from './modules/notification-delivery/delivery.service.js';
 import { buildErrorHandler } from './lib/error-handler.js';
-import { extractRefusal, type Refusal } from './lib/refusal-log.js';
+import { registerRequestLogging } from './lib/request-logging.js';
 import { dispatchNotification } from './modules/notification-delivery/notification-dispatcher.js';
 import cleaningProfileRoutes from './modules/cleaning-profiles/routes.js';import checklistProfileRoutes from './modules/checklist-profiles/routes.js';import filterProfileRoutes from './modules/filter-profiles/routes.js';
 import pmScheduleRoutes from './modules/pm-schedules/routes.js';import pmExecutionRoutes from './modules/pm-schedules/execution-routes.js';import filterOperationsRoutes from './modules/filter-operations/routes.js';import filterEventsRoutes from './modules/filter-operations/events-routes.js';
@@ -334,97 +334,9 @@ app.addHook('onRequest', (_req, _reply, done) => {
 });
 
 // ─── Log types 3 + 7: one HTTP line per request, security lines for denials ───
-//
-// ONE onResponse hook rather than a log call at each of the ~14 places that
-// return 401/403: a hook covers every route registered anywhere, including
-// routes added later, and cannot drift out of step with the handlers. The rbac
-// plugin alone has 10 separate 403 returns.
-const httpLog = getLogger('http', 'http');
-const securityLog = getLogger('access', 'security');
-
-// Requests that are pure noise at info level. The tablet polls /api/health every
-// 15s (connectivity.ts) — left in, that single endpoint would dominate the http
-// log and push real traffic out of the 7-day window. Failures still log: the
-// skip only applies while the response is 2xx.
-const QUIET_PATHS = new Set(['/api/health']);
-
-// WHY a request was refused (2026-10-01). Captured from the response body as it
-// is sent — the one place every refusal passes through, since the auth / rbac /
-// re-auth gates answer directly and never reach the error handler. See
-// lib/refusal-log.ts. Only error responses are parsed; a 2xx costs one compare.
-const REFUSAL = Symbol('refusal');
-app.addHook('onSend', (req, reply, payload, done) => {
-  if (reply.statusCode >= 400) {
-    const refusal = extractRefusal(payload);
-    if (refusal) (req as unknown as Record<symbol, Refusal>)[REFUSAL] = refusal;
-  }
-  done(null, payload);
-});
-
-app.addHook('onResponse', (req, reply, done) => {
-  const status = reply.statusCode;
-  const durationMs = Math.round(reply.elapsedTime);
-  const refusal = (req as unknown as Record<symbol, Refusal | undefined>)[REFUSAL];
-  // NOTE: `req.user` is DECLARED non-optional (plugins/auth.ts) but is genuinely
-  // undefined on every unauthenticated request — the declaration describes the
-  // post-auth state, not this hook's. The guards below are load-bearing at
-  // runtime even though TypeScript thinks they are redundant. Do not remove.
-  const user = req.user as typeof req.user | undefined;
-  // `url` carries the query string, which is where an operator finds the actual
-  // filter that produced an empty list.
-  const base = {
-    reqId: req.id,
-    method: req.method,
-    url: req.url,
-    status,
-    // The refusal code + sentence the client was given. Without them a 409 on
-    // /start-cycle names none of the six rules that can produce it.
-    ...(refusal?.errorCode ? { errorCode: refusal.errorCode } : {}),
-    ...(refusal?.errorMessage ? { errorMessage: refusal.errorMessage } : {}),
-    durationMs,
-    ...(user ? { user: user.username, userId: user.sub, role: user.role } : {}),
-    ip: req.ip,
-  };
-  // On the headline too, so it survives a grep for the status alone.
-  const outcome = refusal?.errorCode ? `${status} ${refusal.errorCode}` : String(status);
-
-  if (status >= 500) {
-    httpLog.error(base, `${req.method} ${req.url} → ${outcome}`);
-  } else if (status >= 400) {
-    httpLog.warn(base, `${req.method} ${req.url} → ${outcome}`);
-  } else if (!QUIET_PATHS.has(req.routeOptions?.url ?? req.url)) {
-    httpLog.info(base, `${req.method} ${req.url} → ${status}`);
-  }
-
-  // Security channel: who was refused, and why. 401 = not authenticated,
-  // 403 = authenticated but not permitted, 429 = rate limited (which is what a
-  // credential-stuffing attempt looks like from the outside).
-  //
-  // /api/auth/login is EXCLUDED: it logs its own success/failure lines in
-  // modules/auth/routes.ts, which are strictly better — a failed login has no
-  // `req.user`, so this hook could only ever call it "anonymous", and the
-  // attempted username is the one field that makes the record worth keeping.
-  //
-  // A 401 with NO Authorization header is also excluded. The auth hook runs
-  // before routing, so every scanner probe and every mistyped URL answers 401 —
-  // logging those would fill 7 days of the security channel with noise and push
-  // the real denials out of the window. A 401 that DID present a token (expired,
-  // tampered, terminated session) is a genuine security event and is kept. The
-  // http channel records both either way.
-  const isLoginRoute = req.url.startsWith('/api/auth/login');
-  const presentedToken = Boolean(req.headers.authorization);
-  const worthLogging =
-    status === 403 || status === 429 || (status === 401 && presentedToken);
-
-  if (!isLoginRoute && worthLogging) {
-    const label = status === 401 ? 'Rejected token' : status === 403 ? 'Permission denied' : 'Rate limited';
-    securityLog.warn(
-      base,
-      `${label}: ${user?.username ?? 'anonymous'} → ${req.method} ${req.url}`,
-    );
-  }
-  done();
-});
+// The onSend + onResponse hooks live in lib/request-logging.ts (moved 2026-10-22
+// so they can be tested against the lines they write).
+registerRequestLogging(app);
 
 // (operation-tracer onResponse/onError hooks removed — see import comment above)
 

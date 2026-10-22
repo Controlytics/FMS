@@ -166,11 +166,12 @@ describe('GET /api/ldap/config + /status', () => {
 describe('POST /api/ldap/test-connection', () => {
   const test = (body: Record<string, unknown>) => authPost(app, '/api/ldap/test-connection', tok.cfg, body);
 
-  it('an empty body tests the STORED config — a real bind to a closed port fails cleanly', async () => {
+  // SEC-08 (2026-10-22): a loopback server is refused before any socket is opened.
+  it('an empty body tests the STORED config — a stored loopback server is refused cleanly', async () => {
     const res = await test({});
     expect(res.statusCode).toBe(200);
     expect(res.json().success).toBe(false);
-    expect(res.json().message).toMatch(/^LDAP connection failed: /);
+    expect(res.json().message).toBe('LDAP connection failed: the server address is not allowed (loopback and link-local addresses are refused).');
     expect(internalErrors).toEqual([]);
   });
 
@@ -196,10 +197,10 @@ describe('POST /api/ldap/test-connection', () => {
     expect(res.json().message).toBe('Enter the Bind Password to test a different server URL or with TLS verification disabled.');
   });
 
-  it('a different server WITH a typed password is attempted', async () => {
+  it('a different server WITH a typed password passes the password guard (and a loopback one is then refused)', async () => {
     const res = await test({ serverUrl: 'ldap://127.0.0.1:2', bindPassword: 'typed', connectionTimeout: 1000 });
     expect(res.json().success).toBe(false);
-    expect(res.json().message).toMatch(/^LDAP connection failed: /);
+    expect(res.json().message).toBe('LDAP connection failed: the server address is not allowed (loopback and link-local addresses are refused).');
   });
 
   it('needs CONFIG_UPDATE', async () => {

@@ -244,6 +244,31 @@ const REDACT_PATHS = [
 ];
 
 /**
+ * URL query / fragment parameters whose VALUE is a credential (SEC-12, security
+ * assessment 2026-10-22).
+ *
+ * The redact paths above work on object KEYS; a credential inside a URL is part
+ * of a string — the `url` field of every http line and the sentence itself
+ * ("GET /…/oauth2/code?code=…&state=… → 200"). The public OAuth2 callback's
+ * authorization `code` and anti-CSRF `state` were written to the 7-day http log
+ * in clear that way. Matched by exact parameter name, case-insensitively, after
+ * `?`, `&` or `#` — so `cycleCode=` or `stateKey=` (ordinary filters an operator
+ * debugs with) are left alone. Nothing else in the API takes these names as a
+ * query parameter (checked 2026-10-22: only the OAuth2 callback reads `code` /
+ * `state`).
+ */
+const URL_SECRET_PARAMS = [
+  'code', 'state', 'token', 'access_token', 'refresh_token', 'id_token',
+  'client_secret', 'password', 'secret', 'api_key', 'apikey',
+];
+const URL_SECRET_RE = new RegExp(`([?&#](?:${URL_SECRET_PARAMS.join('|')})=)[^&#\\s]*`, 'gi');
+
+/** Replace the value of every credential-bearing URL parameter in `text`. */
+export function redactUrlSecrets(text: string): string {
+  return text.replace(URL_SECRET_RE, '$1[redacted]');
+}
+
+/**
  * The root logger. Available synchronously at import time so modules can build
  * their child loggers at module scope; records written before
  * `initFileLogging()` are buffered and flushed to the files afterwards.
@@ -256,6 +281,23 @@ export const rootLogger: Logger = pino(
     base: undefined,
     redact: { paths: REDACT_PATHS, censor: '[redacted]' },
     serializers: { err: pino.stdSerializers.err },
+    // SEC-12: a URL's credentials are redacted where EVERY line passes, so no
+    // call site (request-logging.ts, the error handler, a future one) can leak
+    // them by logging `req.url`. The `url` field here, the sentence and any
+    // printf-style argument in `hooks.logMethod` below.
+    formatters: {
+      log(object) {
+        return typeof object.url === 'string' ? { ...object, url: redactUrlSecrets(object.url) } : object;
+      },
+    },
+    hooks: {
+      logMethod(args, method) {
+        for (let i = 0; i < args.length; i++) {
+          if (typeof args[i] === 'string') (args as unknown[])[i] = redactUrlSecrets(args[i] as string);
+        }
+        return method.apply(this, args);
+      },
+    },
   },
   router as unknown as NodeJS.WritableStream,
 );
