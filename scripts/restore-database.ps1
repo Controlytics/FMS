@@ -826,15 +826,23 @@ SELECT x FROM (
   [void]$prelude.AppendLine("CREATE SCHEMA $asidePublic;")
   [void]$prelude.AppendLine("COMMENT ON SCHEMA $asidePublic IS '$AsideTag $stamp of public';")
   [void]$prelude.AppendLine("DO `$`$ BEGIN PERFORM pg_temp.digilog_move_objects('public', '$asidePublic'); END `$`$;")
-  $asides = @([pscustomobject]@{ Aside = $asidePublic; Stamp = $stamp; Original = 'public' })
-  foreach ($s in $conflicts) {
-    if ($preSchemas -contains $s) {
+  $asides = @([pscustomobject]@{ Aside = $asidePublic; Stamp = $stamp; Original = 'public'; IsPark = $false })
+  # Park schemas (digilog_keep, digilog_keep_<hex>) of the LIVE database are recovery
+  # copies an earlier failed in-app restore left: TRUSTED (in-app rule, eadcf9a +
+  # 7321f87). Every one gets a fresh unique name before the load, so a park the
+  # backup brings under the same name cannot replace it. Other schemas the backup
+  # also contains are moved aside the same way.
+  $liveParks = @($preSchemas | Where-Object { $_ -cmatch '^digilog_keep(_[0-9a-f]+)?$' })
+  foreach ($s in (@($liveParks) + @($conflicts | Where-Object { $preSchemas -contains $_ -and $liveParks -notcontains $_ }))) {
+    if ($s) {
       $c = Sql "SELECT pg_catalog.obj_description('`"$s`"'::regnamespace, 'pg_namespace');"
       $origComments[$s] = $(if ($c.Count) { $c[0] } else { $null })
+      $isPark = $liveParks -contains $s
       $a = "${s}_$stamp"
+      if ($isPark) { $a = 'digilog_keep_' + (-join (1..16 | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })) }
       [void]$prelude.AppendLine("ALTER SCHEMA `"$s`" RENAME TO $a;")
       [void]$prelude.AppendLine("COMMENT ON SCHEMA $a IS '$AsideTag $stamp of $s';")
-      $asides += [pscustomobject]@{ Aside = $a; Stamp = $stamp; Original = $s }
+      $asides += [pscustomobject]@{ Aside = $a; Stamp = $stamp; Original = $s; IsPark = $isPark }
     }
   }
   $state.originalSchemaComments = $origComments
@@ -931,15 +939,20 @@ $check$;
   $backupTip = $postFp.Tip
   Log "  Backup's audit trail ends at chain position $(if ($backupTip) { $backupTip.Position } else { '(none)' })"
 
-  # Every LIVE audit row the backup lacks survives the load (BR-100). The one
-  # source is the live trail itself (moved aside with public), exactly as the
-  # in-app restore parks only public.audit_trail (eadcf9a). A park schema
-  # (digilog_keep / digilog_keep_<hex>) - inside the backup or left in the live
-  # database by an interrupted in-app restore - is a mutable copy nobody trusts:
-  # its rows are never carried, and every park is dropped in step 9.
+  # Every LIVE audit row the backup lacks survives the load (BR-100), with the
+  # in-app rule for park schemas (eadcf9a + 7321f87): first this run's own source,
+  # the live trail moved aside with public, then each park of the LIVE database
+  # (trusted recovery copies, renamed in step 6), in one transaction with the same
+  # dedupe. A park that came WITH the backup is not trusted: never a source,
+  # dropped in step 9.
   $sources = @()
+  $sourceLabel = @{}
   $has = Sql "SELECT 1 FROM pg_catalog.pg_class WHERE relnamespace = '$asidePublic'::regnamespace AND relname = 'audit_trail' AND relkind = 'r';"
-  if ($has.Count) { $sources += "$asidePublic.audit_trail" }
+  if ($has.Count) { $sources += "$asidePublic.audit_trail"; $sourceLabel["$asidePublic.audit_trail"] = 'the current audit trail' }
+  foreach ($a in ($asides | Where-Object { $_.IsPark })) {
+    $has = Sql "SELECT 1 FROM pg_catalog.pg_class WHERE relnamespace = '$($a.Aside)'::regnamespace AND relname = 'audit_trail' AND relkind = 'r';"
+    if ($has.Count) { $sources += "$($a.Aside).audit_trail"; $sourceLabel["$($a.Aside).audit_trail"] = "live park $($a.Original) (renamed $($a.Aside))" }
+  }
   $copy = New-Object System.Text.StringBuilder
   [void]$copy.AppendLine("SET client_min_messages = warning;")
   [void]$copy.AppendLine("CREATE SCHEMA $keepSchema;")
@@ -960,9 +973,13 @@ $check$;
   if ((Invoke-SqlFile $copyFile -SingleTransaction) -ne 0) { Fail 'Could not copy the current audit trail aside.' }
   $carryArgs = @('carry-over')
   foreach ($k in $keepTables) { $carryArgs += @('--keep-table', $k) }
-  Log "  Carrying over audit rows the backup does not have (from $($sources -join ', '))"
+  Log "  Carrying over audit rows the backup does not have (from $(@($sources | ForEach-Object { $sourceLabel[$_] }) -join ', '))"
   $carry = Invoke-Helper $carryArgs -AppCode
   if (-not $carry.ok) { Fail "Carrying over the audit rows failed: $($carry.error)" }
+  for ($j = 0; $j -lt $keepTables.Count; $j++) {
+    $n = $carry.perTable.($keepTables[$j])
+    Log "    $n row(s) from $($sourceLabel[$sources[$j]])"
+  }
   Log "  $($carry.total) audit row(s) carried over; chain-position sequence realigned." Green
   if ($TestFailAfter -eq 'carry-over') { Fail 'TEST: injected failure after the carry-over.' }
 
@@ -1056,9 +1073,9 @@ $check$;
   $asideNames = @($asides | ForEach-Object { $_.Aside })
   foreach ($a in $asideNames) { [void]$fin.AppendLine("DROP SCHEMA $a CASCADE;") }
   [void]$fin.AppendLine("DROP SCHEMA $keepSchema CASCADE;")
-  # Every park schema goes, as after an in-app restore: the ones the backup brought
-  # and any an interrupted in-app restore left in the live database.
-  $parkRows = Sql "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname LIKE 'digilog\_keep%' ORDER BY 1;"
+  # Parks that came WITH the backup (every live park was renamed in step 6 and is
+  # among the asides above): untrusted, never a source, dropped.
+  $parkRows = Sql "SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname ~ '^digilog_keep(_[0-9a-f]+)?$' ORDER BY 1;"
   $parks = @($parkRows | Where-Object { $asideNames -notcontains $_ })
   foreach ($p in $parks) { [void]$fin.AppendLine("DROP SCHEMA `"$p`" CASCADE;") }
   $finFile = Join-Path $workDir 'finish.sql'
@@ -1068,12 +1085,10 @@ $check$;
   $finalOk = $true
   Remove-Item $stateFile -ErrorAction SilentlyContinue
   foreach ($p in $parks) {
-    $origin = 'left in the current database by an interrupted in-app restore'
-    if ($dumpSchemas -contains $p) { $origin = 'brought in by the backup' }
-    Log "  Dropped park schema $p ($origin). Its rows were not carried over: a park copy is not trusted; only the live trail is." Yellow
+    Log "  Dropped park schema $p that came with the backup. Not trusted; its rows were not carried over." Yellow
   }
-  foreach ($a in ($asides | Where-Object { $_.Original -like 'digilog_keep*' })) {
-    Log "  Dropped park schema $($a.Original) of the current database (moved aside as $($a.Aside)); its rows were not carried over." Yellow
+  foreach ($a in ($asides | Where-Object { $_.IsPark })) {
+    Log "  Dropped park schema $($a.Original) of the current database after its rows were carried over (renamed $($a.Aside) during the restore)." Yellow
   }
   $final = Get-Fingerprint
   Log "  Restored database: audit trail $($final.Counts['audit_trail']) rows, last chain position $($final.Tip.Position)."
@@ -1093,6 +1108,9 @@ catch {
       $post = Get-Fingerprint
       $diff = Compare-Fingerprint $preFp $post
       if ($diff.Count -eq 0) { Log 'The database is exactly as it was before the restore (row counts, audit chain tip and schemas verified).' Green; Remove-Item $stateFile -ErrorAction SilentlyContinue }
+      foreach ($a in ($asides | Where-Object { $_.IsPark })) {
+        Log "The audit rows parked by an earlier restore are still in schema $($a.Original) (renamed $($a.Aside) during this attempt); they were not carried over." Yellow
+      }
       else { Log "WARNING: after moving back, these differ from before: $($diff -join '; '). The safety backup is $safety." Red; $keepWorkDir = $true }
     } else {
       $keepWorkDir = $true

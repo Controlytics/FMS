@@ -120,9 +120,11 @@ soak plan kept. Every fix started from a failing test. Nothing here is in an ins
     typed reason go in the row.
   - `-EmergencyUnsigned` is allowed only when no Super Admin can be read. The row is then
     flagged `signature: UNSIGNED_EMERGENCY`.
-  - Park schemas follow the in-app rule (`eadcf9a`): only the live `public.audit_trail` is
-    carried over. Every `digilog_keep%` schema, whether from the archive or left in the live
-    database, is dropped, logged, and never copied.
+  - Park schemas follow the in-app rule (`eadcf9a` + `7321f87`): origin decides trust.
+    - **Live** parks are trusted. They are renamed to a fresh `digilog_keep_<hex>` before the
+      load, carried over after the live trail with the same dedupe, and dropped only after
+      every check passes. On failure they are kept and named in the message.
+    - Parks that came **with the backup** are untrusted: dropped, logged, never copied.
   - Shipped with the next installer build: the three files are on `build-installer.ps1`'s
     named list, and there is a Start-menu entry, FMS → "Restore database from backup".
     No installer has been built with them yet.

@@ -266,13 +266,21 @@ These files are **not** the 21 CFR Part 11 record. That is the *BACKUP_RESTORED*
 - **The app's own code for the audit trail** (`scripts/restore-database-helper.mjs`, run with
   the bundled `node.exe` against `runtime\api\dist`):
   - `preserveUnbackedAuditRows` + `resyncSequencesAfterRestore`, exactly as the in-app
-    `.dump` restore (BR-100, D1 2026-10-21). The **only** source is the live
-    `public.audit_trail` (moved aside). This is the same rule as the in-app restore
-    (`eadcf9a`). A **park schema** (`digilog_keep` or `digilog_keep_<hex>`) is a mutable copy
-    left by an in-app restore, whether it is inside the backup or in the live database, so it
-    is never trusted. Its rows are not carried, and every park schema is dropped in step 9.
-    Each drop is logged, saying whether that park came with the backup or was in the live
-    database;
+    `.dump` restore (BR-100, D1 2026-10-21). **Park schemas** (`digilog_keep` or
+    `digilog_keep_<hex>`) follow the in-app rule (`eadcf9a` + `7321f87`): **origin decides trust**.
+    - A park that is in the **live** database when the restore starts is a recovery copy left
+      by an earlier failed restore, so it is **trusted**. In the step-6 transaction it is renamed
+      `digilog_keep_<16 random hex>`, so a park of the same name in the backup cannot replace it.
+    - The sources are carried over in one transaction with the same dedupe, in this order:
+      first the live `public.audit_trail` (moved aside), then each live park. The live parks
+      are dropped only in step 9, after the carry-over and every check.
+    - If the restore fails, the live parks get their names back, and the message names them:
+      "still in schema ... they were not carried over".
+    - A park that comes **with the backup** is **not trusted**. Its rows are never carried, and
+      it is dropped in step 9.
+    - Every drop is logged.
+    - Since `eadcf9a` new in-app archives contain no parks. Old archives and the nightly
+      plain-SQL dumps can still contain them;
   - `verifyAuditChain`, in windows of 200,000 records that overlap by one;
   - **Signature (OD-01).** A Super Admin's password is checked with `lib/password`
     `verifyPassword` against the pre-restore database, as the re-auth gate does
