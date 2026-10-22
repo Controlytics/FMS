@@ -419,6 +419,9 @@ create / edit / delete across all 9 tabs writes an audit row.
   (audit actions 91 -> 95, reauth 93 -> 94 via `UPDATE_AUDIT_RECORD`).
   **2026-09-03: audit actions 95 -> 97** — `REAUTH_SUCCESS` / `REAUTH_FAILED`.
   **2026-09-24: audit actions 97 -> 98** — `PASSWORD_RESET_REQUESTED` (forgot-password had no row).
+  **2026-10-22: audit actions 98 -> 99** — `NOTIFICATION_TEST_SENT` (SEC-03: every `/email/test`
+  and `/sms/test` writes who / channel / recipient / outcome, never the error text or a config value;
+  the manual `POST /api/notification-settings/send` was removed the same day).
   A re-authentication is the §11 electronic signature and used to write NO audit
   row at all; see the CHANGELOG entry of that date.
   **No new permission constants** - the whole console is

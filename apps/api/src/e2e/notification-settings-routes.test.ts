@@ -479,44 +479,119 @@ describe('SMS configuration', () => {
   });
 });
 
-describe('POST /send', () => {
-  it('sends a manual notification with variables', async () => {
+// SEC-03 (security assessment 06, operator decision 2026-10-22): POST /send let a
+// CONFIG_UPDATE holder e-mail / text ANY recipient ANY text, with no signature, no
+// audit row and nobody recorded as sender - and nothing in the app called it. It is
+// REMOVED. The two test-sends stay, and each now writes an audit row: who, which
+// channel, to whom, and whether it worked - never the error text (a delivery error
+// can echo the http-gateway URL, which may carry an API key) or any config value.
+describe('SEC-03: POST /send is removed; every test-send is audited', () => {
+  const testRows = (userId: string) =>
+    prisma.auditTrail.findMany({ where: { action: 'NOTIFICATION_TEST_SENT', userId }, orderBy: { chainPosition: 'asc' } });
+  // The whole stored row as text (chainPosition is a BigInt), to prove no secret is in ANY column.
+  const text = (row: unknown) => JSON.stringify(row, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  const SMTP_SECRET = `smtp-secret-${TAG}`;
+  const EMAIL_WITH_SECRETS = { ...EMAIL_BASE, password: SMTP_SECRET, clientSecret: `cs-secret-${TAG}` };
+
+  it('POST /send answers exactly like an unknown path, for any role, and sends nothing', async () => {
     await setConfig('notification-email', EMAIL_BASE);
     invalidateNotificationConfigCache();
-    const to = `cov-ns-send-${TAG}@cov.test`;
-    const res = await app.inject({
-      method: 'POST', url: '/api/notification-settings/send', headers: H(cfg),
-      payload: { channel: 'EMAIL', recipient: to, subject: 'S ${n}', message: 'M ${n}', variables: { n: '1' } },
-    });
-    expect(res.json()).toEqual({ success: true, messageId: `<${to}>` });
-    expect(await prisma.notificationLog.findFirst({ where: { recipient: to } })).toMatchObject({ subject: 'S 1', message: 'M 1', triggeredBy: 'manual' });
+    const to = `cov-ns-gone-${TAG}@cov.test`;
+    const payload = { channel: 'EMAIL', recipient: to, subject: 's', message: 'm' };
+    for (const token of [sa, cfg, ro]) {
+      const send = await app.inject({ method: 'POST', url: '/api/notification-settings/send', headers: H(token), payload });
+      const unknown = await app.inject({ method: 'POST', url: '/api/notification-settings/no-such-route', headers: H(token), payload });
+      expect(unknown.statusCode).toBe(404);
+      expect(send.statusCode).toBe(unknown.statusCode);
+      expect(send.body).toBe(unknown.body.split('no-such-route').join('send'));
+    }
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(await prisma.notificationLog.count({ where: { recipient: to } })).toBe(0);
   });
 
-  it('an e-mail body escapes its variables; the subject does not (D7)', async () => {
-    await setConfig('notification-email', EMAIL_BASE);
+  it('/email/test with a recipient writes one row: who, EMAIL, the recipient, SEND, success - and no SMTP secret', async () => {
+    await setConfig('notification-email', EMAIL_WITH_SECRETS);
     invalidateNotificationConfigCache();
-    const to = `cov-ns-send-esc-${TAG}@cov.test`;
-    const res = await app.inject({
-      method: 'POST', url: '/api/notification-settings/send', headers: H(cfg),
-      payload: { channel: 'EMAIL', recipient: to, subject: 'About ${n}', message: '<p>${n}</p>', variables: { n: 'R&D <lab>' } },
-    });
-    expect(res.json().success).toBe(true);
-    expect(await prisma.notificationLog.findFirst({ where: { recipient: to } })).toMatchObject({
-      subject: 'About R&D <lab>', message: '<p>R&amp;D &lt;lab&gt;</p>',
-    });
+    const before = (await testRows(SA)).length;
+    const to = `cov-ns-audit-${TAG}@cov.test`;
+    const res = await app.inject({ method: 'POST', url: '/api/notification-settings/email/test', headers: H(sa), payload: { recipient: to } });
+    expect(res.json()).toEqual({ success: true, message: `Test email sent to ${to}` });
+
+    const rows = await testRows(SA);
+    expect(rows).toHaveLength(before + 1);
+    const row = rows[rows.length - 1];
+    expect(row).toMatchObject({ userId: SA, userRole: 'SUPER_ADMIN', targetType: 'system_config', targetId: 'notification-email', beforeValue: null });
+    expect(row.afterValue).toEqual({ channel: 'EMAIL', recipient: to, mode: 'SEND', success: true });
+    expect(text(row)).not.toContain(SMTP_SECRET);
+    expect(text(row)).not.toContain(`cs-secret-${TAG}`);
   });
 
-  it.each([
-    ['missing message', { channel: 'EMAIL', recipient: 'a@b' }],
-    ['unknown channel', { channel: 'FAX', recipient: 'a', message: 'm' }],
-    ['non-string variable', { channel: 'EMAIL', recipient: 'a', message: 'm', variables: { n: { x: 1 } } }],
-  ])('rejects %s with 400', async (_l, payload) => {
-    expect((await app.inject({ method: 'POST', url: '/api/notification-settings/send', headers: H(sa), payload })).statusCode).toBe(400);
+  it('/email/test without a recipient records the SMTP connection check (recipient null)', async () => {
+    await setConfig('notification-email', EMAIL_WITH_SECRETS);
+    invalidateNotificationConfigCache();
+    const before = (await testRows(CFG)).length;
+    const res = await app.inject({ method: 'POST', url: '/api/notification-settings/email/test', headers: H(cfg), payload: {} });
+    expect(res.json()).toEqual({ success: true, message: 'SMTP connection verified successfully' });
+    const rows = await testRows(CFG);
+    expect(rows).toHaveLength(before + 1);
+    expect(rows[rows.length - 1]).toMatchObject({ userId: CFG, targetId: 'notification-email' });
+    expect(rows[rows.length - 1].afterValue).toEqual({ channel: 'EMAIL', recipient: null, mode: 'CONNECTION_CHECK', success: true });
   });
 
-  it('403s a read-only role', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/notification-settings/send', headers: H(ro), payload: { channel: 'EMAIL', recipient: 'a', message: 'm' } });
-    expect(res.statusCode).toBe(403);
+  it('a failed test-send is still recorded, as failed, without the error text', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await setConfig('notification-email', { ...EMAIL_WITH_SECRETS, enabled: false });
+    invalidateNotificationConfigCache();
+    const before = (await testRows(SA)).length;
+    const to = `cov-ns-audit-off-${TAG}@cov.test`;
+    const res = await app.inject({ method: 'POST', url: '/api/notification-settings/email/test', headers: H(sa), payload: { recipient: to } });
+    expect(res.json()).toEqual({ success: false, error: 'Email notifications are not enabled' });
+    const rows = await testRows(SA);
+    expect(rows).toHaveLength(before + 1);
+    expect(rows[rows.length - 1].afterValue).toEqual({ channel: 'EMAIL', recipient: to, mode: 'SEND', success: false });
+    expect(text(rows[rows.length - 1])).not.toContain('not enabled');
+  });
+
+  it('/sms/test records SMS + the recipient; the provider token and a gateway URL with a key never reach the row', async () => {
+    const TWILIO_TOKEN = `tw-secret-${TAG}`;
+    await setConfig('notification-sms', { provider: 'twilio', enabled: true, twilioAccountSid: 'AC', twilioAuthToken: TWILIO_TOKEN, twilioFromNumber: '+15550000000' });
+    invalidateNotificationConfigCache();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ sid: 'SMt' }), { status: 201 }));
+    const before = (await testRows(SA)).length;
+    const phone = `+9196${String(Date.now()).slice(-8)}`;
+    const ok = await app.inject({ method: 'POST', url: '/api/notification-settings/sms/test', headers: H(sa), payload: { recipient: phone } });
+    expect(ok.json()).toEqual({ success: true, message: `Test SMS sent to ${phone}` });
+    let rows = await testRows(SA);
+    expect(rows).toHaveLength(before + 1);
+    expect(rows[rows.length - 1]).toMatchObject({ targetId: 'notification-sms' });
+    expect(rows[rows.length - 1].afterValue).toEqual({ channel: 'SMS', recipient: phone, mode: 'SEND', success: true });
+    expect(text(rows[rows.length - 1])).not.toContain(TWILIO_TOKEN);
+    await prisma.notificationLog.deleteMany({ where: { recipient: phone } });
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const GW_KEY = `gw-secret-${TAG}`;
+    await setConfig('notification-sms', { provider: 'http-gateway', enabled: true, httpGatewayUrl: `http://127.0.0.1:9/send?apikey=${GW_KEY}` });
+    invalidateNotificationConfigCache();
+    const phone2 = `+9195${String(Date.now()).slice(-8)}`;
+    const bad = await app.inject({ method: 'POST', url: '/api/notification-settings/sms/test', headers: H(sa), payload: { recipient: phone2 } });
+    expect(bad.statusCode).toBe(200);
+    expect(bad.json().success).toBe(false);
+    rows = await testRows(SA);
+    expect(rows).toHaveLength(before + 2);
+    expect(rows[rows.length - 1].afterValue).toEqual({ channel: 'SMS', recipient: phone2, mode: 'SEND', success: false });
+    expect(text(rows[rows.length - 1])).not.toContain(GW_KEY);
+    expect(text(rows[rows.length - 1])).not.toContain('127.0.0.1:9');
+    await prisma.notificationLog.deleteMany({ where: { recipient: phone2 } });
+  });
+
+  it('a refused request (400 / 403) writes no row', async () => {
+    const [saBefore, roBefore, noneBefore] = (await Promise.all([testRows(SA), testRows(RO), testRows(NONE)])).map((x) => x.length);
+    expect((await app.inject({ method: 'POST', url: '/api/notification-settings/sms/test', headers: H(sa), payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/api/notification-settings/email/test', headers: H(ro), payload: { recipient: `r-${TAG}@cov.test` } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: '/api/notification-settings/sms/test', headers: H(none), payload: { recipient: '+919800000000' } })).statusCode).toBe(403);
+    expect((await testRows(SA)).length).toBe(saBefore);
+    expect((await testRows(RO)).length).toBe(roBefore);
+    expect((await testRows(NONE)).length).toBe(noneBefore);
   });
 });
 

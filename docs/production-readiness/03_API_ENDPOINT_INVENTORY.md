@@ -619,6 +619,8 @@ Source: `apps/api/src/modules/notification-delivery/routes.ts`
 | PUT | `/api/notification-settings/templates/{id}` | CONFIG_UPDATE | — | yes | n/a (write) | ADMIN-WRITE | 678 |
 | DELETE | `/api/notification-settings/templates/{id}` | CONFIG_UPDATE | — | yes | n/a (write) | ADMIN-WRITE | 713 |
 
+> **Note added 2026-10-22 (SEC-03):** after this inventory was taken, `POST /api/notification-settings/send` was removed, and `email/test` / `sms/test` now write a `NOTIFICATION_TEST_SENT` audit row. The rows above are kept as dated evidence.
+
 ### notification-rules (8)
 
 Source: `apps/api/src/modules/notification-rules/routes.ts`

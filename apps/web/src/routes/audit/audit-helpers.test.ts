@@ -376,3 +376,20 @@ describe('audit-helpers — re-authentication rows', () => {
     expect(formatActionLabel('REAUTH_FAILED')).toBe('Reauth Failed');
   });
 });
+
+// SEC-03 (2026-10-22): a test-send from Notification Settings is audited. Its two
+// placeholders must be substituted, or the row reads "{testClause} by sa".
+describe('audit-helpers — NOTIFICATION_TEST_SENT', () => {
+  const row = (afterValue: Record<string, unknown>) => ({
+    action: 'NOTIFICATION_TEST_SENT', userId: 'sa', targetType: 'system_config', targetId: 'notification-email', afterValue,
+  });
+  it('names the channel, the recipient and the outcome; a connection check sends nothing', () => {
+    expect(getAuditSummary(row({ channel: 'EMAIL', recipient: 'qa@lab.test', mode: 'SEND', success: true }), T))
+      .toBe('Test email to qa@lab.test by sa — succeeded');
+    expect(getAuditSummary(row({ channel: 'SMS', recipient: '+919800000000', mode: 'SEND', success: false }), T))
+      .toBe('Test SMS to +919800000000 by sa — failed');
+    expect(getAuditSummary(row({ channel: 'EMAIL', recipient: null, mode: 'CONNECTION_CHECK', success: true }), T))
+      .toBe('SMTP connection test by sa — succeeded');
+    expect(getAuditSummary(row({ channel: 'EMAIL', recipient: 'x@y.z', mode: 'SEND', success: true }), T)).not.toMatch(/\{[a-zA-Z]+\}/);
+  });
+});

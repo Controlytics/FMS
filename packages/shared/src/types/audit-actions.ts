@@ -162,6 +162,10 @@ export const AUDIT_ACTIONS = {
   // Delivery log (who was emailed/SMS'd about what) — destroying a row destroys
   // the evidence of the dispatch it recorded.
   NOTIFICATION_LOG_DELETED: 'NOTIFICATION_LOG_DELETED',
+  // A test-send from Notification Settings (/email/test, /sms/test): who, which
+  // channel, to whom, whether it worked - never the error or a config value.
+  // SEC-03, 2026-10-22 (the manual POST /send was removed the same day).
+  NOTIFICATION_TEST_SENT: 'NOTIFICATION_TEST_SENT',
 
   // Help
   HELP_ARTICLE_CREATED: 'HELP_ARTICLE_CREATED',

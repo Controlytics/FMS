@@ -991,6 +991,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'SMS gateway settings updated by {actor}',
     placeholders: ['actor'],
   },
+  // SEC-03 (2026-10-22). {testClause} = "Test email to <recipient>" / "Test SMS to
+  // <recipient>" / "SMTP connection test"; {testOutcome} = succeeded / failed.
+  NOTIFICATION_TEST_SENT: {
+    label: 'Test Notification Sent',
+    category: 'Configuration',
+    template: '{testClause} by {actor} — {testOutcome}',
+    placeholders: ['testClause', 'actor', 'testOutcome'],
+  },
   DASHBOARD_CREATED: {
     label: 'Dashboard Created',
     category: 'Configuration',

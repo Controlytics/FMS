@@ -313,12 +313,21 @@ export function getAuditSummary(record: any, templates: Record<string, string>):
   const rejectionRemarks = (after.adminRemarks as string) || '';
   const remarksClause = rejectionRemarks ? ` — reason: ${rejectionRemarks}` : '';
 
+  // 2026-10-22 (SEC-03) — NOTIFICATION_TEST_SENT. Registered for the same reason
+  // as every clause above: an unsubstituted placeholder renders literally.
+  const testClause = after.mode === 'CONNECTION_CHECK'
+    ? 'SMTP connection test'
+    : `Test ${after.channel === 'SMS' ? 'SMS' : 'email'}${after.recipient ? ` to ${after.recipient}` : ''}`;
+  const testOutcome = after.success === true ? 'succeeded' : after.success === false ? 'failed' : 'outcome not recorded';
+
   const replacePlaceholders = (tpl: string) => {
     const filled = tpl
       .replace(/\{requesterClause\}/g, requesterClause)
       .replace(/\{actorRole\}/g, actorRole)
       .replace(/\{outcomeClause\}/g, outcomeClause)
       .replace(/\{remarksClause\}/g, remarksClause)
+      .replace(/\{testClause\}/g, testClause)
+      .replace(/\{testOutcome\}/g, testOutcome)
       .replace(/\{actor\}/g, actor)
       .replace(/\{targetUser\}/g, targetUser || actor)
       .replace(/\{targetName\}/g, targetName)

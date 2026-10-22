@@ -3,13 +3,13 @@
  * sending test notifications, and querying delivery logs.
  */
 
-import { type FastifyInstance } from 'fastify';
+import { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import { prisma } from '../../lib/prisma.js';
 import { invalidateNotificationConfigCache } from './config-loader.js';
-import { sendNotification, sendTestNotification, testChannel } from './delivery.service.js';
+import { sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
@@ -46,6 +46,24 @@ const SMS_AUDIT_SAFE_KEYS = [
   // operator-authored free text and the common SMS gateways (MSG91, Plivo,
   // Kaleyra) embed the API key directly in the query string / body template.
 ];
+
+/**
+ * One NOTIFICATION_TEST_SENT row per test-send (SEC-03, 2026-10-22): who, which
+ * channel, to whom (null for the SMTP connection check, which sends nothing but
+ * signs in with the stored credentials) and whether it worked. Deliberately NOT
+ * the error text or any config value: a delivery error can echo the http-gateway
+ * URL, which may carry an API key, and an audit row can never be deleted. The
+ * error is in the response and in the delivery log, where it already was.
+ */
+async function auditTestSend(req: FastifyRequest, channel: 'EMAIL' | 'SMS', recipient: string | null, success: boolean): Promise<void> {
+  const ctx = buildContext(req);
+  await auditLog({
+    userId: ctx.userId, userRole: ctx.userRole, action: 'NOTIFICATION_TEST_SENT',
+    targetType: 'system_config', targetId: channel === 'EMAIL' ? 'notification-email' : 'notification-sms',
+    afterValue: { channel, recipient, mode: recipient ? 'SEND' : 'CONNECTION_CHECK', success },
+    ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
+  });
+}
 
 export default async function notificationDeliveryRoutes(app: FastifyInstance) {
 
@@ -173,9 +191,11 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     const { recipient } = (req.body ?? {}) as { recipient?: string };
     if (recipient) {
       const result = await sendTestNotification('EMAIL', recipient);
+      await auditTestSend(req, 'EMAIL', recipient, result.success);
       return { success: result.success, message: result.success ? `Test email sent to ${recipient}` : undefined, error: result.error };
     }
     const result = await testChannel('EMAIL');
+    await auditTestSend(req, 'EMAIL', null, result.success);
     return { success: result.success, message: result.success ? 'SMTP connection verified successfully' : undefined, error: result.error };
   });
 
@@ -522,34 +542,15 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { recipient } = req.body as { recipient: string };
     const result = await sendTestNotification('SMS', recipient);
+    await auditTestSend(req, 'SMS', recipient, result.success);
     return { success: result.success, message: result.success ? `Test SMS sent to ${recipient}` : undefined, error: result.error };
   });
 
-  // ====== Send Notification (Manual) ======
-
-  app.post('/send', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
-    schema: {
-      tags: ['Notification Settings'],
-      summary: 'Send a notification',
-      description: 'Manually send an email or SMS notification.',
-      body: {
-        type: 'object',
-        required: ['channel', 'recipient', 'message'],
-        properties: {
-          channel: { type: 'string', enum: ['EMAIL', 'SMS'] },
-          recipient: { type: 'string' },
-          subject: { type: 'string' },
-          message: { type: 'string' },
-          variables: { type: 'object', additionalProperties: { type: 'string' } },
-        },
-      },
-      response: { 200: { type: 'object', properties: { success: { type: 'boolean' }, messageId: { type: 'string' }, error: { type: 'string' } } } },
-    },
-  }, async (req) => {
-    const body = req.body as { channel: 'EMAIL' | 'SMS'; recipient: string; subject?: string; message: string; variables?: Record<string, string> };
-    return sendNotification({ ...body, triggeredBy: 'manual' });
-  });
+  // POST /send (manual e-mail / SMS to any recipient) was REMOVED 2026-10-22
+  // (security assessment 06, SEC-03, operator decision): nothing in the web app or
+  // the tablet called it, and it let any CONFIG_UPDATE holder message anyone with
+  // no signature, no audit row and no sender recorded. Notifications go out only
+  // through the rule dispatcher and the two audited test-sends above.
 
   // ====== Notification Logs ======
 

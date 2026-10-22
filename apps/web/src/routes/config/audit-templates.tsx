@@ -51,6 +51,8 @@ const PREVIEW_SAMPLES: Record<string, string> = {
   requesterClause: 'requested by EMP-014 (OPERATOR)',
   outcomeClause: ' — the account was already enabled',
   remarksClause: ' — reason: Duplicate request',
+  testClause: 'Test email to qa@example.com',
+  testOutcome: 'succeeded',
 };
 
 const renderPreview = (templateStr: string) =>

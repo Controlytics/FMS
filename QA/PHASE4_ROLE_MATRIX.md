@@ -317,6 +317,7 @@ Note, however, that `GET /api/stage-approvals/` accepts `FILTER_OPERATE` (`stage
 **Outbound or destructive routes not sent with a valid body:**
 - `backup/restore`
 - `notification-settings/send`, `email/test`, `sms/test`
+  - *Note added 2026-10-22 (SEC-03): `notification-settings/send` was removed after this run; the two test routes now write an audit row.*
 - `ldap/test-connection`
 - `equipment-groups/test-url`, `equipment-groups/fetch-readings`
 - `users/password-expiry-sweep`, `pm-schedules/deviations/sweep`
