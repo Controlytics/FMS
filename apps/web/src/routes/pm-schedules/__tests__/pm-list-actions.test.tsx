@@ -239,7 +239,7 @@ describe('PM list — Upload', () => {
     expect(uploadDlg()).toHaveTextContent('Accepts .csv, .xlsx');
     expect(fileInput()).toHaveAttribute('accept', '.csv,.xlsx');
     choose(csv('pm.csv', `# comment\nahu_name,scheduled_date\nAHU-01,${Y + 1}-02-10\n,\n`));
-    expect(await within(uploadDlg()).findByText('Imported (Pending QA)')).toBeInTheDocument();
+    expect(await within(uploadDlg()).findByText('Imported (pending review by MANAGER)')).toBeInTheDocument();
     expect(uploadDlg()).toHaveTextContent('Validation result — processed 3 rows');
     expect(uploadDlg()).toHaveTextContent('Row 4 — Unknown AHU: AHU-99');
     const [up] = api.calls('POST', '/api/pm-schedules/upload');
@@ -260,13 +260,15 @@ describe('PM list — Upload', () => {
     const api = open(EDITOR, { entries: [entry('e1')], extra: [OK_UPLOAD([`${Y}-${MM}-12`])] });
     await screen.findAllByRole('link', { name: 'AHU-01' });
     fireEvent.click(screen.getByRole('button', { name: /^Rejected/ }));
-    await waitFor(() => expect(api.calls('GET', '/api/pm-schedules/entries').at(-1)!.query.get('approvalStatus')).toBe('REJECTED'));
+    expect(await screen.findByText('No schedule entries found')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Upload Schedule' }));
     choose(new File(['x'], 'pm.xlsx'));
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
-    await waitFor(() => expect(api.calls('GET', '/api/pm-schedules/entries').at(-1)!.query.get('approvalStatus')).toBeNull());
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     fireEvent.click(within(uploadDlg()).getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('heading', { name: 'Upload PM Schedule' })).toBeNull();
+    // Back on All: the approved row the Rejected tab hid is listed again.
+    expect(await screen.findByText(shown(15))).toBeInTheDocument();
+    expect(api.calls('POST', '/api/pm-schedules/upload')).toHaveLength(1);
   });
 
   it('past dates are listed for confirmation first: Cancel uploads nothing, Proceed Anyway uploads', async () => {
@@ -285,7 +287,7 @@ describe('PM list — Upload', () => {
 
     choose(csv('old.csv', content));
     fireEvent.click(await screen.findByRole('button', { name: 'Proceed Anyway' }));
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     expect(uploadDlg()).toHaveTextContent('All rows passed validation — no errors.');
     expect(api.calls('POST', '/api/pm-schedules/upload')).toHaveLength(1);
   });
@@ -310,12 +312,12 @@ describe('PM list — Upload', () => {
     const api = open(EDITOR, { entries: [entry('e1')], extra: [OK_UPLOAD([])] });
     fireEvent.click(await screen.findByRole('button', { name: 'Upload Schedule' }));
     choose(csv('h.csv', 'ahu_name,scheduled_date\n'));
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     fireEvent.click(within(uploadDlg()).getByRole('button', { name: 'Upload Another' }));
     const broken = csv('b.csv', 'x');
     (broken as any).text = () => Promise.reject(new Error('unreadable'));
     choose(broken);
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     expect(api.calls('POST', '/api/pm-schedules/upload')).toHaveLength(2);
   });
 
@@ -329,7 +331,7 @@ describe('PM list — Upload', () => {
     const zone = within(uploadDlg()).getByText('Drag and drop or click to choose').parentElement as HTMLElement;
     fireEvent.drop(zone, { dataTransfer: { files: [new File(['x'], 'legacy.xls')] } });
     expect(await within(uploadDlg()).findByText(/Old Excel \.xls files cannot be read/)).toBeInTheDocument();
-    expect(within(uploadDlg()).queryByText('Imported (Pending QA)')).toBeNull();
+    expect(within(uploadDlg()).queryByText('Imported (pending review by MANAGER)')).toBeNull();
   });
 
   it('a refusal without a message names the HTTP status', async () => {
@@ -353,7 +355,7 @@ describe('PM list — Upload', () => {
     fireEvent.click(zone);
     expect(pick).toHaveBeenCalled();
     fireEvent.drop(zone, { dataTransfer: { files: [new File(['x'], 'pm.xlsx')] } });
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
   });
 
   it('a Super Admin upload with the workflow off says the rows are approved directly; the upload is signed when its row is on', async () => {
@@ -363,7 +365,7 @@ describe('PM list — Upload', () => {
     expect(uploadDlg()).toHaveTextContent('entries you upload are approved directly');
     choose(new File(['x'], 'pm.xlsx'));
     await passReauth();
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (approved)');
     expect(api.calls('POST', '/api/pm-schedules/upload')[0].headers['x-reauth-password']).toBe('Secret@123');
   });
 
@@ -393,7 +395,7 @@ describe('PM list — Upload', () => {
     expect(await screen.findByText('Incorrect password. Please try again.')).toBeInTheDocument();
     expect(within(uploadDlg()).queryByText('Incorrect password')).toBeNull();
     await passReauth('Secret@123');
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     const posts = api.calls('POST', '/api/pm-schedules/upload');
     expect(posts.map((p) => p.headers['x-reauth-password'])).toEqual(['wrong', 'Secret@123']);
     expect(posts[1].form?.get('file')).toBeInstanceOf(File);
@@ -407,7 +409,7 @@ describe('PM list — Upload', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Upload Schedule' }));
     choose(new File(['x'], 'pm.xlsx'));
     await passReauth();
-    await within(uploadDlg()).findByText('Imported (Pending QA)');
+    await within(uploadDlg()).findByText('Imported (pending review by MANAGER)');
     expect(api.calls('POST', '/api/pm-schedules/upload')[1].headers['x-reauth-password']).toBe('Secret@123');
   });
 

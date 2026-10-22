@@ -95,18 +95,21 @@ describe('PM list — what is shown', () => {
     expect(await screen.findByText('No schedule entries found')).toBeInTheDocument();
   });
 
-  it('a status tab re-reads with that status; empty review/approval tabs are hidden', async () => {
+  it('a status tab narrows the table, not the counts; empty review/approval tabs are hidden', async () => {
     const api = open(VIEWER, { entries: [entry('e1'), entry('e2', { approvalStatus: 'PENDING_REVIEW', plannedDate: day(12) })] });
     await screen.findAllByRole('link', { name: 'AHU-01' });
     expect(screen.getByRole('button', { name: /To Review/ })).toHaveTextContent('(1)');
     expect(screen.queryByRole('button', { name: /To Approve/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Pending/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Approved/ }));
-    await waitFor(() => expect(entryReads(api).at(-1)!.query.get('approvalStatus')).toBe('APPROVED'));
-    await waitFor(() => expect(tile('Total')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.queryByText(shown(12))).toBeNull());
+    expect(screen.getByText(shown(15))).toBeInTheDocument();
+    // D03-04: the tiles and the other tabs keep counting the whole range.
+    expect(tile('Total')).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: /To Review/ })).toHaveTextContent('(1)');
+    expect(entryReads(api).every((r) => !r.query.has('approvalStatus'))).toBe(true);
     // The active tab stays visible even when empty.
     fireEvent.click(screen.getByRole('button', { name: /^Rejected/ }));
-    await waitFor(() => expect(entryReads(api).at(-1)!.query.get('approvalStatus')).toBe('REJECTED'));
     expect(await screen.findByText('No schedule entries found')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Rejected/ })).toBeInTheDocument();
   });

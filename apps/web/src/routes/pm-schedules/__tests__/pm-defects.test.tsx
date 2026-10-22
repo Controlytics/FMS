@@ -11,6 +11,10 @@
  *           other raw fetch (apiUrl).
  *  D6       the configured page size was ignored on a cold load.
  *  3d       controls with no accessible name.
+ *  D03-04   the summary tiles and tab counts followed the selected tab, so on
+ *           Approved an approver saw Pending 0 and no To Approve tab while an
+ *           entry waited; the upload result said "Pending QA" whatever the
+ *           workflow (2026-10-22).
  *  Upload   the drop zone was a clickable div: no keyboard path to the file
  *           chooser; and a second file dropped mid-upload started a second
  *           upload (2026-10-22).
@@ -20,9 +24,9 @@ import { screen, fireEvent, waitFor, within, configure } from '@testing-library/
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { baseRoutes, usePageTestLifecycle, role, passReauth } from '../../filter-management/__tests__/fm-test-kit';
 import { DT_UTC } from '../../cleaning-cycles/__tests__/cycles-fixtures';
-import { PmScheduleListPage } from '../index';
+import { PmScheduleListPage, pmImportedLabel } from '../index';
 import { PmScheduleDetailPage } from '../detail';
-import { pmApi, entry, day, shown, okDialog, rowWith, Y, MM, VIEWER, REVIEWER, APPROVER, EDITOR, SA, type PmRouteOpts } from './pm-kit';
+import { pmApi, entry, day, shown, okDialog, rowWith, Y, MM, VIEWER, REVIEWER, APPROVER, EDITOR, SA, WF_ON, WF_OFF, type PmRouteOpts } from './pm-kit';
 import { unnamedControls } from './a11y-kit';
 
 usePageTestLifecycle();
@@ -374,8 +378,93 @@ describe('Upload drop zone — reachable from the keyboard; one upload at a time
     expect(pick).not.toHaveBeenCalled();
     fireEvent.drop(zone, { dataTransfer: { files: [new File(['y'], 'second.xlsx')] } });
     await passReauth();
-    await screen.findByText('Imported (Pending QA)');
+    await screen.findByText('Imported (pending review by MANAGER)');
     expect(uploads(api)).toHaveLength(1);
     expect((uploads(api)[0].form!.get('file') as File).name).toBe('first.xlsx');
+  });
+});
+
+// ─── D03-04 ─────────────────────────────────────────────────────────────────
+describe('D03-04 — the tiles and tab counts do not follow the selected tab', () => {
+  const tiles = () => {
+    const grid = screen.getByText('Total', { selector: 'p' }).closest('.grid') as HTMLElement;
+    return Object.fromEntries(['Total', 'Approved', 'Pending', 'Rejected'].map((l) =>
+      [l, within(grid).getByText(l, { selector: 'p' }).nextElementSibling!.textContent]));
+  };
+  const tab = (name: RegExp) => screen.queryByRole('button', { name });
+  const ENTRIES = [
+    entry('a1', { plannedDate: day(11) }),
+    entry('a2', { plannedDate: day(12) }),
+    entry('w1', { approvalStatus: 'PENDING_APPROVAL', plannedDate: day(13) }),
+    entry('r1', { approvalStatus: 'REJECTED', plannedDate: day(14) }),
+  ];
+
+  it('on the Approved tab an approver still sees the waiting entry in the tiles and the To Approve tab', async () => {
+    openList(APPROVER, { entries: ENTRIES });
+    await screen.findByText(shown(13));
+    expect(tiles()).toEqual({ Total: '4', Approved: '2', Pending: '1', Rejected: '1' });
+    expect(tab(/^To Approve/)).toHaveTextContent('To Approve(1)');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Approved/ }));
+    // The table narrows to the tab...
+    await waitFor(() => expect(screen.queryByText(shown(13))).toBeNull());
+    expect(screen.getByText(shown(11))).toBeInTheDocument();
+    expect(screen.queryByText(shown(14))).toBeNull();
+    // ...the counts do not.
+    expect(tiles()).toEqual({ Total: '4', Approved: '2', Pending: '1', Rejected: '1' });
+    expect(tab(/^To Approve/)).toHaveTextContent('To Approve(1)');
+    expect(tab(/^All/)).toHaveTextContent('All(4)');
+    expect(tab(/^Rejected/)).toHaveTextContent('Rejected(1)');
+
+    // The tab is still there to go back to the waiting entry.
+    fireEvent.click(tab(/^To Approve/)!);
+    expect(await screen.findByText(shown(13))).toBeInTheDocument();
+    expect(screen.queryByText(shown(11))).toBeNull();
+    expect(tiles()).toEqual({ Total: '4', Approved: '2', Pending: '1', Rejected: '1' });
+  });
+
+  it('switching tabs is a view of the loaded entries, not a new server read', async () => {
+    const api = openList(APPROVER, { entries: ENTRIES });
+    await screen.findByText(shown(13));
+    const reads = () => api.calls('GET', '/api/pm-schedules/entries').filter((r) => !r.query.get('page'));
+    const before = reads().length;
+    fireEvent.click(screen.getByRole('button', { name: /^Rejected/ }));
+    await waitFor(() => expect(screen.queryByText(shown(11))).toBeNull());
+    expect(reads()).toHaveLength(before);
+    expect(reads().every((r) => !r.query.has('approvalStatus'))).toBe(true);
+  });
+});
+
+describe('D03-04 — the upload result names the next step the configured workflow takes', () => {
+  const OK_UPLOAD = {
+    method: 'POST', path: '/api/pm-schedules/upload',
+    body: { imported: 1, skipped: 0, details: { imported: [{ row: 2, ahuName: 'AHU-01', plannedDate: `${Y}-${MM}-12`, scheduleId: 's1', entryId: 'n1' }], skipped: [] } },
+  };
+  const upload = async (user: any, wf: any) => {
+    openList(user, { wf, entries: [entry('e1')], extra: [OK_UPLOAD] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload Schedule' }));
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['x'], 'pm.xlsx')] } });
+  };
+
+  it('workflow on: pending review by the configured reviewer, never "Pending QA"', async () => {
+    await upload(EDITOR, WF_ON);
+    expect(await screen.findByText('Imported (pending review by MANAGER)')).toBeInTheDocument();
+    expect(screen.queryByText(/Pending QA/)).toBeNull();
+  });
+
+  it('workflow off: a Super Admin upload is approved, anyone else waits for approval', async () => {
+    await upload(SA, WF_OFF);
+    expect(await screen.findByText('Imported (approved)')).toBeInTheDocument();
+  });
+
+  it('workflow off, not a Super Admin: pending approval', async () => {
+    await upload(EDITOR, WF_OFF);
+    expect(await screen.findByText('Imported (pending approval)')).toBeInTheDocument();
+  });
+
+  it('the label rule itself, including a workflow config that has not loaded', () => {
+    expect(pmImportedLabel(undefined, false)).toBe('Imported');
+    expect(pmImportedLabel({ workflowEnabled: true, reviewRole: '  ', approvalRole: 'QA' } as any, true)).toBe('Imported (pending review)');
+    expect(pmImportedLabel(WF_ON as any, true)).toBe('Imported (pending review by MANAGER)');
   });
 });

@@ -103,6 +103,20 @@ export function pmUploadHint(wf: PmWorkflowConfig | undefined, isSuperAdmin: boo
   return isSuperAdmin ? 'entries you upload are approved directly' : 'entries go to Pending for approval';
 }
 
+/**
+ * D03-04: the upload result's label names the step the imported rows wait for,
+ * by the same server rules as pmUploadHint. It said "Pending QA" whatever the
+ * workflow, while the same dialog said entries go to review first.
+ */
+export function pmImportedLabel(wf: PmWorkflowConfig | undefined, isSuperAdmin: boolean): string {
+  if (!wf) return 'Imported';
+  if (wf.workflowEnabled) {
+    const role = wf.reviewRole?.trim();
+    return `Imported (pending review${role ? ` by ${role}` : ''})`;
+  }
+  return isSuperAdmin ? 'Imported (approved)' : 'Imported (pending approval)';
+}
+
 const REJECTION_STAGE: Record<string, string> = { REVIEW: 'review', APPROVAL: 'approval' };
 
 /** OQ-10: who rejected a PM entry, when, at which step, and why. */
@@ -278,11 +292,13 @@ export function PmScheduleListPage() {
     [dateFrom, dateTo, nowYear],
   );
 
-  // ALL_ROWS so the whole year's entries load (the page has no pagination UI).
-  const statusQs = statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : '';
+  // ALL_ROWS so the whole year's entries load. Every status is fetched and the
+  // status tab only narrows the TABLE (D03-04): the tiles and tab counts were
+  // computed from the tab-filtered list, so on Approved an approver saw
+  // Pending 0 and no To Approve tab while an entry waited for them.
   const entriesUrls = useMemo(
-    () => years.map(y => `/api/pm-schedules/entries?year=${y}&limit=${ALL_ROWS}${statusQs}`),
-    [years, statusQs],
+    () => years.map(y => `/api/pm-schedules/entries?year=${y}&limit=${ALL_ROWS}`),
+    [years],
   );
   const entriesKey = entriesUrls.length ? (['pm-entries', ...entriesUrls] as const) : null;
   const { data: entriesData, error: entriesError, isLoading, mutate: reloadEntries } = useSWR(
@@ -297,11 +313,14 @@ export function PmScheduleListPage() {
   // read in the operator's zone: slicing the stored UTC instant puts a
   // 2026-07-16 00:30 IST entry on 2026-07-15 and drops it at a range edge.
   const allEntries: ScheduleEntry[] = entriesData?.data ?? [];
-  const entries = allEntries.filter(e => {
+  // Every status in the date range: what the tiles and tab counts read.
+  const rangeEntries = allEntries.filter(e => {
     const d = isoToDateInput(e.plannedDate, datetimeTz);
     if (!d) return true;
     return d >= effectiveFrom && d <= effectiveTo;
   });
+  // The table: the selected status tab over the range.
+  const entries = statusFilter === 'ALL' ? rangeEntries : rangeEntries.filter(e => e.approvalStatus === statusFilter);
   const { data: countsData } = useSWR('/api/pm-schedules/entries/pending-counts');
   const pendingCount = countsData?.pending ?? 0;
   const rejectedCount = countsData?.rejected ?? 0;
@@ -453,7 +472,7 @@ export function PmScheduleListPage() {
 
         // Auto-widen the date range + force statusFilter=ALL so the freshly
         // uploaded entries are actually visible in the table below. Without
-        // this, operators see "Uploaded (Pending QA): N" but the table is
+        // this, operators see "Imported: N" but the table is
         // empty because (a) the page defaults to the CURRENT MONTH only,
         // (b) the year filter derives from dateFrom (so a 2027 upload is
         // invisible from a 2026 view), and (c) non-superadmin uploads are
@@ -777,10 +796,12 @@ export function PmScheduleListPage() {
     groupedEntries.push({ ahuId, ahuName: ahuEntries[0].ahuName, entries: ahuEntries, filterNames });
   }
 
-  // Summary stats
-  const approvedCount = entries.filter(e => e.approvalStatus === 'APPROVED').length;
-  const pendingInView = entries.filter(e => e.approvalStatus === 'PENDING' || e.approvalStatus === 'PENDING_REVIEW' || e.approvalStatus === 'PENDING_APPROVAL').length;
-  const rejectedInView = entries.filter(e => e.approvalStatus === 'REJECTED').length;
+  // Summary stats + tab counts: the whole range, whichever tab is selected (D03-04).
+  const statusCount = (s: string) => rangeEntries.filter(e => e.approvalStatus === s).length;
+  const rangeTotal = rangeEntries.length;
+  const approvedCount = statusCount('APPROVED');
+  const pendingInView = statusCount('PENDING') + statusCount('PENDING_REVIEW') + statusCount('PENDING_APPROVAL');
+  const rejectedInView = statusCount('REJECTED');
   const colCount = (showSelectColumn ? 1 : 0) + 8;
 
   return (
@@ -821,7 +842,7 @@ export function PmScheduleListPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <p className="text-xs font-semibold text-slate-500">Total</p>
-          <p className="text-2xl font-bold text-slate-800 mt-0.5">{totalEntries}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-0.5">{rangeTotal}</p>
         </div>
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
           <p className="text-xs font-semibold text-emerald-500">Approved</p>
@@ -855,7 +876,7 @@ export function PmScheduleListPage() {
         {/* Status tabs */}
         <div className="flex items-center gap-1.5">
           {['ALL', 'PENDING_REVIEW', 'PENDING_APPROVAL', 'PENDING', 'APPROVED', 'REJECTED'].map(s => {
-            const count = s === 'ALL' ? totalEntries : entries.filter(e => e.approvalStatus === s).length;
+            const count = s === 'ALL' ? rangeTotal : statusCount(s);
             // Hide the legacy "Pending" tab and empty review/approval tabs to
             // reduce clutter (kept visible when it's the active filter).
             if (s !== 'ALL' && s !== 'APPROVED' && s !== 'REJECTED' && count === 0 && statusFilter !== s) return null;
@@ -1249,7 +1270,7 @@ export function PmScheduleListPage() {
                 <div className="space-y-4">
                   <UploadValidationResult
                     importedCount={result.imported}
-                    importedLabel="Imported (Pending QA)"
+                    importedLabel={pmImportedLabel(wfConfig, isSuperAdmin)}
                     errors={result.details.skipped.map(s => ({ row: s.row, reason: s.reason }))}
                   />
                   <div className="flex gap-3 pt-2">
