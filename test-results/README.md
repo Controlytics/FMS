@@ -31,6 +31,14 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | npm audit (2026-10-22) | Upgrade the vulnerable server packages now (full suites after); upgrade Capacitor in code now — reaches tablets only with the next APK build |
 | Long tests (2026-10-22, re-confirmed) | KEEP the full plan: 1 h, 4 h, 12 h and 24 h soaks back to back on an otherwise idle PC, plus mutation testing; the release decision comes after them |
 
+## Evidence-loss note (2026-10-22, ~16:40 local)
+
+An agent's cleanup wiped the shared session scratchpad. Raw logs and helper scripts that reports cite under
+`...\scratchpad\` (e.g. 05's `db05\` before/after logs, the P1 redaction write-up, the SEC-03 plan, load-race
+probes, LDAP / perf timing logs) no longer exist. What remains as evidence: the reports themselves (numbers,
+commands, file:line), the committed tests that failed before each fix and pass after it, and the commits.
+Any result that rests ONLY on a lost scratch log is re-run before the final release decision.
+
 ## Environment
 
 Developer PC: Windows 11 Pro, 8 logical cores, 15.8 GB RAM, ~200 GB free, PostgreSQL 18, Node 24.14.
@@ -46,7 +54,7 @@ operator-approved changes.
 | 01 | `01-architecture-audit.md` | 1 | DONE 2026-10-21 (findings A-01..A-17 in triage) |
 | 02 | `02-requirements-traceability.md` | 1 | DONE 2026-10-21 — 206 rules; re-map after next full run |
 | 03 | `03-functional-testing.md` | 1 | waiting for UI Phase 2 + SA password |
-| 04 | `04-api-testing.md` | 1 | partial evidence: QA Phase 4/5 (2026-10-21) |
+| 04 | `04-api-testing.md` | 1 | DONE 2026-10-22 `8e686a2` + `44a52e3` — 2,574 role × route rows: 0 leaks, 0 wrong refusals (SA not covered); 1,120 fuzzed writes: 0 5xx; D04-01 / P5R-01 / P5R-02 fixed |
 | 05 | `05-database-testing.md` | 1 | DONE 2026-10-22 — 10 defects (D-DB-1..10) being fixed; BR-100/101 PASS (runtime) |
 | 08 | `08-coverage-and-test-quality.md` | 1 | IN PROGRESS — API wave 1 agents running |
 | 06 | `06-security-assessment.md` | 2 | DONE 2026-10-22 — P0 0 · P1 2 · P2 5 · P3 13; fixes in progress; SA-session probes pending (`QA/tests/security/sa-session-probes.mjs`) |
