@@ -171,7 +171,7 @@ describe('start-cycle bindings', () => {
     expect(res.json()).toMatchObject({ cleaningAreaId: BEQ1, equipmentGroupId: g1, equipmentGroupVersionPin: g1version });
   });
 
-  it('a block with two active groups leaves the cycle unbound; current-state falls back to one of them', async () => {
+  it('a block with two active groups leaves the cycle unbound; current-state lists both and falls back to the oldest', async () => {
     const f = await fx.filter('EQ2', AHUEQ2, FP);
     const res = await start(f, { cleaningAreaId: BEQ2 });
     expect(res.statusCode).toBe(201);
@@ -180,9 +180,11 @@ describe('start-cycle bindings', () => {
     // No bound group → the block fallback returns its first active group.
     expect([BEQ2]).toContain(s.equipmentGroup.blockId);
     expect([g2a, g2b]).toContain(s.equipmentGroup.id);
-    // DEFECT (reported, assertion removed): blockEquipmentGroups should list BOTH
-    // groups so the client can offer a choice — current-state.ts only fills it
-    // when the findFirst fallback above it found nothing, so it is always [].
+    // Fixed 2026-10-22 (was always []): an unbound cycle lists EVERY active
+    // group of its block, so the client can offer the choice advance demands.
+    expect(s.blockEquipmentGroups.map((g: any) => g.id).sort()).toEqual([g2a, g2b].sort());
+    // Deterministic fallback: the first of the (createdAt, id)-ordered list.
+    expect(s.equipmentGroup.id).toBe(s.blockEquipmentGroups[0].id);
   });
 
   it('a block with no group at all reports none, and an empty block list', async () => {
@@ -402,12 +404,54 @@ describe('bulk-operate start-and-advance', () => {
   });
 });
 
-// DEFECT (reported, assertions removed so the tree stays green): start-cycle,
-// retire and replace accept an AHU id. getFilter() (filter-resolver.ts) resolves ANY
-// asset_instance without checking its template kind, so POST /:id/start-cycle
-// on an AHU answered 201 and opened an IN_PROGRESS cycle on it, and
-// POST /:id/retire answered 200 and retired the AHU (isActive=false, detached
-// from its Block, FILTER_RETIRED audit row) while its child filters stayed
-// active under it; POST /:id/replace answered 200, retired the AHU the same way
-// and minted a new AHU-kind asset "<name>-NN" under the Block while the child
-// filter stayed parented to the retired one. See the coverage report of 2026-10-21.
+describe('filter-only endpoints refuse a non-filter asset', () => {
+  // Fixed 2026-10-22. getFilter() / loadLocalContext() resolved ANY
+  // asset_instance id, so start-cycle answered 201 and opened a cleaning cycle on
+  // an AHU, retire answered 200 and retired the AHU (its child filters stayed
+  // active under it) and replace answered 200 and minted a new AHU. A FILTER-only
+  // endpoint now answers a non-filter id exactly like an unknown one: 404.
+  let ahu = ''; let child = '';
+  beforeAll(async () => {
+    ahu = await fx.node('AHU', 'PROBEAHU', B1);
+    child = await fx.filter('PROBECHILD', ahu, FP);
+  }, 60_000);
+
+  const expectNotAFilter = (res: Awaited<ReturnType<typeof post>>) => {
+    expect([res.statusCode, res.json().error]).toEqual([404, 'NOT_FOUND']);
+    expect(res.json().message).toBe('Filter not found');
+  };
+
+  it('start-cycle on an AHU id is 404 and opens no cycle', async () => {
+    expectNotAFilter(await start(ahu, {}));
+    expect(await prisma.cleaningCycle.count({ where: { filterId: ahu } })).toBe(0);
+    expect(await prisma.filterDetails.count({ where: { assetInstanceId: ahu } })).toBe(0);
+  });
+
+  it('retire and replace on an AHU id are 404 and change nothing', async () => {
+    expectNotAFilter(await post(`/api/filters/${ahu}/retire`, { remarks: 'probe' }));
+    expectNotAFilter(await post(`/api/filters/${ahu}/replace`, { remarks: 'probe' }));
+    const row = await prisma.assetInstance.findUnique({ where: { id: ahu } });
+    expect(row).toMatchObject({ isActive: true, status: 'Active', parentId: B1 });
+    expect(await prisma.assetInstance.count({ where: { parentId: B1, name: { startsWith: row!.name + '-' } } })).toBe(0);
+    expect(await prisma.auditTrail.count({ where: { action: { in: ['FILTER_RETIRED', 'FILTER_REPLACED'] }, targetId: ahu } })).toBe(0);
+    expect((await prisma.assetInstance.findUnique({ where: { id: child } }))!.isActive).toBe(true);
+  });
+
+  it('every other filter route answers an AHU id as an unknown filter', async () => {
+    const get = (url: string) => app.inject({ method: 'GET', url, headers: saH });
+    expectNotAFilter(await get(`/api/filters/${ahu}/current-state`));
+    for (const q of ['events', 'cycles', 'cleaning-record', 'manual-status-changes']) {
+      expectNotAFilter(await get(`/api/filters/${q}?filterId=${ahu}`));
+    }
+    for (const [op, body] of [
+      ['advance', { targetState: 'WASH_IN', tapeVersion: 0 }],
+      ['bypass', { targetState: 'WASH_IN', justification: 'not a filter probe', tapeVersion: 0 }],
+      ['terminate-cycle', { justification: 'not a filter probe', tapeVersion: 0 }],
+      ['submit-checklist', { answers: {}, tapeVersion: 0 }],
+      ['advance-with-checklist', { targetState: 'WASH_IN', answers: {}, tapeVersion: 0 }],
+    ] as const) {
+      expectNotAFilter(await post(`/api/filters/${ahu}/${op}`, body));
+    }
+    expect(internalErrors).toEqual([]);
+  });
+});

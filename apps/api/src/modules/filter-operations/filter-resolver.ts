@@ -4,6 +4,7 @@
  * Extracted from filter-operations.service.ts. These are leaf I/O helpers
  * the orchestrator class composes. Pure moves — no behavioral changes.
  */
+import type { Prisma } from '@prisma/client';
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
@@ -19,15 +20,30 @@ export type ResolvedFilter = {
   filterSet: string | null;
 };
 
+/**
+ * The ONE rule for "this id is a filter": an asset_instance whose template kind
+ * is FILTER. Every filter-operations read of a filter by id goes through it
+ * (getFilter, loadLocalContext, replace()), and so does the manual lifecycle
+ * move (assets instance.service changeLifecycleState), so a Block / Area / AHU
+ * id answers exactly like an unknown id — 404 'Filter not found' — before
+ * anything is written. Until 2026-10-22 the lookup was by id alone: start-cycle
+ * and a manual move to a cleaning stage opened a cleaning cycle on an AHU, and
+ * retire / replace retired one.
+ */
+export function filterInstanceWhere(filterId: string): Prisma.AssetInstanceWhereInput {
+  return { id: filterId, template: { templateKind: 'FILTER' } };
+}
+
 export async function getFilter(filterId: string, _ctx: RequestContext, cache?: BatchReadCache): Promise<ResolvedFilter> {
   // parentId is required by retire() to snapshot the original tree position
   // into customAttributes._preRetireParentId so unretire can restore it.
   // Filter cycle state lives on FilterDetails (Step 6) — include + flatten so
   // the rest of this service keeps reading filter.{filterProfileId, currentLifecycleState, currentCycleId, filterSet} unchanged.
   // `filter:` projection — under getBatchStates it is pre-seeded for every
-  // filter by batch-preload.ts; every other caller reads as before.
+  // filter by batch-preload.ts (whose ids all come from a FILTER-kind query);
+  // every other caller reads as before.
   const readInstance = () => prisma.assetInstance.findFirst({
-    where: { id: filterId },
+    where: filterInstanceWhere(filterId),
     select: {
       id: true, name: true, parentId: true,
       filterDetails: { select: { filterProfileId: true, currentLifecycleState: true, currentCycleId: true, filterSet: true } },

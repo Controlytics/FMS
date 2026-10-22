@@ -195,6 +195,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
   let filterTemplateId: string;
   let cleaningProfileId: string;
   let filterProfileId: string;
+  let finalChecklistId = '';
   let ahuId: string;
   let filterAId: string;
   let filterBId: string;
@@ -225,6 +226,18 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
     });
     filterTemplateId = filterTpl.id;
 
+    // ── The final checklist: ONE optional question, so `answers: {}` is a valid
+    // submission. It must name a real checklist: since 2026-10-22 a CHECKLIST
+    // node whose profile resolves to nothing is refused like a missing node
+    // (NO_CHECKLIST_AT_TARGET) — until then Task 5 below was submitting an
+    // attestation of nothing.
+    finalChecklistId = (await prisma.checklistProfile.create({
+      data: {
+        name: `CL T3 ${SUFFIX}`, isActive: true,
+        questions: { create: [{ question: 'Any remarks on the final stage?', questionType: 'YES_NO', required: false, sortOrder: 1 }] },
+      },
+    })).id;
+
     // ── Cleaning profile: S1 → S2 → [CHECKLIST] → END ───────────────────────
     const cp = await prisma.filterCleaningProfile.create({
       data: {
@@ -243,7 +256,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
             { nodeType: 'STAGE', stateKey: 'S0', sortOrder: 0 },
             { nodeType: 'STAGE', stateKey: 'S1', sortOrder: 1 },
             { nodeType: 'STAGE', stateKey: 'S2', sortOrder: 2 },
-            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 3 },
+            { nodeType: 'CHECKLIST', stateKey: null, sortOrder: 3, configuration: { checklistProfileId: finalChecklistId } },
             { nodeType: 'END', stateKey: null, sortOrder: 4 },
           ],
         },
@@ -357,6 +370,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       if (filterProfileId) await prisma.filterProfile.delete({ where: { id: filterProfileId } });
       if (cleaningProfileId)
         await prisma.filterCleaningProfile.delete({ where: { id: cleaningProfileId } });
+      if (finalChecklistId) await prisma.checklistProfile.delete({ where: { id: finalChecklistId } });
       if (ahuTemplateId) await prisma.assetTemplate.delete({ where: { id: ahuTemplateId } });
       if (filterTemplateId) await prisma.assetTemplate.delete({ where: { id: filterTemplateId } });
     } catch {
@@ -558,9 +572,9 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
   // Fixture (inherited from outer beforeAll):
   //   Filter A — at S2 (final), cycleAId IN_PROGRESS.
   //   Filter B — at S1 (not final), cycleBId IN_PROGRESS.
-  //   Profile:  S1 → S2 → [CHECKLIST, no checklistProfileId] → END.
-  //   CHECKLIST node has no checklistProfileId → resolveChecklistQuestions
-  //   returns [] → answers:{} is valid for all three tests.
+  //   Profile:  S1 → S2 → [CHECKLIST, one OPTIONAL question] → END.
+  //   answers:{} is therefore valid for all three tests. (The node used to name
+  //   no checklist at all, which resolved to [] — refused since 2026-10-22.)
   // ─────────────────────────────────────────────────────────────────────────────
   describe('Task 5 — submit-checklist interlock gate (HTTP route)', () => {
     let app5: FastifyInstance;

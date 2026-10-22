@@ -268,8 +268,9 @@ export function assertTapeVersionFresh(
 
 /**
  * Walk forward from a STAGE/START node; collect any CHECKLIST nodes between
- * it and the next STAGE/END. Mirrors `collectChecklistsAfterStage` in
- * filter-operations.service.ts:68-92.
+ * it and the next STAGE/END, each ONCE, in walk order. The one implementation:
+ * the API's filter-operations/helpers.ts delegates here (2026-10-22), and the
+ * web offline engine imports it directly.
  */
 export function collectChecklistsAfterStage(
   stage: ProfileNode,
@@ -315,7 +316,10 @@ function collectChecklistsAfterStageInternal(
     for (const c of connections.filter(cn => cn.fromStageId === nodeId)) {
       const next = allStages.find(s => s.id === c.toStageId);
       if (!next) continue;
-      if (next.nodeType === 'CHECKLIST') {
+      // visited is checked BEFORE the push (2026-10-22): a CHECKLIST reached a
+      // second time (a checklist-to-checklist loop, or two paths meeting) used
+      // to be pushed again, so its questions were asked and snapshotted twice.
+      if (next.nodeType === 'CHECKLIST' && !visited.has(next.id)) {
         checklists.push(next);
         walk(next.id);
       }

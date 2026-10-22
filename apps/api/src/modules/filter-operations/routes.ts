@@ -898,7 +898,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
     schema: {
       tags: ['Filter Operations'],
       summary: 'AHU completion status — which sibling filters are still pending',
-      params: { type: 'object', required: ['ahuId'], properties: { ahuId: { type: 'string' } } },
+      // format uuid (2026-10-22): a malformed id is a 400 at the schema edge,
+      // not a Prisma error further in.
+      params: { type: 'object', required: ['ahuId'], properties: { ahuId: { type: 'string', format: 'uuid' } } },
       querystring: {
         type: 'object',
         properties: {
@@ -959,7 +961,9 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
         type: 'object',
         required: ['filterIds'],
         properties: {
-          filterIds: { type: 'array', items: { type: 'string' } },
+          // uuid items (2026-10-22): a malformed id is a 400 VALIDATION_ERROR here,
+          // not a P2023 from `id: { in: filterIds }` further in.
+          filterIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
           // Operator's runtime filter-set choice; omitted / 'ALL' = every filter.
           set: { type: 'string', enum: ['ALL', 'SET_A', 'SET_B'] },
         },
@@ -1012,7 +1016,8 @@ export default async function filterOperationsRoutes(app: FastifyInstance) {
       body: {
         type: 'object',
         required: ['filterIds'],
-        properties: { filterIds: { type: 'array', items: { type: 'string' } } },
+        // uuid items (2026-10-22), as on /ahu-completion-status/batch above.
+        properties: { filterIds: { type: 'array', items: { type: 'string', format: 'uuid' } } },
       },
       response: {
         200: { type: 'object', properties: { hasBothSets: { type: 'boolean' } } },

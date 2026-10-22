@@ -298,17 +298,23 @@ describe('FilterOperationsService.getCurrentState() — L1 + L2 invariants', () 
         version: 1,
         instruments: [{ id: 'inst-fb', sortOrder: 0 }],
       };
-      mockPrisma.equipmentGroup.findFirst.mockResolvedValue(fallback);
+      mockPrisma.equipmentGroup.findMany.mockResolvedValue([fallback]);
 
       const { service } = makeService();
       const state = await service.getCurrentState(ctx, FILTER_ID);
 
       expect(state.equipmentGroup).toBe(fallback);
-      // Block-fallback is by blockId+isActive, NOT by group id (which is null here).
-      expect(mockPrisma.equipmentGroup.findFirst).toHaveBeenCalledWith({
+      // 2026-10-22: the unbound cycle also gets the block's whole group list
+      // (was always [] whenever a fallback group existed).
+      expect(state.blockEquipmentGroups).toEqual([fallback]);
+      // Block-fallback is by blockId+isActive, NOT by group id (which is null here),
+      // in a deterministic order (it was an unordered findFirst).
+      expect(mockPrisma.equipmentGroup.findMany).toHaveBeenCalledWith({
         where: { blockId: 'block-1', isActive: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         include: { instruments: { orderBy: { sortOrder: 'asc' } } },
       });
+      expect(mockPrisma.equipmentGroup.findFirst).not.toHaveBeenCalled();
       // No pin path consulted at all when there's no group bound to the cycle.
       expect(mockPrisma.equipmentGroupVersion.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.equipmentGroup.findUnique).not.toHaveBeenCalled();

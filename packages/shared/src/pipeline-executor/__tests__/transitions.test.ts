@@ -438,6 +438,23 @@ describe('helpers', () => {
     expect(checklists).toHaveLength(1);
     expect(checklists[0].id).toBe('cl-after-wash-in');
   });
+  it('collectChecklistsAfterStage lists each checklist ONCE on a loop or where two paths meet', () => {
+    // Was ['c1', 'c2', 'c1'] for the loop until 2026-10-22: the node reached
+    // again was pushed before the visited check.
+    const node = (id: string, nodeType: string) => ({ id, stateKey: nodeType === 'STAGE' ? id.toUpperCase() : null, nodeType, configuration: {} });
+    const s1 = node('s1', 'STAGE'); const s2 = node('s2', 'STAGE');
+    const c1 = node('c1', 'CHECKLIST'); const c2 = node('c2', 'CHECKLIST'); const c3 = node('c3', 'CHECKLIST');
+    const loop = [
+      { fromStageId: 's1', toStageId: 'c1' }, { fromStageId: 'c1', toStageId: 'c2' },
+      { fromStageId: 'c2', toStageId: 'c1' }, { fromStageId: 'c2', toStageId: 's2' },
+    ];
+    expect(collectChecklistsAfterStage(s1, [s1, c1, c2, s2], loop).map(n => n.id)).toEqual(['c1', 'c2']);
+    const diamond = [
+      { fromStageId: 's1', toStageId: 'c1' }, { fromStageId: 's1', toStageId: 'c2' },
+      { fromStageId: 'c1', toStageId: 'c3' }, { fromStageId: 'c2', toStageId: 'c3' }, { fromStageId: 'c3', toStageId: 's2' },
+    ];
+    expect(collectChecklistsAfterStage(s1, [s1, c1, c2, c3, s2], diamond).map(n => n.id)).toEqual(['c1', 'c3', 'c2']);
+  });
   it('findReachable walks past CHECKLIST nodes', () => {
     const p = profileWithChecklist();
     const r = findReachable('s-wash-in', p.nodes, p.edges);

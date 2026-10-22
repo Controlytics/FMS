@@ -50,25 +50,10 @@ export function collectChecklistsAfterStage(
   allStages: any[],
   connections: any[],
 ): any[] {
-  const checklists: any[] = [];
-  const visited = new Set<string>();
-
-  function walk(nodeId: string) {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-    const outConns = connections.filter((c: any) => c.fromStageId === nodeId);
-    for (const conn of outConns) {
-      const next = allStages.find((s: any) => s.id === conn.toStageId);
-      if (!next) continue;
-      if (next.nodeType === 'CHECKLIST') {
-        checklists.push(next);
-        walk(next.id);
-      }
-    }
-  }
-
-  walk(stage.id);
-  return checklists;
+  // ONE implementation (2026-10-22): this was a copy of the shared walker, and
+  // both copies pushed a CHECKLIST reached a second time (a loop) twice. Same
+  // walk, same order; returns the caller's own (Prisma) node objects.
+  return executor.collectChecklistsAfterStage(stage, allStages, connections);
 }
 
 /**

@@ -188,12 +188,24 @@ export async function prepareChecklist(
     }
   }
 
-  // Audit 2026-09-24 (C-F3): no checklist node after this stage means there is
-  // nothing to attest. Writing a CHECKLIST_COMPLETED event anyway fabricated a
-  // §11 record ("checklist completed after WASH_IN") with an empty snapshot.
-  // advance-with-checklist already refuses this (NO_CHECKLIST_AT_TARGET).
-  if (checklistNodeCount === 0) {
-    throw new AppError(400, 'NO_CHECKLIST_AT_TARGET', `There is no checklist to submit at ${prettyStageLabel(stageKey)}.`);
+  // Audit 2026-09-24 (C-F3): nothing to attest → no CHECKLIST_COMPLETED event.
+  // Writing one anyway fabricates a §11 record ("checklist completed after
+  // WASH_IN") with an empty snapshot. THE rule for both the bare submit and the
+  // composed advance-with-checklist (which prepares through here): no checklist
+  // RESOLVED after this stage — whether no CHECKLIST node follows it, or every
+  // node names a checklist that no longer exists. Until 2026-10-22 this only
+  // refused `checklistNodeCount === 0`, so a dangling node let the bare submit
+  // record checklists: [] while advance-with-checklist (its own copy of the
+  // check) refused it. A node whose checklist is merely DISABLED was answered
+  // above with CHECKLIST_DISABLED.
+  if (resolvedChecklists.length === 0) {
+    throw new AppError(
+      400,
+      'NO_CHECKLIST_AT_TARGET',
+      checklistNodeCount === 0
+        ? `There is no checklist to submit at ${prettyStageLabel(stageKey)}.`
+        : `The checklist after ${prettyStageLabel(stageKey)} no longer exists, so there is nothing to submit. Ask an administrator to fix the cleaning profile.`,
+    );
   }
 
   // Schema drift / required / extras — all pure, dropped through shared executor.

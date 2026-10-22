@@ -43,7 +43,6 @@
  */
 import type { RequestContext } from '../../../types/context.js';
 import { prisma } from '../../../lib/prisma.js';
-import { AppError } from '../../../lib/errors.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 import { prepareAdvance, executeAdvanceTx, notifyAdvanceInterlock } from './advance.js';
 import { prepareChecklist, executeChecklistTx } from './submit-checklist.js';
@@ -77,17 +76,10 @@ export async function advanceWithChecklistImpl(
   /* c8 ignore next */
   if (clPrep.kind === 'dedup') return service.getCurrentState(ctx, filterId); // unreachable: skipDedup
 
-  // No checklist actually follows the target stage → this op is the wrong tool
-  // and would write a CHECKLIST_COMPLETED event snapshotting nothing. Reject
-  // rather than fabricate an attestation record for a checklist that does not
-  // exist (21 CFR §11). The client uses bare /advance for these stages.
-  if (clPrep.plan.profileCount === 0) {
-    throw new AppError(
-      400,
-      'NO_CHECKLIST_AT_TARGET',
-      `No active checklist follows ${targetState} in this cleaning profile. Use the plain advance operation for this stage.`,
-    );
-  }
+  // No checklist resolves after the target stage → prepareChecklist above has
+  // already refused with 400 NO_CHECKLIST_AT_TARGET (the one rule, shared with
+  // the bare submit since 2026-10-22), so a plan never snapshots nothing here.
+  // The client uses bare /advance for those stages.
 
   // ── ONE transaction: advance then checklist, both or neither ──────────────
   const createdApproval = await prisma.$transaction(async (tx) => {

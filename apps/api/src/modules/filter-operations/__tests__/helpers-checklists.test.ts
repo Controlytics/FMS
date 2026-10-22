@@ -51,9 +51,9 @@ describe('collectChecklistsAfterStage', () => {
       { fromStageId: 'c2', toStageId: 'gone' }, // node no longer exists
       { fromStageId: 'c2', toStageId: 's2' },
     ];
-    // Terminates on the loop and finds both checklists. (It returns c1 TWICE on a
-    // checklist-to-checklist loop — reported as a finding, not asserted here.)
-    expect(new Set(collectChecklistsAfterStage(s1, [s1, c1, c2, s2], edges).map((n) => n.id))).toEqual(new Set(['c1', 'c2']));
+    // Terminates on the loop and lists each checklist ONCE (fixed 2026-10-22: a
+    // node reached again through the loop used to be pushed a second time).
+    expect(collectChecklistsAfterStage(s1, [s1, c1, c2, s2], edges).map((n) => n.id)).toEqual(['c1', 'c2']);
     expect(collectChecklistsAfterStage(s1, [s1, c1, c2, s2], edges.filter((e) => e.toStageId !== 'c1' || e.fromStageId === 's1')).map((n) => n.id)).toEqual(['c1', 'c2']);
     expect(collectChecklistsAfterStage(s2, [s1, c1, c2, s2], edges)).toEqual([]);
   });

@@ -195,7 +195,7 @@ describe('the approver side: queue, list, detail', () => {
     expect(internalErrors).toEqual([]);
   });
 
-  it('detail returns the full row; unknown is 404; a malformed id is a client error', async () => {
+  it('detail returns the full row; unknown is 404; a malformed id is a 400', async () => {
     const res = await call('GET', `/api/stage-approvals/${ctx.approvalId}`, apr1H);
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ id: ctx.approvalId, requestedBy: op.id, status: 'PENDING' });
@@ -203,7 +203,15 @@ describe('the approver side: queue, list, detail', () => {
     const missing = await call('GET', `/api/stage-approvals/${randomUUID()}`, apr1H);
     expect([missing.statusCode, missing.json().error]).toEqual([404, 'NOT_FOUND']);
     const bad = await call('GET', '/api/stage-approvals/not-a-uuid', apr1H);
-    expect(bad.statusCode).toBeLessThan(500);
+    expect([bad.statusCode, bad.json().error]).toEqual([400, 'VALIDATION_ERROR']);
+    expect(internalErrors).toEqual([]);
+  });
+
+  it('approve and reject refuse a malformed id at the schema edge (400), before the signature', async () => {
+    const approve = await call('POST', '/api/stage-approvals/not-a-uuid/approve', apr1H, { remarks: 'ok' });
+    expect([approve.statusCode, approve.json().error]).toEqual([400, 'VALIDATION_ERROR']);
+    const reject = await call('POST', '/api/stage-approvals/not-a-uuid/reject', apr1H, { remarks: 'not this one' });
+    expect([reject.statusCode, reject.json().error]).toEqual([400, 'VALIDATION_ERROR']);
     expect(internalErrors).toEqual([]);
   });
 

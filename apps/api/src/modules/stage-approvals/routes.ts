@@ -3,6 +3,10 @@ import { buildContext } from '../../lib/build-context.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { stageApprovalService as svc } from './service.js';
 
+// An approval id is a uuid (2026-10-22): a malformed one answers 400
+// VALIDATION_ERROR at the schema edge instead of reaching Prisma.
+const ID_PARAMS = { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } as const;
+
 // Cleaning Stage Interlock — approver side. Prefix /api/stage-approvals
 export default async function stageApprovalRoutes(app: FastifyInstance) {
   // My actionable queue — PENDING approvals routed to my role.
@@ -33,7 +37,7 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
   // Full record incl. the frozen details snapshot.
   app.get('/:id', {
     preHandler: [app.requirePermission('STAGE_APPROVAL_VIEW')],
-    schema: { tags: ['Stage Approvals'], summary: 'Get a stage approval (with snapshot)' },
+    schema: { tags: ['Stage Approvals'], summary: 'Get a stage approval (with snapshot)', params: ID_PARAMS },
   }, async (req) => {
     const { id } = req.params as { id: string };
     return svc.getById(id);
@@ -43,7 +47,7 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
   app.post('/:id/approve', {
     preHandler: [app.requirePermission('STAGE_APPROVAL_DECIDE')],
     schema: {
-      tags: ['Stage Approvals'], summary: 'Approve a cleaning stage (release the operator)',
+      tags: ['Stage Approvals'], summary: 'Approve a cleaning stage (release the operator)', params: ID_PARAMS,
       body: {
         type: 'object',
         properties: { remarks: { type: 'string' }, _currentPassword: { type: 'string' } },
@@ -62,7 +66,7 @@ export default async function stageApprovalRoutes(app: FastifyInstance) {
   app.post('/:id/reject', {
     preHandler: [app.requirePermission('STAGE_APPROVAL_DECIDE')],
     schema: {
-      tags: ['Stage Approvals'], summary: 'Reject a cleaning stage (send the filter back)',
+      tags: ['Stage Approvals'], summary: 'Reject a cleaning stage (send the filter back)', params: ID_PARAMS,
       body: {
         type: 'object', required: ['remarks'],
         properties: { remarks: { type: 'string' }, _currentPassword: { type: 'string' } },

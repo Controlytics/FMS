@@ -105,10 +105,12 @@ const END_NODE_ID = 'node-end';
 function makePipelineRow(opts: { flowMode?: 'SEQUENTIAL' | 'BYPASS_ENABLED'; checklistAfter?: string } = {}) {
   const row = makePipelineRowBase(opts);
   if (opts.checklistAfter) {
-    // Insert a CHECKLIST node between `checklistAfter` and its successor. The
-    // profile id resolves to nothing (findMany → []), so no questions are
-    // required — but the NODE exists, which is what submit-checklist checks
-    // (audit 2026-09-24, C-F3: no node → NO_CHECKLIST_AT_TARGET).
+    // Insert a CHECKLIST node between `checklistAfter` and its successor. Its
+    // profile resolves to ONE optional question (setupBaseline), so answers {}
+    // pass validation and the collision gates under test are reached. It must
+    // RESOLVE: since 2026-10-22 a checklist node whose profile resolves to
+    // nothing is refused like a missing node (C-F3: NO_CHECKLIST_AT_TARGET) —
+    // until then this fixture was recording an attestation of nothing.
     const from = row.stages.find((s) => s.stateKey === opts.checklistAfter)!;
     const edge = row.connections.find((c) => c.fromStageId === from.id)!;
     const cl = { id: `cl-after-${from.id}`, stateKey: null, nodeType: 'CHECKLIST', configuration: { checklistProfileId: 'cl-profile-1' }, sortOrder: 99 };
@@ -220,7 +222,12 @@ function setupBaseline(txOverride?: (tx: any) => void) {
   // Profile resolution chain.
   mockPrisma.filterProfile.findUnique.mockResolvedValue(null);
   mockPrisma.filterCleaningProfile.findUnique.mockResolvedValue(makePipelineRow({ checklistAfter: checklistAfterForBaseline }));
-  mockPrisma.checklistProfile.findMany.mockResolvedValue([]);
+  // The checklist after the current stage (submitChecklist tests only) is live
+  // and enabled: the disabled-checklist read (`isActive: false`) finds nothing.
+  mockPrisma.checklistProfile.findMany.mockImplementation(async (args: any) =>
+    checklistAfterForBaseline && args?.where?.isActive !== false
+      ? [{ id: 'cl-profile-1', name: 'CL', version: 1, questions: [{ id: 'q-optional', question: 'Optional note', questionType: 'YES_NO', required: false, sortOrder: 1 }] }]
+      : []);
   mockPrisma.checklistProfileVersion.findMany.mockResolvedValue([]);
 
   // No bound equipment group on this cycle.

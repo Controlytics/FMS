@@ -33,6 +33,7 @@ import { AppError } from '../../lib/errors.js';
 import type { RequestContext } from '../../types/context.js';
 import { assertFilterOperable } from '../assets/filter-workflow.js';
 import { loadDisabledChecklistProfileIds } from './helpers.js';
+import { filterInstanceWhere } from './filter-resolver.js';
 
 /**
  * Output of the loader. The bundled `cp` (raw Prisma profile row, with
@@ -98,8 +99,10 @@ export async function loadLocalContext(
   ctx: RequestContext,
 ): Promise<LoadedLocalContext> {
   // ─── Filter (with FilterDetails sidecar) ─────────────────────────────────
+  // Same "is a filter" rule as getFilter() (filter-resolver.ts): a Block / Area /
+  // AHU id is not a filter and answers 404 below, like an unknown id.
   const inst = await prisma.assetInstance.findFirst({
-    where: { id: filterId },
+    where: filterInstanceWhere(filterId),
     select: {
       id: true,
       approvalStatus: true,

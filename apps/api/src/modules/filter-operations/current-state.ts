@@ -549,25 +549,25 @@ export async function getCurrentStateImpl(
       });
     }
   }
-  // Fallback: if cycle has no equipment group but has a cleaning area (block),
-  // return the first active equipment group for that block so the UI can surface
-  // instrument operating ranges (e.g. dryer temperature dropdown). No cycle pin
-  // applies here — the cycle hasn't bound a group yet.
-  if (!equipmentGroup && currentCycle?.cleaningAreaId) {
-    equipmentGroup = await prisma.equipmentGroup.findFirst({
-      where: { blockId: currentCycle.cleaningAreaId, isActive: true },
-      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
-    });
-  }
-
-  // If no equipment group resolved but block is known, return all active groups
-  // for that block so the frontend can offer a selector (or auto-pick the only one).
+  // A cycle that has not bound a group yet (a block with 0 or >1 active groups at
+  // start, or one added since) gets EVERY active group of its block in
+  // `blockEquipmentGroups`, so the client can offer the choice advance() demands
+  // when the block has more than one (MULTIPLE_EQUIPMENT_GROUPS). Until
+  // 2026-10-22 this list was only filled when the fallback below found nothing,
+  // so it was always [] whenever the block had any group.
+  //
+  // `equipmentGroup` still falls back to the block's first group (oldest, then id
+  // — deterministic; it was an unordered findFirst) so the UI can surface
+  // instrument operating ranges (e.g. the dryer temperature dropdown). No cycle
+  // pin applies — the cycle hasn't bound a group yet.
   let blockEquipmentGroups: any[] = [];
-  if (!equipmentGroup && currentCycle?.cleaningAreaId) {
+  if (!currentCycle?.equipmentGroupId && currentCycle?.cleaningAreaId) {
     blockEquipmentGroups = await prisma.equipmentGroup.findMany({
       where: { blockId: currentCycle.cleaningAreaId, isActive: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: { instruments: { orderBy: { sortOrder: 'asc' } } },
     });
+    if (!equipmentGroup) equipmentGroup = blockEquipmentGroups[0] ?? null;
   }
 
   // B.7 — Per-stage lookup table the offline client uses without reconstructing

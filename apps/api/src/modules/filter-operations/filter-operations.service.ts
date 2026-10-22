@@ -10,6 +10,7 @@ import { assertFilterOperable } from '../assets/filter-workflow.js';
 import { computeChecksum } from './helpers.js';
 import {
   getFilter,
+  filterInstanceWhere,
   getFilterHomeBlock,
   validateBlockChange,
   getProfilePipeline,
@@ -886,8 +887,10 @@ export class FilterOperationsService {
    * Replace a filter — retires old filter, creates new one with incremented suffix.
    */
   async replace(ctx: RequestContext, filterId: string, remarks: string) {
+    // filterInstanceWhere: a non-filter id is 'Filter not found' here too, before
+    // the name-clash check and well before anything is written.
     const instance = await prisma.assetInstance.findFirst({
-      where: { id: filterId },
+      where: filterInstanceWhere(filterId),
     });
     if (!instance) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
     // 2026-10-08 (operator): only an APPROVED filter can be replaced (see retire()).

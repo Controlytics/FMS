@@ -19,6 +19,7 @@ import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
 import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable } from '../filter-workflow.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
+import { filterInstanceWhere } from '../../filter-operations/filter-resolver.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
 // uns / device-credential / connectivity provisioning removed with data-ingestion removal.
 
@@ -520,6 +521,13 @@ export const instanceService = {
   ) {
     const existing = await instanceRepository.findByIdSimple(id);
     if (!existing) throw new NotFoundError('Entity instance not found');
+    // A lifecycle state is a FILTER's (2026-10-22). Same rule as every
+    // filter-operations endpoint (filterInstanceWhere): before it, a move to a
+    // cleaning stage on an AHU id resolved the default cleaning profile and
+    // opened a manual cleaning cycle on the AHU.
+    if ((await prisma.assetInstance.count({ where: filterInstanceWhere(id) })) === 0) {
+      throw new NotFoundError('Filter not found');
+    }
     // Audit 2026-09-24 (F3): a manual status move is still a cleaning write —
     // a filter that has not passed the creation workflow cannot be moved.
     // (The other cycle gates — interlock, checklist, PM — are deliberately

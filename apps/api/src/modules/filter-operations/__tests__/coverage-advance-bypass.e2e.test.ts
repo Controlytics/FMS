@@ -607,10 +607,16 @@ describe('a checklist node whose checklist no longer exists', () => {
     expect(await events(f, 'STATE_TRANSITION')).toHaveLength(0);
   });
 
-  // DEFECT (reported, assertion removed so the tree stays green): the BARE
-  // POST /:id/submit-checklist on the same node answers 200 and writes a
-  // CHECKLIST_COMPLETED event with checklists: [] and an audit row with
-  // profileCount 0 — the empty attestation C-F3 exists to prevent. prepareChecklist
-  // (submit-checklist.ts) only refuses checklistNodeCount === 0; the
-  // profileCount === 0 check lives in advance-with-checklist.ts alone.
+  // Fixed 2026-10-22: the BARE submit used to answer 200 here and write a
+  // CHECKLIST_COMPLETED event with checklists: [] (an attestation of nothing).
+  // Both ops now share ONE rule in prepareChecklist (submit-checklist.ts).
+  it('the bare submit-checklist refuses it too, and records nothing', async () => {
+    const f = await fx.filter('DANG2', null, FP_DANGLING);
+    await start(f);
+    expect((await advance(f, { targetState: 'S1' })).statusCode).toBe(200);
+    const res = await post(`/api/filters/${f}/submit-checklist`, { answers: {}, tapeVersion: await tape(f) });
+    expect([res.statusCode, res.json().error]).toEqual([400, 'NO_CHECKLIST_AT_TARGET']);
+    expect(await events(f, 'CHECKLIST_COMPLETED')).toHaveLength(0);
+    expect(await prisma.auditTrail.count({ where: { action: 'CHECKLIST_COMPLETED', targetId: f } })).toBe(0);
+  });
 });

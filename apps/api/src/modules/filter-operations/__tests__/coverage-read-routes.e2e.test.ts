@@ -18,7 +18,7 @@
  * version, a retired filter with no audit row — is no longer produced by any
  * route but is present in live data and still has to render.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { buildApp, internalErrors } from '../../../e2e/test-helper.js';
@@ -326,6 +326,15 @@ describe('PATCH /api/assets/instances/:id/lifecycle-state — manual moves obey 
     expect(body).toMatchObject({ hasProfile: false, hasActiveCycle: false, orderedStages: [], cleaningReasons: [] });
     expect(body.options).toEqual([{ state: 'CLEANING_CYCLE_COMPLETED', classification: 'COMPLETE', allowed: true, isCurrent: false, startsCycle: false }]);
   });
+
+  it('a manual lifecycle move on an AHU id is refused and opens no cycle', async () => {
+    const ahu = await fx.node('AHU', 'PROBEAHU', B1);
+    const res = await patch(ahu, { lifecycleState: 'WASH_IN', cleaningReasonKey: 'ROUTINE' });
+    expect(res.statusCode).toBe(404);
+    expect(await prisma.cleaningCycle.count({ where: { filterId: ahu } })).toBe(0);
+    expect(await prisma.filterEvent.count({ where: { filterId: ahu } })).toBe(0);
+    expect(await prisma.filterDetails.count({ where: { assetInstanceId: ahu } })).toBe(0);
+  });
 });
 
 describe('GET /api/filters/manual-status-changes + /cleaning-record (merged cycles and manual rows)', () => {
@@ -600,19 +609,59 @@ describe('retirements and replacements lists (with Block / AHU scope)', () => {
   });
 });
 
-describe('AHU completion endpoints reject malformed ids as client errors', () => {
-  it('a non-uuid AHU id on /ahu/:ahuId/completion-status is not a 500', async () => {
-    const res = await get('/api/filters/ahu/not-a-uuid/completion-status');
-    expect(res.statusCode).toBeLessThan(500);
+/**
+ * Run `fn` while capturing what the app logger prints (lib/logger.ts writes each
+ * record to process.stdout synchronously). An id that reaches Prisma unvalidated
+ * prints an `ERROR  [prisma]` "Unmapped Prisma error" line; a schema refusal
+ * prints nothing. Same helper as e2e/uuid-route-params.test.ts.
+ */
+async function captureStdout<T>(fn: () => Promise<T>): Promise<{ result: T; text: string }> {
+  const chunks: string[] = [];
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((c: unknown) => { chunks.push(String(c)); return true; }) as never);
+  try {
+    const result = await fn();
+    await new Promise((r) => setTimeout(r, 25)); // let a late Prisma log event land
+    return { result, text: chunks.join('') };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+describe('AHU completion endpoints validate ids at the schema edge (format: uuid, 2026-10-22)', () => {
+  it('a non-uuid AHU id on /ahu/:ahuId/completion-status is a 400 VALIDATION_ERROR naming the param, with no ERROR line', async () => {
+    const { result: res, text } = await captureStdout(() => get('/api/filters/ahu/not-a-uuid/completion-status'));
+    expect(text).not.toMatch(/ERROR/);
+    expect([res.statusCode, res.json().error]).toEqual([400, 'VALIDATION_ERROR']);
+    expect(res.json().details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ keyword: 'format', instancePath: '/ahuId', params: { format: 'uuid' } }),
+    ]));
     expect(internalErrors).toEqual([]);
   });
 
-  it('non-uuid filter ids in the batch endpoints are not a 500', async () => {
-    const a = await inject('POST', '/api/filters/ahu-completion-status/batch', saH, { filterIds: ['nope', F1] });
-    expect(a.statusCode).toBeLessThan(500);
-    const b = await inject('POST', '/api/filters/ahu-set-availability', saH, { filterIds: ['nope', F1] });
-    expect(b.statusCode).toBeLessThan(500);
-    expect(internalErrors).toEqual([]);
+  it('a well-formed unknown AHU id still reaches the handler (an empty roster)', async () => {
+    const res = await get(`/api/filters/ahu/${randomUUID()}/completion-status`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ filters: [], pending: [] });
+  });
+
+  for (const url of ['/api/filters/ahu-completion-status/batch', '/api/filters/ahu-set-availability']) {
+    it(`${url}: a malformed item in filterIds is a 400 VALIDATION_ERROR naming the item, with no ERROR line`, async () => {
+      const { result: res, text } = await captureStdout(() => inject('POST', url, saH, { filterIds: [F1, 'not-a-uuid'] }));
+      expect(text).not.toMatch(/ERROR/);
+      expect([res.statusCode, res.json().error]).toEqual([400, 'VALIDATION_ERROR']);
+      expect(res.json().details).toEqual(expect.arrayContaining([
+        expect.objectContaining({ keyword: 'format', instancePath: '/filterIds/1', params: { format: 'uuid' } }),
+      ]));
+      expect(internalErrors).toEqual([]);
+    });
+  }
+
+  it('well-formed filter ids (known and unknown) still reach both handlers', async () => {
+    const batch = await inject('POST', '/api/filters/ahu-completion-status/batch', saH, { filterIds: [F1, randomUUID()] });
+    expect(batch.statusCode).toBe(200);
+    expect(batch.json().ahus.map((a: any) => a.ahuId)).toEqual([AHU1]);
+    const avail = await inject('POST', '/api/filters/ahu-set-availability', saH, { filterIds: [randomUUID()] });
+    expect([avail.statusCode, avail.json()]).toEqual([200, { hasBothSets: false }]);
   });
 });
 
