@@ -39,7 +39,8 @@ export function OverdueAckDialog({ task, canConfirm, onCancel, onAcknowledged }:
       await onAcknowledged();
     } catch (e: any) {
       const code = e?.error ?? e?.code;
-      setError(code === 'REAUTH_FAILED' ? 'Incorrect password. Please try again.' : e?.message ?? 'Could not confirm — please try again.');
+      // `||`, not `??`: a refusal whose message is '' must still say something (D-OPS-9).
+      setError(code === 'REAUTH_FAILED' ? 'Incorrect password. Please try again.' : e?.message || 'Could not confirm — please try again.');
       setSubmitting(false);
     }
   };

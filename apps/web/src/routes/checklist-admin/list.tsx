@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../../lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useCan } from '@/hooks/use-can';
+import { usePageSize } from '@/hooks/use-pagination-config';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { Pagination } from '@/components/ui/pagination';
@@ -41,21 +42,27 @@ export function ChecklistProfileListPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const swrKey = `/api/checklist-profiles?limit=${ALL_ROWS}`;
-  const { data, isLoading } = useSWR(swrKey);
+  const { data, error: loadError, isLoading, mutate: reload } = useSWR(swrKey);
 
+  // Failures are reported in onError, never inside the callback (2026-10-21,
+  // D-OPS-7): the callback used to toast and re-throw, so a REAUTH_REQUIRED from
+  // a stale re-auth config showed an error modal beside the password prompt the
+  // hook was opening. REAUTH_* never reach onError; a dismissed prompt reaches
+  // onCancel, which stays silent.
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    const body = { name: newName, description: newDesc || undefined };
     await reauth.execute('CREATE_CHECKLIST_PROFILE', async (password?: string) => {
-      try {
-        const result = password
-          ? await apiClient.postWithReauth('/api/checklist-profiles', { name: newName, description: newDesc || undefined }, password)
-          : await apiClient.post('/api/checklist-profiles', { name: newName, description: newDesc || undefined });
-        mutate(swrKey);
-        setShowCreate(false); setNewName(''); setNewDesc('');
-        navigate(`/checklists/${(result as any).id}`);
-      } catch (e: any) { toast.error(e.message || 'Failed to create checklist'); throw e; }
-      finally { setCreating(false); }
+      const result = password
+        ? await apiClient.postWithReauth('/api/checklist-profiles', body, password)
+        : await apiClient.post('/api/checklist-profiles', body);
+      mutate(swrKey);
+      setShowCreate(false); setNewName(''); setNewDesc('');
+      navigate(`/checklists/${(result as any).id}`);
+    }, {
+      onError: (e: any) => toast.error(e?.message || 'Failed to create checklist'),
+      onCancel: () => {},
     });
     setCreating(false);
   };
@@ -64,11 +71,12 @@ export function ChecklistProfileListPage() {
     e.stopPropagation();
     e.preventDefault();
     reauth.execute('UPDATE_CHECKLIST_PROFILE', async (password?: string) => {
-      try {
-        if (password) await apiClient.putWithReauth(`/api/checklist-profiles/${id}`, { isActive: !isActive }, password);
-        else await apiClient.put(`/api/checklist-profiles/${id}`, { isActive: !isActive });
-        mutate(swrKey);
-      } catch (e: any) { toast.error((e as any).message); throw e; }
+      if (password) await apiClient.putWithReauth(`/api/checklist-profiles/${id}`, { isActive: !isActive }, password);
+      else await apiClient.put(`/api/checklist-profiles/${id}`, { isActive: !isActive });
+      mutate(swrKey);
+    }, {
+      onError: (e: any) => toast.error(e?.message || 'Failed to update checklist'),
+      onCancel: () => {},
     });
   };
 
@@ -77,11 +85,12 @@ export function ChecklistProfileListPage() {
     e.preventDefault();
     if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
     reauth.execute('DELETE_CHECKLIST_PROFILE', async (password?: string) => {
-      try {
-        if (password) await apiClient.deleteWithReauth(`/api/checklist-profiles/${id}`, password);
-        else await apiClient.delete(`/api/checklist-profiles/${id}`);
-        mutate(swrKey);
-      } catch (e: any) { toast.error((e as any).message); throw e; }
+      if (password) await apiClient.deleteWithReauth(`/api/checklist-profiles/${id}`, password);
+      else await apiClient.delete(`/api/checklist-profiles/${id}`);
+      mutate(swrKey);
+    }, {
+      onError: (e: any) => toast.error(e?.message || 'Failed to delete checklist'),
+      onCancel: () => {},
     });
   };
 
@@ -99,7 +108,8 @@ export function ChecklistProfileListPage() {
 
   // Pagination — slice the filtered grid; stats above stay on `allProfiles`.
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  // The configured page size until the operator picks one (Config → Pagination).
+  const [pageSize, setPageSize] = usePageSize();
   useEffect(() => { setPage(1); }, [search, filter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -139,7 +149,7 @@ export function ChecklistProfileListPage() {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <Input className="pl-10"
+          <Input className="pl-10" aria-label="Search checklists"
             style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties}
             onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
             onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -165,6 +175,18 @@ export function ChecklistProfileListPage() {
       {isLoading ? (
         <div className="flex justify-center py-20">
           <div className="w-8 h-8 border-3 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--theme-primary)', borderTopColor: 'transparent' }} />
+        </div>
+      ) : !data && loadError ? (
+        // A failed read is an error with Retry, never "No checklists yet"
+        // (2026-10-21, D-OPS-6; the PM pages' M79 pattern).
+        <div role="alert" className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-2">
+          <p className="text-[14px] font-semibold text-red-700">
+            {(loadError as any)?.status === 403 ? 'You do not have permission to view checklists' : 'Could not load the checklists'}
+          </p>
+          <p className="text-[13px] text-slate-500">{(loadError as any)?.message || 'The server did not answer.'}</p>
+          {(loadError as any)?.status !== 403 && (
+            <button onClick={() => reload()} className="mt-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+          )}
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -215,6 +237,8 @@ export function ChecklistProfileListPage() {
                   </div>
                   {canToggle && (
                     <button onClick={(e) => toggleActive(p.id, p.isActive, e)}
+                      aria-label={`${p.isActive ? 'Deactivate' : 'Activate'} ${p.name}`}
+                      title={p.isActive ? 'Deactivate' : 'Activate'}
                       className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${p.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}>
                       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 ${p.isActive ? 'translate-x-5' : 'translate-x-0'}`} />
                     </button>
@@ -264,8 +288,8 @@ export function ChecklistProfileListPage() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Name</label>
-                  <Input
+                  <label htmlFor="checklist-create-name" className="text-xs font-semibold text-slate-500 mb-1.5 block">Name</label>
+                  <Input id="checklist-create-name"
                     style={{ '--tw-ring-color': 'var(--theme-focus-ring)' } as React.CSSProperties}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
@@ -273,8 +297,8 @@ export function ChecklistProfileListPage() {
                     onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Description (optional)</label>
-                  <textarea className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={3}
+                  <label htmlFor="checklist-create-description" className="text-xs font-semibold text-slate-500 mb-1.5 block">Description (optional)</label>
+                  <textarea id="checklist-create-description" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={3}
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Brief description of this checklist..." />

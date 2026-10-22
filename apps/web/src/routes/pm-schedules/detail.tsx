@@ -5,6 +5,7 @@ import { apiClient, api } from '../../lib/api-client';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { useCan } from '@/hooks/use-can';
 import { RejectionDetails } from './index';
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -13,6 +14,12 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export function PmScheduleDetailPage() {
   const { formatDateTime, formatDate } = useDatetimeFormat();
   const { entityId } = useParams<{ entityId: string }>();
+  // Start PM follows the server's gate (POST /api/pm-executions requires
+  // PM_EXECUTE; the pm.execute tree node gates on exactly that, SUPER_ADMIN
+  // bypasses). It used to show to every reader and 403 after the password
+  // (2026-10-21, D-OPS-1).
+  const can = useCan();
+  const canStartPm = can('pm.execute');
   const [year, setYear] = useState(new Date().getFullYear());
   // M79: `error` is read so a failed fetch is not reported as "No PM schedule
   // exists". The server answers 200 + null when there genuinely is none.
@@ -67,6 +74,8 @@ export function PmScheduleDetailPage() {
       {
         onSuccess: () => { mutate(`/api/pm-schedules/${entityId}?year=${year}`); setStarting(null); },
         onError: (e: any) => { setError(e.message || 'Failed to start PM'); setStarting(null); },
+        // A dismissed password prompt is not an error (D-OPS-8).
+        onCancel: () => setStarting(null),
       },
     );
   };
@@ -189,7 +198,7 @@ export function PmScheduleDetailPage() {
                       {exec.isWithinWindow === false && <span className="text-xs text-amber-600">Out of window</span>}
                     </div>
                   )}
-                  {!exec && (isDue || isOverdue) && (
+                  {canStartPm && !exec && (isDue || isOverdue) && (
                     <button onClick={() => startPm(entry.id)} disabled={starting === entry.id}
                       className="mt-3 w-full py-2 bg-cyan-600 text-white rounded-lg text-sm hover:bg-cyan-500 disabled:opacity-50">
                       {starting === entry.id ? 'Starting...' : 'Start PM'}

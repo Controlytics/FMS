@@ -231,29 +231,30 @@ export function PmScheduleListPage() {
   const [processing, setProcessing] = useState(false);
   const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<{ scheduleId: string; ahuName: string } | null>(null);
   const [deletingSchedule, setDeletingSchedule] = useState(false);
-  // 2026-07-16: single-date PM schedule. Operator picks AHU + one date
-  // (year/month/day) + tolerance; FE posts ONE entry. The backend 409s if the
-  // AHU already has an active schedule for that year (one PM per AHU per year).
+  // New Schedule = ADD ONE VISIT (D-OPS-10, operator decision 2026-10-22). The
+  // operator picks an AHU, a date and a tolerance; POST /visits adds that visit
+  // (creating the year's schedule when the AHU has none) and never touches an
+  // existing visit. It used to offer to "overwrite" the AHU's first visit
+  // (entries[0]) whenever a schedule existed - wrong for an AHU visited many
+  // times a year. An existing visit is changed with the row's Edit, not here.
   const [createDialog, setCreateDialog] = useState(false);
   const [createForm, setCreateForm] = useState({
     ahuId: '',
     plannedDate: '',
     toleranceDays: 7,
   });
-  // Set when the chosen AHU already has an active schedule for the chosen year —
-  // drives the "overwrite?" confirmation. `approved` gates the pending-edit path:
-  // only an APPROVED entry can be overwritten (its date stays active while the
-  // change goes through review → approval); a not-yet-approved entry must first
-  // be resolved in the review/approval queue.
-  const [overwriteConfirm, setOverwriteConfirm] = useState<
-    { entryId: string; approved: boolean; existingDate: string; year: number; ahuName: string } | null
-  >(null);
   const [creatingSchedule, setCreatingSchedule] = useState(false);
 
   // Pagination
   const paginationOptions = usePaginationConfig();
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(paginationOptions[0] ?? 10);
+  // The page size FOLLOWS the configured first option until the operator picks
+  // one. Seeding state from it captured the hook's pre-load fallback (10) on a
+  // cold load, so the configured size never applied (2026-10-21, D6). Same rule
+  // as usePageSize; kept inline because pm-schedules-states.test.tsx mocks this
+  // hooks module with usePaginationConfig only.
+  const [perPageChoice, setPerPageChoice] = useState<number | null>(null);
+  const perPage = perPageChoice ?? paginationOptions[0] ?? 10;
 
   // Expandable AHU rows — show/hide filters. Gated per-role by the dedicated
   // "PM Schedule — AHU Filters" matrix (separate from the Replacement Schedule
@@ -275,14 +276,25 @@ export function PmScheduleListPage() {
   // later year(s) of a Dec→Feb range. Years come from a string slice, not
   // `new Date(dateFrom).getFullYear()` — that parses as UTC midnight and would
   // report the previous year for any zone west of UTC.
-  const fromYear = Number(dateFrom.slice(0, 4));
-  const toYear = Number(dateTo.slice(0, 4));
+  //
+  // An EMPTIED end is open to the edge of the other end's year (2026-10-21,
+  // D-OPS-4): `Number('')` is 0, so an empty end used to request year=0 (or
+  // years 0..10) and the `d <= ''` comparison then hid every entry. The whole
+  // range cannot be cleared (clearable={false} below): the endpoint is per year,
+  // so "no date filter" has no bounded meaning; with both ends emptied by hand
+  // the page shows the current year.
+  const fromYear = dateFrom ? Number(dateFrom.slice(0, 4)) : NaN;
+  const toYear = dateTo ? Number(dateTo.slice(0, 4)) : NaN;
+  const firstYear = Number.isFinite(fromYear) ? fromYear : Number.isFinite(toYear) ? toYear : now.getFullYear();
+  const lastYear = Number.isFinite(toYear) ? toYear : firstYear;
+  const effectiveFrom = dateFrom || `${firstYear}-01-01`;
+  const effectiveTo = dateTo || `${lastYear}-12-31`;
   const years = useMemo(() => {
-    if (!Number.isFinite(fromYear) || !Number.isFinite(toYear) || toYear < fromYear) return [fromYear].filter(Number.isFinite);
+    if (lastYear < firstYear) return [firstYear];
     // Guard a typo'd year (e.g. '20226') from fanning out into thousands of requests.
-    const span = Math.min(toYear - fromYear, 10);
-    return Array.from({ length: span + 1 }, (_, i) => fromYear + i);
-  }, [fromYear, toYear]);
+    const span = Math.min(lastYear - firstYear, 10);
+    return Array.from({ length: span + 1 }, (_, i) => firstYear + i);
+  }, [firstYear, lastYear]);
 
   // ALL_ROWS so the whole year's entries load (the page has no pagination UI).
   const statusQs = statusFilter !== 'ALL' ? `&approvalStatus=${statusFilter}` : '';
@@ -306,7 +318,7 @@ export function PmScheduleListPage() {
   const entries = allEntries.filter(e => {
     const d = isoToDateInput(e.plannedDate, datetimeTz);
     if (!d) return true;
-    return d >= dateFrom && d <= dateTo;
+    return d >= effectiveFrom && d <= effectiveTo;
   });
   const { data: countsData } = useSWR('/api/pm-schedules/entries/pending-counts');
   const pendingCount = countsData?.pending ?? 0;
@@ -322,7 +334,9 @@ export function PmScheduleListPage() {
 
   const handleDownloadTemplate = async () => {
     try {
-      const res = await fetch(`${(window as any).__API_BASE__ ?? ''}/api/pm-schedules/template.csv`, {
+      // apiUrl(): the same base every raw fetch uses (D-OPS-11) - window.__API_BASE__
+      // alone misses a base that came from the baked VITE_API_URL.
+      const res = await fetch(apiUrl('/api/pm-schedules/template.csv'), {
         headers: { Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -331,7 +345,11 @@ export function PmScheduleListPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = 'pm-schedule-template.csv';
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e: any) { setUploadError(`Failed to download template: ${e.message ?? 'unknown error'}`); }
+    } catch (e: any) {
+      // A toast, not uploadError: that renders only inside the upload dialog,
+      // which is usually closed when Template is clicked (D-OPS-5).
+      toast.error('Template download failed', e?.message || 'unknown error');
+    }
   };
 
   // ─── Schedule export (PDF + Excel) with the upload/review/approve trail ───
@@ -406,12 +424,11 @@ export function PmScheduleListPage() {
       // One signature covers the audit write AND the server-side workbook GET
       // (same EXPORT_PM_SCHEDULE row; the password rides in x-reauth-password).
       const signedPw = await requireExportReauth(reauth, { reportType: 'PM Schedule', format: 'Excel', recordCount: allEntries.length }, toast.warning);
-      const base = (window as any).__API_BASE__ ?? '';
       // The server builds one workbook per year, so a cross-year range
       // downloads one file per year. Exporting only `fromYear` would drop the
       // rest without saying so.
       for (const y of years) {
-        const res = await fetch(`${base}/api/pm-schedules/entries/export.xlsx?year=${y}`, {
+        const res = await fetch(apiUrl(`/api/pm-schedules/entries/export.xlsx?year=${y}`), {
           headers: {
             Authorization: `Bearer ${sessionStorage.getItem('access_token') ?? ''}`,
             ...(signedPw ? { 'x-reauth-password': signedPw } : {}),
@@ -464,8 +481,8 @@ export function PmScheduleListPage() {
           const dates = uploaded.map(r => r.plannedDate).sort();
           const uploadedMin = dates[0];
           const uploadedMax = dates[dates.length - 1];
-          if (uploadedMin < dateFrom) setDateFrom(uploadedMin);
-          if (uploadedMax > dateTo) setDateTo(uploadedMax);
+          if (uploadedMin < effectiveFrom) setDateFrom(uploadedMin);
+          if (uploadedMax > effectiveTo) setDateTo(uploadedMax);
           if (statusFilter !== 'ALL') setStatusFilter('ALL');
         }
 
@@ -474,6 +491,7 @@ export function PmScheduleListPage() {
       {
         onSuccess: () => { refreshAll(); setUploading(false); },
         onError: (e: any) => { setUploadError(e?.message ?? 'Upload failed'); setUploading(false); },
+        onCancel: () => setUploading(false),
       },
     );
   };
@@ -503,6 +521,7 @@ export function PmScheduleListPage() {
     }, {
       onSuccess: () => { toast.success('Approved', `${ids.length} entry(s) approved`); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      onCancel: () => setProcessing(false),
     });
   };
 
@@ -530,6 +549,7 @@ export function PmScheduleListPage() {
     }, {
       onSuccess: () => { toast.success('Reviewed', `${ids.length} entry(s) sent for approval`); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      onCancel: () => setProcessing(false),
     });
   };
 
@@ -554,109 +574,56 @@ export function PmScheduleListPage() {
     }, {
       onSuccess: () => { toast.success('Rejected', rejectToastText(ids, entries)); setRejectDialog(null); setSelected(new Set()); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      onCancel: () => setProcessing(false),
     });
   };
 
-  // 2026-07-16: single-date PM schedule create. One entry on the chosen date,
-  // one PM per AHU per year. On submit we first check whether the AHU already
-  // has an active schedule for that year; if so we ask to overwrite (PUT =
-  // archive-then-recreate) rather than surfacing the backend 409.
   const resetCreate = () => {
     setCreateDialog(false);
     setCreatingSchedule(false);
     setCreateForm({ ahuId: '', plannedDate: '', toleranceDays: 7 });
   };
 
-  // Single entry derived from the current form (month/year come from the date).
-  const formEntry = () => {
-    const [yStr, mStr] = createForm.plannedDate.split('-');
-    return { year: Number(yStr), month: Number(mStr) };
+  // Where the server put the new visit, in the words of the workflow it entered.
+  const visitStatusPhrase = (status: string | undefined) => {
+    if (status === 'APPROVED') return 'approved';
+    if (status === 'PENDING_REVIEW') {
+      const role = wfConfig?.reviewRole?.trim();
+      return `pending review${role ? ` by ${role}` : ''}`;
+    }
+    return 'pending approval';
   };
 
-  // POST — new schedule (reauth CREATE_PM_SCHEDULE). Used when the AHU has none.
-  const doCreate = (year: number, month: number) => {
-    const body = {
-      entityId: createForm.ahuId,
-      year,
-      entries: [{ month, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays }],
-    };
+  // POST /visits (re-auth CREATE_PM_SCHEDULE). A date already scheduled
+  // (409 PM_VISIT_EXISTS) or one whose window overlaps another visit
+  // (409 PM_VISIT_OVERLAP) is refused by the server and reported as is.
+  const submitCreateSchedule = () => {
+    if (!createForm.ahuId || !createForm.plannedDate) return;
+    const body = { entityId: createForm.ahuId, plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays };
+    const ahuName = ahuInstances.find((a: any) => a.id === createForm.ahuId)?.name ?? 'the AHU';
+    type AddedVisit = { entry?: { approvalStatus?: string } };
+    let added: AddedVisit | undefined;
     setCreatingSchedule(true);
     reauth.execute(
       'CREATE_PM_SCHEDULE',
       async (password?: string) => {
-        if (password) await apiClient.postWithReauth('/api/pm-schedules', body, password);
-        else await apiClient.post('/api/pm-schedules', body);
+        added = password
+          ? await apiClient.postWithReauth<AddedVisit>('/api/pm-schedules/visits', body, password)
+          : await apiClient.post<AddedVisit>('/api/pm-schedules/visits', body);
       },
       {
         onSuccess: () => {
-          toast.success('Created', `PM schedule created for ${showInputDate(createForm.plannedDate)}`);
+          toast.success('Visit added', `Visit on ${showInputDate(createForm.plannedDate)} added to ${ahuName} — ${visitStatusPhrase(added?.entry?.approvalStatus)}.`);
           resetCreate();
           refreshAll();
         },
         onError: (e: any) => {
-          toast.error('Error', e?.message ?? 'Failed to create schedule');
+          toast.error('Error', e?.message ?? 'Failed to add the visit');
           setCreatingSchedule(false);
         },
+        onCancel: () => setCreatingSchedule(false),
       },
     );
-  };
-
-  // Overwrite = a pending EDIT on the existing APPROVED entry. The current date
-  // stays active and keeps generating PM tasks; the new date is staged as a
-  // pending change that goes through review → approval (and mints a QNN). reauth
-  // EDIT_PM_SCHEDULE. Called from the overwrite-confirm dialog.
-  const doOverwrite = (entryId: string) => {
-    const body = { plannedDate: createForm.plannedDate, toleranceDays: createForm.toleranceDays };
-    setCreatingSchedule(true);
-    reauth.execute(
-      'EDIT_PM_SCHEDULE',
-      async (password?: string) => {
-        if (password) await apiClient.putWithReauth(`/api/pm-schedules/entries/${entryId}/edit`, body, password);
-        else await apiClient.put(`/api/pm-schedules/entries/${entryId}/edit`, body);
-      },
-      {
-        onSuccess: () => {
-          toast.success(submission.title, `Change to ${showInputDate(createForm.plannedDate)} ${submission.phrase}. The current date stays active until the change is approved.`);
-          setOverwriteConfirm(null);
-          resetCreate();
-          refreshAll();
-        },
-        onError: (e: any) => {
-          toast.error('Error', e?.message ?? 'Failed to submit the change');
-          setCreatingSchedule(false);
-        },
-      },
-    );
-  };
-
-  const submitCreateSchedule = async () => {
-    if (!createForm.ahuId || !createForm.plannedDate) return;
-    const { year, month } = formEntry();
-    if (!year || !month) return;
-    setCreatingSchedule(true);
-    // Does this AHU already have an active schedule for the chosen year?
-    // getByEntity returns the schedule (200) or null (200) — a throw means a
-    // real network/permission error, in which case we let the create attempt
-    // surface it rather than silently blocking.
-    let existing: any = null;
-    try {
-      existing = await apiClient.get(`/api/pm-schedules/${createForm.ahuId}?year=${year}`);
-    } catch { /* treat as "no existing" and let create() report any real error */ }
-    setCreatingSchedule(false);
-    const firstEntry = existing && Array.isArray(existing.entries) && existing.entries.length > 0 ? existing.entries[0] : null;
-    if (existing && existing.id && firstEntry) {
-      const existingDate = firstEntry.plannedDate ? isoToDateInput(firstEntry.plannedDate, datetimeTz) : String(year);
-      const ahuName = ahuInstances.find((a: any) => a.id === createForm.ahuId)?.name ?? 'this AHU';
-      setOverwriteConfirm({
-        entryId: firstEntry.id,
-        approved: firstEntry.approvalStatus === 'APPROVED',
-        existingDate,
-        year,
-        ahuName,
-      });
-      return;
-    }
-    doCreate(year, month);
   };
 
   // AHU dropdown source for the create-schedule dialog. Reads from
@@ -692,6 +659,7 @@ export function PmScheduleListPage() {
           toast.error('Error', msg);
           setDeletingSchedule(false);
         },
+        onCancel: () => setDeletingSchedule(false),
       },
     );
   };
@@ -718,6 +686,7 @@ export function PmScheduleListPage() {
           setEditingId(null); refreshAll(); setProcessing(false);
         },
         onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+        onCancel: () => setProcessing(false),
       },
     );
   };
@@ -732,6 +701,7 @@ export function PmScheduleListPage() {
     }, {
       onSuccess: () => { toast.success('Edit Submitted', `Change ${submission.phrase}. The current date stays active until the change is approved.`); setEditingId(null); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      onCancel: () => setProcessing(false),
     });
   };
 
@@ -746,6 +716,7 @@ export function PmScheduleListPage() {
     }, {
       onSuccess: () => { toast.success('Modified', 'Schedule updated (still awaiting review approval)'); setEditingId(null); refreshAll(); setProcessing(false); },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
+      onCancel: () => setProcessing(false),
     });
   };
 
@@ -759,12 +730,17 @@ export function PmScheduleListPage() {
   // reviewed — are not selectable: the server's separation check
   // (SELF_APPROVAL_FORBIDDEN) refuses the WHOLE batch if one is included.
   const me = user?.username ?? null;
-  const isReviewable = (e: ScheduleEntry) =>
-    canReview && (e.approvalStatus === 'PENDING_REVIEW' || (workflowOn && e.approvalStatus === 'PENDING'))
-    && e.submittedByName !== me;
+  // The SAME predicates gate the per-row Review / Approve / Reject / Modify
+  // buttons (2026-10-21, D-OPS-2): the buttons used to check only role +
+  // status, so an uploader was offered a Review the server refuses after the
+  // password. `awaits*` = the entry is at the viewer's step at all.
+  const awaitsReview = (e: ScheduleEntry) =>
+    canReview && (e.approvalStatus === 'PENDING_REVIEW' || (workflowOn && e.approvalStatus === 'PENDING'));
+  const awaitsApproval = (e: ScheduleEntry) =>
+    isApprover && (e.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && e.approvalStatus === 'PENDING'));
+  const isReviewable = (e: ScheduleEntry) => awaitsReview(e) && e.submittedByName !== me;
   const isApprovable = (e: ScheduleEntry) =>
-    isApprover && (e.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && e.approvalStatus === 'PENDING'))
-    && e.submittedByName !== me && e.reviewedByName !== me;
+    awaitsApproval(e) && e.submittedByName !== me && e.reviewedByName !== me;
   const isSelectable = (e: ScheduleEntry) => isReviewable(e) || isApprovable(e);
   const selectableEntries = entries.filter(isSelectable);
   const allPendingSelected = selectableEntries.length > 0 && selectableEntries.every(e => selected.has(e.id));
@@ -886,6 +862,7 @@ export function PmScheduleListPage() {
           onToChange={v => { setDateTo(v); setSelected(new Set()); setPage(1); }}
           fromAriaLabel="PM schedule from date"
           toAriaLabel="PM schedule to date"
+          clearable={false}
         />
         {/* Separator */}
         <div className="h-6 w-px bg-slate-200" />
@@ -987,7 +964,7 @@ export function PmScheduleListPage() {
                   {showSelectColumn && (
                     <th className="w-10 h-10 px-3">
                       <input type="checkbox" checked={allPendingSelected} onChange={toggleSelectAll} disabled={selectableEntries.length === 0}
-                        title="Select every entry waiting on your step"
+                        title="Select every entry waiting on your step" aria-label="Select every entry waiting on your step"
                         className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                     </th>
                   )}
@@ -1019,6 +996,7 @@ export function PmScheduleListPage() {
                             <td className="w-10 px-3 py-2.5">
                               {isSelectable(entry) && (
                                 <input type="checkbox" checked={selected.has(entry.id)} onChange={() => toggleSelect(entry.id)}
+                                  aria-label={`Select ${group.ahuName} ${formatDate(entry.plannedDate)}`}
                                   className="w-3.5 h-3.5 rounded border-slate-300 cursor-pointer" style={{ accentColor: 'var(--theme-primary)' }} />
                               )}
                             </td>
@@ -1072,6 +1050,7 @@ export function PmScheduleListPage() {
                           <td className="px-4 py-2.5">
                             {isEditing ? (
                               <Input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                                aria-label={`Planned date for ${group.ahuName}`}
                                 className="h-8 w-40" />
                             ) : (
                               <div>
@@ -1088,6 +1067,7 @@ export function PmScheduleListPage() {
                           <td className="px-4 py-2.5">
                             {isEditing ? (
                               <Input type="number" value={editTolerance} onChange={e => setEditTolerance(e.target.value)}
+                                aria-label={`Tolerance days for ${group.ahuName}`}
                                 placeholder={String(entry.toleranceDays)} min={0} max={365}
                                 className="h-8 w-20" />
                             ) : (
@@ -1136,7 +1116,12 @@ export function PmScheduleListPage() {
                                 </>
                               ) : (
                                 <>
-                                  {canReview && (entry.approvalStatus === 'PENDING_REVIEW' || (workflowOn && entry.approvalStatus === 'PENDING')) && (
+                                  {awaitsReview(entry) && !isReviewable(entry) && (
+                                    <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 text-right">
+                                      Submitted by you — another reviewer must review it
+                                    </span>
+                                  )}
+                                  {isReviewable(entry) && (
                                     <>
                                       <button onClick={() => handleReviewApprove([entry.id])} disabled={processing}
                                         className="whitespace-nowrap px-3 py-1.5 bg-sky-500 text-white text-[11px] font-semibold rounded-lg hover:bg-sky-600 disabled:opacity-50 transition-colors shadow-sm">
@@ -1153,7 +1138,12 @@ export function PmScheduleListPage() {
                                       </button>
                                     </>
                                   )}
-                                  {isApprover && (entry.approvalStatus === 'PENDING_APPROVAL' || (!workflowOn && entry.approvalStatus === 'PENDING')) && (
+                                  {awaitsApproval(entry) && !isApprovable(entry) && (
+                                    <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 text-right">
+                                      You submitted or reviewed this — another approver must approve it
+                                    </span>
+                                  )}
+                                  {isApprovable(entry) && (
                                     <>
                                       <button onClick={() => handleApprove([entry.id])} disabled={processing}
                                         className="whitespace-nowrap px-3 py-1.5 bg-emerald-500 text-white text-[11px] font-semibold rounded-lg hover:bg-emerald-600 disabled:opacity-50 transition-colors shadow-sm">
@@ -1198,7 +1188,7 @@ export function PmScheduleListPage() {
             pageSize={perPage}
             totalItems={totalEntries}
             onPageChange={setPage}
-            onPageSizeChange={setPerPage}
+            onPageSizeChange={setPerPageChoice}
             pageSizeOptions={paginationOptions}
             className="border-t border-slate-100"
           />
@@ -1213,8 +1203,8 @@ export function PmScheduleListPage() {
             <div className="p-6">
               <h3 className="text-lg font-bold text-slate-800 mb-1">Reject {rejectDialog.length} Entry(s)</h3>
               <p className="text-xs text-slate-400 mb-4">Provide a reason for rejection. The uploader will see this.</p>
-              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Remarks <span className="text-red-500">*</span></label>
-              <textarea value={rejectRemarks} onChange={e => setRejectRemarks(e.target.value)}
+              <label htmlFor="pm-reject-remarks" className="text-xs font-semibold text-slate-500 mb-1.5 block">Remarks <span className="text-red-500">*</span></label>
+              <textarea id="pm-reject-remarks" value={rejectRemarks} onChange={e => setRejectRemarks(e.target.value)}
                 placeholder="Why are these entries being rejected? (required)"
                 rows={3} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:border-red-400 focus:ring-3 focus:ring-red-100 outline-none" />
               <div className="flex gap-3 mt-4">
@@ -1255,7 +1245,7 @@ export function PmScheduleListPage() {
                   ) : (
                     <><p className="text-sm font-semibold text-slate-700">{dragActive ? 'Drop the file here' : 'Drag and drop or click to choose'}</p><p className="text-xs text-slate-400 mt-1">Accepts .csv, .xlsx</p></>
                   )}
-                  <input ref={fileInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+                  <input ref={fileInputRef} type="file" accept=".csv,.xlsx" aria-label="Schedule file (.csv or .xlsx)" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
                 </div>
               )}
               {uploadError && <div className="mt-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-sm">{uploadError}</div>}
@@ -1319,12 +1309,14 @@ export function PmScheduleListPage() {
             <div className="px-6 py-5 space-y-4">
               <h2 className="text-base font-bold text-slate-800">New PM Schedule</h2>
               <p className="text-sm text-slate-500 -mt-2">
-                Schedules one PM for the selected AHU on the chosen date. An AHU can
-                have one PM schedule per year.
+                Adds one PM visit for the selected AHU on the chosen date, and creates
+                the year's schedule if the AHU has none. Existing visits are not changed
+                — edit a visit from its row. The new visit goes through the PM approval
+                workflow.
               </p>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
-                <Select value={createForm.ahuId}
+                <label htmlFor="pm-create-ahu" className="block text-xs font-semibold text-slate-600 mb-1">AHU</label>
+                <Select id="pm-create-ahu" value={createForm.ahuId}
                         onChange={e => setCreateForm(f => ({ ...f, ahuId: e.target.value }))}>
                   <option value="">Select an AHU…</option>
                   {ahuInstances.map((a: any) => (
@@ -1336,15 +1328,15 @@ export function PmScheduleListPage() {
                 )}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
-                <Input type="date"
+                <label htmlFor="pm-create-date" className="block text-xs font-semibold text-slate-600 mb-1">Date</label>
+                <Input id="pm-create-date" type="date"
                        value={createForm.plannedDate}
                        onChange={e => setCreateForm(f => ({ ...f, plannedDate: e.target.value }))} />
                 <p className="text-xs text-slate-400 mt-1">Select the year, month and day for this PM.</p>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Tolerance days</label>
-                <Input type="number" min={0} max={365}
+                <label htmlFor="pm-create-tolerance" className="block text-xs font-semibold text-slate-600 mb-1">Tolerance days</label>
+                <Input id="pm-create-tolerance" type="number" min={0} max={365}
                        value={createForm.toleranceDays}
                        onChange={e => setCreateForm(f => ({ ...f, toleranceDays: Number(e.target.value) }))} />
                 <p className="text-xs text-slate-400 mt-1">Window: planned date ± tolerance days.</p>
@@ -1358,64 +1350,9 @@ export function PmScheduleListPage() {
               <button type="button" onClick={submitCreateSchedule}
                       disabled={creatingSchedule || !createForm.ahuId || !createForm.plannedDate}
                       className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 shadow-xs disabled:opacity-50">
-                {creatingSchedule ? 'Creating…' : 'Create schedule'}
+                {creatingSchedule ? 'Adding…' : 'Add visit'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Overwrite confirmation — the AHU already has a schedule for the year. */}
-      {overwriteConfirm && (
-        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
-             onClick={() => !creatingSchedule && setOverwriteConfirm(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="h-1.5 bg-gradient-to-r from-amber-400 to-orange-500" />
-            {overwriteConfirm.approved ? (
-              <>
-                <div className="px-6 py-5 space-y-3">
-                  <h2 className="text-base font-bold text-slate-800">PM schedule already exists</h2>
-                  <p className="text-sm text-slate-600">
-                    <span className="font-semibold">{overwriteConfirm.ahuName}</span> has an approved PM
-                    schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}).
-                    Overwrite it with <span className="font-semibold">{showInputDate(createForm.plannedDate)}</span>?
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    The change goes to review → approval (a QNN is raised). The current date stays
-                    active and keeps generating PM tasks until the change is approved.
-                  </p>
-                </div>
-                <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
-                  <button type="button" onClick={() => setOverwriteConfirm(null)} disabled={creatingSchedule}
-                          className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">
-                    Keep existing
-                  </button>
-                  <button type="button"
-                          onClick={() => doOverwrite(overwriteConfirm.entryId)}
-                          disabled={creatingSchedule}
-                          className="flex-1 py-2.5 rounded-xl text-sm font-semibold shadow-lg disabled:opacity-50 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400">
-                    {creatingSchedule ? 'Submitting…' : 'Overwrite'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="px-6 py-5 space-y-3">
-                  <h2 className="text-base font-bold text-slate-800">PM schedule awaiting review</h2>
-                  <p className="text-sm text-slate-600">
-                    <span className="font-semibold">{overwriteConfirm.ahuName}</span> already has a PM
-                    schedule for {overwriteConfirm.year} (planned {overwriteConfirm.existingDate}) that is
-                    still awaiting review/approval. Approve or reject it first, then you can change the date.
-                  </p>
-                </div>
-                <div className="px-6 py-4 border-t border-slate-100 flex">
-                  <button type="button" onClick={() => setOverwriteConfirm(null)}
-                          className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors">
-                    Close
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

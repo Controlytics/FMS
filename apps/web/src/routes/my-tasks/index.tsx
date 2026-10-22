@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { useCan } from '@/hooks/use-can';
+import { usePageSize } from '@/hooks/use-pagination-config';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
@@ -148,7 +149,8 @@ export function MyTasksPage() {
 
   // Pagination — each list keeps its own page index (they render stacked, not tabbed),
   // but share a single rows-per-page selector. Reset both to page 1 when filters change.
-  const [pageSize, setPageSize] = useState(25);
+  // The configured page size until the operator picks one (Config → Pagination).
+  const [pageSize, setPageSize] = usePageSize();
   const [tasksPage, setTasksPage] = useState(1);
   const [overduePage, setOverduePage] = useState(1);
   useEffect(() => { setTasksPage(1); setOverduePage(1); }, [search, blockFilter, areaFilter, statusFilter, from, to]);
@@ -233,12 +235,13 @@ export function MyTasksPage() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
-            <label className="text-xs font-semibold text-slate-500">Search</label>
+            <label htmlFor="my-tasks-search" className="text-xs font-semibold text-slate-500">Search</label>
             <div className="relative">
               <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <Input
+                id="my-tasks-search"
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
@@ -265,8 +268,8 @@ export function MyTasksPage() {
           />
 
           <div className="flex flex-col gap-1 min-w-[150px]">
-            <label className="text-xs font-semibold text-slate-500">Status</label>
-            <Select className="h-11" value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}>
+            <label htmlFor="my-tasks-status" className="text-xs font-semibold text-slate-500">Status</label>
+            <Select id="my-tasks-status" className="h-11" value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}>
               <option value="">All</option>
               <option value="pending">Pending</option>
               <option value="overdue">Overdue</option>
@@ -579,10 +582,12 @@ export function TaskCard({ task, expanded, onToggle, onPerform, canPerform = tru
 function FilterSelect({ label, value, options, allLabel, onChange }: {
   label: string; value: string; options: { value: string; label: string }[]; allLabel: string; onChange: (v: string) => void;
 }) {
+  // The label names the select (3d): it used to sit beside it unassociated.
+  const id = useId();
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">
-      <label className="text-xs font-semibold text-slate-500">{label}</label>
-      <Select className="h-11" value={value} onChange={e => onChange(e.target.value)}>
+      <label htmlFor={id} className="text-xs font-semibold text-slate-500">{label}</label>
+      <Select id={id} className="h-11" value={value} onChange={e => onChange(e.target.value)}>
         <option value="">{allLabel}</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </Select>

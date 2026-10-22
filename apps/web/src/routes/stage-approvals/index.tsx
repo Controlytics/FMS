@@ -125,12 +125,12 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
     return pw ? apiClient.putWithReauth(url, body, pw) : apiClient.put(url, body);
   };
 
-  const { data: queueData, mutate: mutateQueue } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals/queue', { refreshInterval: 30000 });
+  const { data: queueData, error: queueError, mutate: mutateQueue } = useSWR<{ data: StageApprovalSummary[] }>('/api/stage-approvals/queue', { refreshInterval: 30000 });
   // 2026-10-17 load test (operator decision): the "All" tab asked for every
   // approval ever made (1.0 M rows after a year → 39 s, then failure). It now
   // shows every PENDING row plus the last 30 days; the key is fixed per mount.
   const [allSince] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString());
-  const { data: allData, mutate: mutateAll } = useSWR<{ data: StageApprovalSummary[] }>(`/api/stage-approvals?from=${encodeURIComponent(allSince)}`);
+  const { data: allData, error: allError, mutate: mutateAll } = useSWR<{ data: StageApprovalSummary[] }>(`/api/stage-approvals?from=${encodeURIComponent(allSince)}`);
 
   const queue = queueData?.data ?? [];
   const all = allData?.data ?? [];
@@ -179,6 +179,8 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
         setDlg(null); setBusy(false); refresh();
       },
       onError: (e: any) => { toast.error('Failed', e?.message ?? 'Action failed'); setBusy(false); },
+      // A dismissed password prompt is not a failure (2026-10-21, D-OPS-8).
+      onCancel: () => setBusy(false),
     });
   };
 
@@ -231,6 +233,7 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
         setBulkDlg(null); setBusy(false); setSelected(new Set()); refresh();
       },
       onError: (e: any) => { toast.error('Failed', e?.message ?? 'Action failed'); setBusy(false); },
+      onCancel: () => setBusy(false),
     });
   };
 
@@ -302,6 +305,11 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
   );
 
   const list = tab === 'queue' ? queue : all;
+  // A failed read is an error with Retry, never "Nothing awaiting your approval."
+  // (2026-10-21, D-OPS-6; the PM pages' M79 pattern). Only while there is no
+  // data to show: a failed background refresh keeps the last good list.
+  const listError: any = tab === 'queue' ? (queueData ? null : queueError) : (allData ? null : allError);
+  const reloadList = () => (tab === 'queue' ? mutateQueue() : mutateAll());
   const bulkCount = decidable.filter((q) => selected.has(q.id)).length;
 
   // Re-published every render so the function always sees current state.
@@ -358,7 +366,17 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
       )}
 
       <div className="border border-slate-200 rounded-xl bg-white overflow-hidden divide-y divide-slate-100">
-        {list.length === 0 ? (
+        {listError ? (
+          <div role="alert" className="py-10 px-6 text-center space-y-2">
+            <p className="text-[14px] font-semibold text-red-700">
+              {listError?.status === 403 ? 'You do not have permission to view stage approvals' : 'Could not load the stage approvals'}
+            </p>
+            <p className="text-[13px] text-slate-500">{listError?.message || 'The server did not answer.'}</p>
+            {listError?.status !== 403 && (
+              <button onClick={() => reloadList()} className="mt-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 [@media(pointer:coarse)]:min-h-11">Retry</button>
+            )}
+          </div>
+        ) : list.length === 0 ? (
           <div className="text-sm text-slate-400 py-12 text-center">{tab === 'queue' ? 'Nothing awaiting your approval.' : 'No stage approvals yet.'}</div>
         ) : (
           list.map((r) => renderRow(r, tab === 'queue'))
@@ -391,8 +409,8 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
                 </p>
               )}
               <div>
-                <label className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
-                <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
+                <label htmlFor="stage-decision-remarks" className="text-xs font-semibold text-slate-500">Remarks {dlg.action === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <textarea id="stage-decision-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
                   placeholder={dlg.action === 'reject' ? 'Reason for rejection (required)' : 'Optional remarks'} />
               </div>
@@ -432,8 +450,8 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
                 </p>
               )}
               <div>
-                <label className="text-xs font-semibold text-slate-500">Remarks {bulkDlg === 'reject' && <span className="text-rose-500">*</span>}</label>
-                <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
+                <label htmlFor="stage-bulk-remarks" className="text-xs font-semibold text-slate-500">Remarks {bulkDlg === 'reject' && <span className="text-rose-500">*</span>}</label>
+                <textarea id="stage-bulk-remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={3}
                   className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-3 focus:ring-brand-600/15"
                   placeholder={bulkDlg === 'reject' ? 'Reason for rejection (required, applies to all)' : 'Optional remarks (applies to all)'} />
               </div>

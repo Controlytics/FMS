@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { useCan } from '@/hooks/use-can';
+import { usePageSize } from '@/hooks/use-pagination-config';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
 import { Pagination } from '@/components/ui/pagination';
 import { apiClient } from '@/lib/api-client';
@@ -97,7 +98,8 @@ export function DeviationsPage() {
   const { formatDate, formatDateTime, formatDayMonth } = useDatetimeFormat();
   const [status, setStatus] = useState('ALL');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  // The configured page size until the operator picks one (Config → Pagination).
+  const [pageSize, setPageSize] = usePageSize();
 
   // Report download (period-scoped PDF).
   const [fromDate, setFromDate] = useState('');
@@ -107,7 +109,10 @@ export function DeviationsPage() {
 
   const params = new URLSearchParams({ page: String(page), limit: String(pageSize) });
   if (status !== 'ALL') params.set('status', status);
-  const { data, isLoading, mutate: refetch } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
+  const { data, error: loadError, isLoading, mutate: refetch } = useSWR<DeviationResponse>(`/api/pm-schedules/deviations?${params}`, { refreshInterval: 30000 });
+  // A failed read is an error with Retry, never "No deviations" (2026-10-21,
+  // D-OPS-6; the PM pages' M79 pattern). Only while there is nothing to show.
+  const failed: any = !data ? loadError : null;
 
   // SUPER_ADMIN edit of any column (2026-09-05). Acknowledged / Completed by
   // are user pickers; the server stores the id and resolves the name.
@@ -317,7 +322,7 @@ export function DeviationsPage() {
         <PageHeader
           className="mb-4"
           title="Deviations"
-          subtitle={<>
+          subtitle={failed ? 'Overdue AHU filter cleaning audit trail' : <>
             {total.toLocaleString()} deviation{total === 1 ? '' : 's'}
             {data?.openCount ? ` · ${data.openCount} open` : ''} — overdue AHU filter cleaning audit trail
           </>}
@@ -373,6 +378,16 @@ export function DeviationsPage() {
           <div className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-[13px] text-slate-400">Loading deviations...</span>
+          </div>
+        ) : failed ? (
+          <div role="alert" className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-2">
+            <p className="text-[14px] font-semibold text-red-700">
+              {failed?.status === 403 ? 'You do not have permission to view deviations' : 'Could not load the deviations'}
+            </p>
+            <p className="text-[13px] text-slate-500">{failed?.message || 'The server did not answer.'}</p>
+            {failed?.status !== 403 && (
+              <button onClick={() => refetch()} className="mt-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">

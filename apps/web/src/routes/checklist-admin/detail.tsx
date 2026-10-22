@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import { apiClient, api } from '../../lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
@@ -52,7 +52,7 @@ export function ChecklistProfileDetailPage() {
   const canViewHistory = isSuperAdmin || perms.includes('VERSION_HISTORY_VIEW');
   const reauth = useReauth();
   const swrKey = `/api/checklist-profiles/${id}`;
-  const { data: profile, isLoading } = useSWR(id ? swrKey : null);
+  const { data: profile, error: loadError, isLoading, mutate: reload } = useSWR(id ? swrKey : null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<QuestionForm>(emptyQuestion());
@@ -94,6 +94,8 @@ export function ChecklistProfileDetailPage() {
       {
         onSuccess: () => { mutate(swrKey); setEditProfileMode(false); setSavingProfile(false); },
         onError: (e: any) => { setError(e?.message ?? 'Failed to update checklist profile'); setSavingProfile(false); },
+        // A dismissed password prompt is not an error.
+        onCancel: () => setSavingProfile(false),
       },
     );
   };
@@ -112,44 +114,61 @@ export function ChecklistProfileDetailPage() {
     setEditingId(q.id); setShowAdd(true);
   };
 
+  // Failures are reported in onError, never inside the callback (2026-10-21,
+  // D-OPS-7): the callbacks used to setError and re-throw, so a REAUTH_REQUIRED
+  // from a stale re-auth config put a banner beside the password prompt the
+  // hook was opening. REAUTH_* never reach onError; a dismissed prompt reaches
+  // onCancel, which stays silent.
   const saveQuestion = async () => {
     if (!form.question.trim()) return;
     setSaving(true);
     const action = editingId ? 'UPDATE_CHECKLIST_PROFILE' : 'CREATE_CHECKLIST_PROFILE';
     await reauth.execute(action, async (password?: string) => {
-      try {
-        const body = { ...form, options: form.options, validation: form.validation };
-        if (editingId) {
-          if (password) await apiClient.putWithReauth(`/api/checklist-profiles/${id}/questions/${editingId}`, body, password);
-          else await apiClient.put(`/api/checklist-profiles/${id}/questions/${editingId}`, body);
-        } else {
-          if (password) await apiClient.postWithReauth(`/api/checklist-profiles/${id}/questions`, body, password);
-          else await apiClient.post(`/api/checklist-profiles/${id}/questions`, body);
-        }
-        mutate(swrKey); setShowAdd(false); setEditingId(null); setForm(emptyQuestion()); setError(null);
-      } catch (e: any) { setError(e.message || 'Failed to save question'); throw e; }
-      finally { setSaving(false); }
+      const body = { ...form, options: form.options, validation: form.validation };
+      if (editingId) {
+        if (password) await apiClient.putWithReauth(`/api/checklist-profiles/${id}/questions/${editingId}`, body, password);
+        else await apiClient.put(`/api/checklist-profiles/${id}/questions/${editingId}`, body);
+      } else {
+        if (password) await apiClient.postWithReauth(`/api/checklist-profiles/${id}/questions`, body, password);
+        else await apiClient.post(`/api/checklist-profiles/${id}/questions`, body);
+      }
+      mutate(swrKey); setShowAdd(false); setEditingId(null); setForm(emptyQuestion()); setError(null);
+    }, {
+      onError: (e: any) => setError(e?.message || 'Failed to save question'),
+      onCancel: () => {},
     });
     setSaving(false);
   };
 
-  const deleteQuestion = async (qId: string) => {
+  // Asks first, like deleting a whole checklist (D-OPS-12). The password prompt
+  // (when re-auth is on) signs the act; it is not a confirmation of intent.
+  const deleteQuestion = async (q: { id: string; question: string }) => {
+    if (!window.confirm(`Delete question "${q.question}"? This cannot be undone.`)) return;
     await reauth.execute('DELETE_CHECKLIST_PROFILE', async (password?: string) => {
-      try {
-        if (password) await apiClient.deleteWithReauth(`/api/checklist-profiles/${id}/questions/${qId}`, password);
-        else await apiClient.delete(`/api/checklist-profiles/${id}/questions/${qId}`);
-        mutate(swrKey); setError(null);
-      } catch (e: any) { setError(e.message || 'Failed to delete question'); throw e; }
+      if (password) await apiClient.deleteWithReauth(`/api/checklist-profiles/${id}/questions/${q.id}`, password);
+      else await apiClient.delete(`/api/checklist-profiles/${id}/questions/${q.id}`);
+      mutate(swrKey); setError(null);
+    }, {
+      onError: (e: any) => setError(e?.message || 'Failed to delete question'),
+      onCancel: () => {},
     });
   };
 
-  const moveQuestion = async (idx: number, dir: -1 | 1) => {
+  // The server gates PUT /:id/reorder on UPDATE_CHECKLIST_PROFILE re-auth; a
+  // bare PUT could never pass while that row was on (2026-10-21, D-OPS-3).
+  const moveQuestion = (idx: number, dir: -1 | 1) => {
     const newIdx = idx + dir;
     if (newIdx < 0 || newIdx >= questions.length) return;
     const ids = questions.map((q: any) => q.id);
     [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
-    try { await apiClient.put(`/api/checklist-profiles/${id}/reorder`, { questionIds: ids }); mutate(swrKey); }
-    catch (e: any) { setError(e.message || 'Failed to reorder'); }
+    reauth.execute('UPDATE_CHECKLIST_PROFILE', async (password?: string) => {
+      if (password) await apiClient.putWithReauth(`/api/checklist-profiles/${id}/reorder`, { questionIds: ids }, password);
+      else await apiClient.put(`/api/checklist-profiles/${id}/reorder`, { questionIds: ids });
+      mutate(swrKey);
+    }, {
+      onError: (e: any) => setError(e?.message || 'Failed to reorder'),
+      onCancel: () => {},
+    });
   };
 
   const addOption = () => {
@@ -170,6 +189,29 @@ export function ChecklistProfileDetailPage() {
     </div>
   );
 
+  // A failed read is an error with Retry and a way back - never a "Checklist"
+  // page reading "No questions yet" with Add Question offered (2026-10-21,
+  // D-OPS-6; the PM pages' M79 pattern).
+  if (!profile && loadError) {
+    const forbidden = (loadError as any)?.status === 403;
+    return (
+      <div className="p-6">
+        <div role="alert" className="bg-white border border-red-200 rounded-xl p-8 text-center space-y-2">
+          <p className="text-[14px] font-semibold text-red-700">
+            {forbidden ? 'You do not have permission to view this checklist' : 'Could not load this checklist'}
+          </p>
+          <p className="text-[13px] text-slate-500">{(loadError as any)?.message || 'The server did not answer.'}</p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {!forbidden && (
+              <button onClick={() => reload()} className="px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700">Retry</button>
+            )}
+            <Link to="/checklists" className="px-4 py-2 rounded-lg text-[13px] font-semibold text-slate-700 border border-slate-300 bg-white hover:bg-slate-50">Back to Checklists</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const requiredCount = questions.filter((q: any) => q.required).length;
 
   return (
@@ -179,7 +221,7 @@ export function ChecklistProfileDetailPage() {
         <div className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <button onClick={() => navigate('/checklists')}
+              <button onClick={() => navigate('/checklists')} aria-label="Back to checklists"
                 className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
@@ -189,11 +231,11 @@ export function ChecklistProfileDetailPage() {
               <div className="flex-1">
                 {editProfileMode ? (
                   <div className="space-y-2 max-w-xl">
-                    <Input type="text" value={editProfileForm.name}
+                    <Input type="text" value={editProfileForm.name} aria-label="Profile name"
                            onChange={e => setEditProfileForm(f => ({ ...f, name: e.target.value }))}
                            placeholder="Profile name"
                            className="text-base font-semibold" />
-                    <Input type="text" value={editProfileForm.description}
+                    <Input type="text" value={editProfileForm.description} aria-label="Profile description"
                            onChange={e => setEditProfileForm(f => ({ ...f, description: e.target.value }))}
                            placeholder="Description (optional)"
                            className="text-slate-600" />
@@ -294,7 +336,7 @@ export function ChecklistProfileDetailPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 ml-4">&times;</button>
+          <button onClick={() => setError(null)} aria-label="Dismiss error" className="text-red-400 hover:text-red-600 ml-4">&times;</button>
         </div>
       )}
 
@@ -328,7 +370,7 @@ export function ChecklistProfileDetailPage() {
                 {/* Number + reorder */}
                 <div className="flex flex-col items-center gap-1 shrink-0">
                   {canEdit && (
-                    <button onClick={() => moveQuestion(idx, -1)} disabled={idx === 0}
+                    <button onClick={() => moveQuestion(idx, -1)} disabled={idx === 0} aria-label={`Move question ${idx + 1} up`}
                       className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-20 flex items-center justify-center transition-colors">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
                     </button>
@@ -337,7 +379,7 @@ export function ChecklistProfileDetailPage() {
                     {idx + 1}
                   </div>
                   {canEdit && (
-                    <button onClick={() => moveQuestion(idx, 1)} disabled={idx === questions.length - 1}
+                    <button onClick={() => moveQuestion(idx, 1)} disabled={idx === questions.length - 1} aria-label={`Move question ${idx + 1} down`}
                       className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 disabled:opacity-20 flex items-center justify-center transition-colors">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                     </button>
@@ -369,7 +411,7 @@ export function ChecklistProfileDetailPage() {
                       className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors bg-brand-50 text-brand-700 hover:bg-brand-100">Edit</button>
                   )}
                   {canDelete && (
-                    <button onClick={() => deleteQuestion(q.id)}
+                    <button onClick={() => deleteQuestion(q)}
                       className="px-3 py-1.5 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">Delete</button>
                   )}
                 </div>
@@ -397,16 +439,16 @@ export function ChecklistProfileDetailPage() {
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Question *</label>
-                <textarea className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={2}
+                <label htmlFor="cq-question" className="text-xs font-semibold text-slate-500 mb-1.5 block">Question *</label>
+                <textarea id="cq-question" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 text-sm placeholder:text-slate-400 hover:border-slate-400 outline-none" rows={2}
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                   value={form.question} onChange={e => setForm({ ...form, question: e.target.value })} placeholder="Enter your question..." autoFocus />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Type</label>
-                  <Select
+                  <label htmlFor="cq-type" className="text-xs font-semibold text-slate-500 mb-1.5 block">Type</label>
+                  <Select id="cq-type"
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={form.questionType} onChange={e => setForm({ ...form, questionType: e.target.value, options: TYPES_WITH_OPTIONS.includes(e.target.value) ? form.options : [] })}>
@@ -414,8 +456,8 @@ export function ChecklistProfileDetailPage() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Section</label>
-                  <Input
+                  <label htmlFor="cq-section" className="text-xs font-semibold text-slate-500 mb-1.5 block">Section</label>
+                  <Input id="cq-section"
                     onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                     onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                     value={form.section} onChange={e => setForm({ ...form, section: e.target.value })} placeholder="e.g. Pre-checks" />
@@ -429,8 +471,8 @@ export function ChecklistProfileDetailPage() {
                 </label>
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Help Text</label>
-                <Input
+                <label htmlFor="cq-help" className="text-xs font-semibold text-slate-500 mb-1.5 block">Help Text</label>
+                <Input id="cq-help"
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--theme-primary)'; e.currentTarget.style.boxShadow = '0 0 0 2px var(--theme-focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = ''; }}
                   value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Additional guidance for this question" />
@@ -444,12 +486,12 @@ export function ChecklistProfileDetailPage() {
                       <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2">
                         <span className="w-5 h-5 rounded bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-semibold">{i + 1}</span>
                         <span className="text-sm text-slate-700 flex-1">{opt}</span>
-                        <button onClick={() => removeOption(i)} className="text-xs text-slate-400 hover:text-red-500">&times;</button>
+                        <button onClick={() => removeOption(i)} aria-label={`Remove option ${opt}`} className="text-xs text-slate-400 hover:text-red-500">&times;</button>
                       </div>
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <Input className="flex-1"
+                    <Input className="flex-1" aria-label="New option"
                       value={optionInput} onChange={e => setOptionInput(e.target.value)} placeholder="Add option..."
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } }} />
                     <button onClick={addOption} className="h-10 px-4 font-medium rounded-lg text-sm bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors">Add</button>
@@ -460,18 +502,18 @@ export function ChecklistProfileDetailPage() {
               {TYPES_WITH_NUMERIC.includes(form.questionType) && (
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Min</label>
-                    <Input type="number"
+                    <label htmlFor="cq-min" className="text-xs font-semibold text-slate-500 mb-1.5 block">Min</label>
+                    <Input id="cq-min" type="number"
                       value={form.validation.min ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, min: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Max</label>
-                    <Input type="number"
+                    <label htmlFor="cq-max" className="text-xs font-semibold text-slate-500 mb-1.5 block">Max</label>
+                    <Input id="cq-max" type="number"
                       value={form.validation.max ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, max: e.target.value ? Number(e.target.value) : undefined } })} />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Unit</label>
-                    <Input
+                    <label htmlFor="cq-unit" className="text-xs font-semibold text-slate-500 mb-1.5 block">Unit</label>
+                    <Input id="cq-unit"
                       value={form.validation.unit ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, unit: e.target.value } })} placeholder="e.g. degC" />
                   </div>
                 </div>
@@ -479,8 +521,8 @@ export function ChecklistProfileDetailPage() {
 
               {form.questionType === 'CALCULATED' && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Expression</label>
-                  <Input className="font-mono"
+                  <label htmlFor="cq-expression" className="text-xs font-semibold text-slate-500 mb-1.5 block">Expression</label>
+                  <Input id="cq-expression" className="font-mono"
                     value={form.validation.expression ?? ''} onChange={e => setForm({ ...form, validation: { ...form.validation, expression: e.target.value } })} placeholder="e.g. q_1 + q_2" />
                 </div>
               )}
