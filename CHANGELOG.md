@@ -47,6 +47,9 @@
     typed reason go in the row.
   - `-EmergencyUnsigned` is allowed only when no Super Admin can be read. The row is then
     flagged `signature: UNSIGNED_EMERGENCY`.
+  - Park schemas follow the in-app rule (`eadcf9a`): only the live `public.audit_trail` is
+    carried over. Every `digilog_keep%` schema, whether from the archive or left in the live
+    database, is dropped, logged, and never copied.
   - Shipped with the next installer build: the three files are on `build-installer.ps1`'s
     named list, and there is a Start-menu entry, FMS → "Restore database from backup".
     No installer has been built with them yet.

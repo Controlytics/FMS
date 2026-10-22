@@ -266,9 +266,13 @@ These files are **not** the 21 CFR Part 11 record. That is the *BACKUP_RESTORED*
 - **The app's own code for the audit trail** (`scripts/restore-database-helper.mjs`, run with
   the bundled `node.exe` against `runtime\api\dist`):
   - `preserveUnbackedAuditRows` + `resyncSequencesAfterRestore`, exactly as the in-app
-    `.dump` restore (BR-100, D1 2026-10-21). The sources are the moved-aside live trail, any
-    moved-aside `audit_trail`, and a `digilog_keep.audit_trail` that came inside the backup
-    (an interrupted in-app restore leaves one; it is dropped after its rows are carried over);
+    `.dump` restore (BR-100, D1 2026-10-21). The **only** source is the live
+    `public.audit_trail` (moved aside). This is the same rule as the in-app restore
+    (`eadcf9a`). A **park schema** (`digilog_keep` or `digilog_keep_<hex>`) is a mutable copy
+    left by an in-app restore, whether it is inside the backup or in the live database, so it
+    is never trusted. Its rows are not carried, and every park schema is dropped in step 9.
+    Each drop is logged, saying whether that park came with the backup or was in the live
+    database;
   - `verifyAuditChain`, in windows of 200,000 records that overlap by one;
   - **Signature (OD-01).** A Super Admin's password is checked with `lib/password`
     `verifyPassword` against the pre-restore database, as the re-auth gate does
