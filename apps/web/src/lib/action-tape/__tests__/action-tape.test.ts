@@ -35,6 +35,14 @@ describe('actionsForStage', () => {
     expect(actionsForStage(stage, tape).map((x) => x.type)).toEqual(kinds);
   });
 
+  // START is a position (2026-10-22): the checklists before the first stage
+  // carry afterStage: null, and only a null position matches them.
+  it('the START position (null) matches the START checklist and nothing else', () => {
+    const withStart = [...tape, a('SUBMIT_CHECKLIST', { afterStage: null })];
+    expect(actionsForStage(null, withStart).map((x) => [x.type, (x as any).params.afterStage])).toEqual([['SUBMIT_CHECKLIST', null]]);
+    expect(actionsForStage('WASH_IN', withStart).map((x) => x.type)).toEqual(['SUBMIT_CHECKLIST']);
+  });
+
   it('never returns the cycle-level actions and does not mutate the tape', () => {
     const copy = [...tape];
     const all = ['WASH_IN', 'WASH_OUT', 'DRY_IN'].flatMap((s) => actionsForStage(s, tape));

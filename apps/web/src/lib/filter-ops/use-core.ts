@@ -26,6 +26,7 @@
  * "not my problem — propagate".
  */
 import { useReducer, useState, useCallback, useRef } from 'react';
+import { advanceMustCarryChecklist } from '@digilog/shared';
 import { useOffline } from '../../hooks/use-offline';
 import {
   reduceDialogState,
@@ -449,9 +450,23 @@ export function useFilterOperationsCore(
         // are dryer-in-place ops (DRY_IN → DRY_IN, `isDryerInPlace` server-side).
         // They do NOT enter a stage, so the checklist that gates leaving DRY_IN
         // must not pop when the operator merely starts the dryer.
+        //
+        // ONE exception (2026-10-22, shared advanceMustCarryChecklist): the
+        // readings of a FINAL Dry In finish the cycle, so the checklist after it
+        // rides on SUBMIT_READINGS — asked first, then ONE advance-with-checklist
+        // with the readings and the answers. SET_DURATION never carries it.
+        let readingsCarryChecklist = false;
+        if (args.dryerAction === 'SUBMIT_READINGS' && args.targetState === 'DRY_IN') {
+          const row = await getCachedData<{ stageLookup?: Record<string, any> | null; disabledChecklistProfileIds?: string[] }>(`filter-state-${args.filterId}`);
+          readingsCarryChecklist = advanceMustCarryChecklist(
+            row?.stageLookup?.DRY_IN,
+            row?.disabledChecklistProfileIds,
+            { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' },
+          );
+        }
         const canDefer =
           args.allowDefer !== false
-          && !args.dryerAction
+          && (!args.dryerAction || readingsCarryChecklist)
           && !args.skipChecklistDispatch
           && !(args.batchRemainder && args.batchRemainder.length > 0);
         if (canDefer) {

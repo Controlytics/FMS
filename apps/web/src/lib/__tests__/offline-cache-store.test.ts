@@ -167,12 +167,36 @@ describe('recomputeAndCacheFilterState — graph data', () => {
   });
 
   it('final stage with nothing after it: the cycle completes — state, cycle and completion log cleared, filter row released', async () => {
-    await cacheFilters([filterRow({ currentLifecycleState: 'WASH_OUT', currentCycleId: 'c-1' })] as any);
-    await cacheData(KEY, { pipelineGraph: graph, currentCycle: { id: 'c-1' }, checklistCompletions: [{ checklistProfileId: 'cl-1', afterStage: 'WASH_IN', completedAt: 't' }] });
-    await recomputeAndCacheFilterState(FID, 'DRY_IN', false);
+    // START → WASH_IN → END: the work of a non-Dry-In stage is done on entry.
+    const washOnly = { stages: [graph.stages[0], graph.stages[1], graph.stages[5]], connections: [{ fromStageId: 'n0', toStageId: 'n1' }, { fromStageId: 'n1', toStageId: 'n9' }] };
+    await cacheFilters([filterRow({ currentLifecycleState: null, currentCycleId: 'c-1' })] as any);
+    await cacheData(KEY, { pipelineGraph: washOnly, currentCycle: { id: 'c-1' }, checklistCompletions: [{ checklistProfileId: 'cl-1', afterStage: 'WASH_IN', completedAt: 't' }] });
+    await recomputeAndCacheFilterState(FID, 'WASH_IN', false);
     const row = await getCachedData<any>(KEY);
     expect(row).toMatchObject({ currentState: null, nextAllowedStages: [], pendingChecklist: [], currentCycle: null, checklistCompletions: [] });
     expect(row.actions).toBeUndefined(); // no tape recompute on completion
+    expect((await getCachedFilters())[0]).toMatchObject({ currentCycleId: null, currentLifecycleState: null });
+  });
+
+  // Rule C (2026-10-22, shared callCompletesStageWork): a FINAL Dry In's work is
+  // the dryer run, so entering it (the dryer start) must not complete the cycle —
+  // the readings do. Completing at the dryer start cleared the cycle on the
+  // tablet, and a re-scan then queued a new start that the server refuses.
+  it('a final Dry In entered (the dryer started) does NOT complete the cycle', async () => {
+    await cacheFilters([filterRow({ currentLifecycleState: 'WASH_OUT', currentCycleId: 'c-1' })] as any);
+    await cacheData(KEY, { pipelineGraph: graph, currentCycle: { id: 'c-1', dryerStartedAt: '2026-10-22T08:00:00.000Z', dryerDurationMinutes: 60 } });
+    await recomputeAndCacheFilterState(FID, 'DRY_IN', false);
+    const row = await getCachedData<any>(KEY);
+    expect(row.currentState).toBe('DRY_IN');
+    expect(row.currentCycle).toMatchObject({ id: 'c-1', dryerStartedAt: '2026-10-22T08:00:00.000Z' });
+    expect((await getCachedFilters())[0]).toMatchObject({ currentCycleId: 'c-1', currentLifecycleState: 'DRY_IN' });
+  });
+
+  it('a final Dry In whose readings are recorded completes the cycle', async () => {
+    await cacheFilters([filterRow({ currentLifecycleState: 'DRY_IN', currentCycleId: 'c-1' })] as any);
+    await cacheData(KEY, { pipelineGraph: graph, currentCycle: { id: 'c-1', dryerStartedAt: '2026-10-22T08:00:00.000Z', dryerDurationMinutes: 60, dryerReadingsSubmitted: true } });
+    await recomputeAndCacheFilterState(FID, 'DRY_IN', false);
+    expect(await getCachedData<any>(KEY)).toMatchObject({ currentState: null, currentCycle: null });
     expect((await getCachedFilters())[0]).toMatchObject({ currentCycleId: null, currentLifecycleState: null });
   });
 
@@ -212,10 +236,13 @@ describe('recomputeAndCacheFilterState — linear pipeline fallback (no graph)',
     expect((await getCachedData<any>(KEY)).nextAllowedStages).toEqual(['WASH_IN']);
   });
 
-  it('the last stage of a linear pipeline completes the cycle', async () => {
+  it('the last stage of a linear pipeline completes the cycle — a last Dry In only once its readings are in', async () => {
     await cacheFilters([filterRow({ currentCycleId: 'c-1' })] as any);
     await cacheData(KEY, { pipelineStages, currentCycle: { id: 'c-1' } });
-    await recomputeAndCacheFilterState(FID, 'DRY_IN', false);
+    await recomputeAndCacheFilterState(FID, 'DRY_IN', false); // the dryer start
+    expect(await getCachedData<any>(KEY)).toMatchObject({ currentState: 'DRY_IN', currentCycle: { id: 'c-1' } });
+    await cacheData(KEY, { pipelineStages, currentCycle: { id: 'c-1', dryerReadingsSubmitted: true } });
+    await recomputeAndCacheFilterState(FID, 'DRY_IN', false); // the readings
     expect(await getCachedData<any>(KEY)).toMatchObject({ currentState: null, currentCycle: null });
   });
 

@@ -39,7 +39,10 @@ vi.mock('../local-context', () => ({
 
 // Stub @digilog/shared so the cache lib's executor + helper imports work
 // in the test environment without pulling the full pipeline executor.
-vi.mock('@digilog/shared', () => ({
+vi.mock('@digilog/shared', async (importOriginal) => ({
+  // The REAL completion rule (2026-10-22): a final Dry In completes on its
+  // readings, every other stage on entry. A pure function — nothing to stub.
+  callCompletesStageWork: (await importOriginal<typeof import('@digilog/shared')>()).callCompletesStageWork,
   collectChecklistsAfterStage: vi.fn().mockReturnValue([]),
   computeNextActions: vi.fn().mockReturnValue({ actions: [], tapeVersion: 'test-v1' }),
   findReachable: vi.fn().mockReturnValue({ hasEndNext: false, reachableStages: [] }),

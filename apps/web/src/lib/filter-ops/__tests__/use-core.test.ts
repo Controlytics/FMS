@@ -1026,6 +1026,58 @@ describe('useFilterOperationsCore — dialog-first atomic advance+checklist', ()
     );
   });
 
+  // 2026-10-22 (shared advanceMustCarryChecklist + callCompletesStageWork): a
+  // FINAL Dry In completes on its readings, so the checklist after it rides on
+  // SUBMIT_READINGS — asked first, then ONE advance-with-checklist carrying the
+  // readings and the answers. A mid-pipeline Dry In's readings never carry it.
+  const FINAL_DRY_IN = { stageLookup: { DRY_IN: { nextStages: [], leadsToEnd: true, pendingChecklistProfileIds: ['cp1'] } } };
+  const readings = { targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' as const, equipmentGroupId: 'g1', instrumentReadings: { t1: 70 } };
+
+  it('DOES defer the readings of a FINAL Dry In that a checklist follows; they ride with the answers in ONE call', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockGetCachedData.mockResolvedValue(FINAL_DRY_IN);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    let outcome: any;
+    await act(async () => { outcome = await result.current.advance({ filterId: 'f1', filterName: 'F-1', ...readings }); });
+    expect(mockExecuteOrQueue).not.toHaveBeenCalled(); // nothing written before the answers
+    expect(outcome).toMatchObject({ deferred: true, dialogOpened: true });
+    expect(mockResolveForTarget).toHaveBeenCalledWith('f1', 'DRY_IN', true);
+    await act(async () => { await result.current.submitChecklist({ filterId: 'f1', filterName: 'F-1', answers: { q1: 'YES' } }); });
+    expect(mockExecuteOrQueue).toHaveBeenCalledTimes(1);
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith(
+      'advance-with-checklist', 'f1', 'F-1',
+      expect.objectContaining({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', equipmentGroupId: 'g1', instrumentReadings: { t1: 70 }, answers: { q1: 'YES' } }),
+      'DRY_IN', undefined,
+    );
+  });
+
+  it('does NOT defer the readings of a Dry In that is not final, or whose checklist is disabled', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    for (const row of [
+      { stageLookup: { DRY_IN: { nextStages: ['DRY_OUT'], leadsToEnd: false, pendingChecklistProfileIds: ['cp1'] } } },
+      { ...FINAL_DRY_IN, disabledChecklistProfileIds: ['cp1'] },
+      {},
+    ]) {
+      mockExecuteOrQueue.mockClear(); mockResolveForTarget.mockClear();
+      mockGetCachedData.mockResolvedValue(row);
+      const { result } = renderHook(() => useFilterOperationsCore());
+      await act(async () => { await result.current.advance({ filterId: 'f1', filterName: 'F-1', ...readings }); });
+      expect(mockResolveForTarget).not.toHaveBeenCalled();
+      expect(mockExecuteOrQueue).toHaveBeenCalledWith('advance', 'f1', 'F-1', expect.objectContaining({ dryerAction: 'SUBMIT_READINGS' }), 'DRY_IN', undefined);
+    }
+  });
+
+  it('does NOT defer a FINAL Dry In\'s dryer START (SET_DURATION finishes no stage work)', async () => {
+    mockResolveForTarget.mockResolvedValue(CHECKLIST);
+    mockGetCachedData.mockResolvedValue(FINAL_DRY_IN);
+    const { result } = renderHook(() => useFilterOperationsCore());
+    await act(async () => {
+      await result.current.advance({ filterId: 'f1', filterName: 'F-1', targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 30 });
+    });
+    expect(mockResolveForTarget).not.toHaveBeenCalled();
+    expect(mockExecuteOrQueue).toHaveBeenCalledWith('advance', 'f1', 'F-1', expect.objectContaining({ dryerAction: 'SET_DURATION' }), 'DRY_IN', undefined);
+  });
+
   it('does NOT defer a batch continuation (would trip assertOpenable)', async () => {
     mockResolveForTarget.mockResolvedValue(CHECKLIST);
 

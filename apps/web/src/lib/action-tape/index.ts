@@ -45,7 +45,9 @@ export type { Action } from '@digilog/shared';
  *
  * Returns a new array; does not mutate the input.
  */
-export function actionsForStage(stage: string, actions: Action[]): Action[] {
+export function actionsForStage(stage: string | null, actions: Action[]): Action[] {
+  // `stage` null = the START position (2026-10-22): only a START checklist
+  // (afterStage null) belongs to it; every stage-targeted kind needs a key.
   return actions.filter((a) => {
     switch (a.type) {
       case 'ADVANCE_TO_STAGE':
@@ -54,7 +56,7 @@ export function actionsForStage(stage: string, actions: Action[]): Action[] {
       case 'SET_DRYER_DURATION':
         return a.params.targetState === stage;
       case 'SUBMIT_CHECKLIST':
-        return a.params.afterStage === stage;
+        return (a.params.afterStage ?? null) === stage;
       case 'SUBMIT_DRYER_READINGS':
         return stage === 'DRY_IN';
       case 'TERMINATE_CYCLE':

@@ -43,6 +43,7 @@
  * legacy ones.
  */
 import {
+  callCompletesStageWork,
   collectChecklistsAfterStage,
   computeNextActions,
   findReachable,
@@ -348,12 +349,23 @@ export async function recomputeAndCacheFilterState(
       hasGraphData = (cachedState.pipelineStages?.length ?? 0) > 0;
     }
 
+    // Rule C (2026-10-22, shared callCompletesStageWork): a FINAL Dry In's work
+    // is the dryer run — entering it starts the dryer, the readings finish it.
+    // This recompute is not told which dryer step queued it, so the row says
+    // which: readings already recorded on the cycle = the finishing call.
+    // Completing at the dryer start cleared the cycle on the tablet, and a
+    // re-scan then queued a new start the server refuses (CYCLE_ACTIVE).
+    const finishesStageWork = callCompletesStageWork(
+      newStage,
+      cachedState.currentCycle?.dryerReadingsSubmitted ? 'SUBMIT_READINGS' : undefined,
+    );
     const cycleComplete =
       hasGraphData &&
       nextAllowed.length === 0 &&
       pendingChecklist.length === 0 &&
       !checklistUnresolved &&
-      !cycleStarted;
+      !cycleStarted &&
+      finishesStageWork;
 
     if (checklistUnresolved) {
       // Structured warning so the operator knows to reconnect rather than

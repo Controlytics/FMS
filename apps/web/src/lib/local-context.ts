@@ -500,7 +500,32 @@ function synthesizeEvents(
   profile: ProfileSlice,
 ): FilterEventSlice[] {
   const currentState = cachedState?.currentState ?? null;
-  if (!currentState) return [];
+  if (!currentState) {
+    // START position (2026-10-22): a started cycle that has not entered its
+    // first stage. Its checklists (between START and the first stage) are
+    // answered from Tier 1 only — the explicit log, THIS cycle's entries only, so
+    // one cycle's START answer never counts for the next. Never Tier 2: an empty
+    // pendingChecklist mirror is no evidence of a START answer. Returning [] here
+    // re-offered a START checklist answered offline, forever.
+    const cycleId = cachedState?.currentCycle?.id ?? null;
+    if (!cycleId) return [];
+    return (cachedState?.checklistCompletions ?? [])
+      .filter((c) => (c.afterStage ?? null) === null && (c.cycleId ?? null) === cycleId)
+      .map((c, i) => ({
+        id: `synth-checklist-completed-START-${c.checklistProfileId}-${i}`,
+        cycleId,
+        eventType: 'CHECKLIST_COMPLETED',
+        fromState: null,
+        toState: null,
+        performedAt: new Date(c.completedAt),
+        attributes: {
+          afterStage: null,
+          checklistProfileId: c.checklistProfileId,
+          synthesizedByLoader: true,
+          source: 'completion-log',
+        },
+      }));
+  }
 
   // Tier 1: explicit completion log (preferred, 21 CFR-friendly).
   // Emit one synthesized event per logged completion. The executor's gate
