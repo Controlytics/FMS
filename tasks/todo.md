@@ -13,24 +13,16 @@ fall as pages get rendered before it rises.
 - [ ] API wave 1: pm-schedules (98.9 % lines, committed `3deaf18`) · super-admin + debug-traces + deployment-check + block-change + report-reviews (99.7 %) · backup + notification-delivery/rules/notifications (99.2 %)
   - [x] GO-LIVE BLOCKER found + fixed: fresh install had 0 asset_templates → first block impossible (`19d80f5`)
   - [x] PM defects D1–D11 fixed failing-first (`dbde772`); D2 + D4b by operator decision (`b88f754`); `/auth/me` null→{} (`85992cb`, from a sweep of every 200 schema)
-  - [ ] SA defects 1–6 + A-04 (deploy-check) + A-11 → cov-api-sa fixing failing-first; review + commit with its tests
-  - [ ] backup/notif defects 1–10 (2 HIGH: dump restore breaks the audit chain; `.sql` restore drops parent_id) + raw-error leaks + A-15 notif-type ↔ enum → cov-api-backup-notif fixing; review + commit
-  - [x] Web wave 1 committed `3bcebf7`: config 99.1 % lines / 96.1 % branches; filter-management + cleaning-cycles 99.6 / 95.4 (1,314 tests)
-  - [x] Web F1–F3 fixed `5859053` (one error shape; wrong password keeps the session; refused export produces no file) · harness options `7b5bb7b`
-  - [x] Web config defects 1–13 (incl. re-auth policy wipe) + D6 in 2 config files fixed `bbc09ce` (config suite 792 tests)
-  - [ ] Ask operator: Config → Equipment Groups shows a fixed 25 cards per page and ignores Pagination Settings — intended?
-  - [x] Web filter defects D4–D10 + 3 observations fixed `8a2014b` (672 tests)
-  - [ ] D6 page-size-on-cold-load in 3 more pages (notifications/index.tsx:126, users/list.tsx:39, audit/index.tsx:67) — fix after cov-web-admin finishes testing those pages (pm-schedules one → cov-web-ops)
-  - [ ] cov-web-ops: tests done (228, ≥90 % every file); now fixing D-OPS-1..9, 11, 12, D6 pm-schedules, unlabelled controls (+ a11y name test per page)
-  - [ ] OPERATOR DECISION D-OPS-10: New Schedule dialog assumes ONE visit per AHU per year (overwrites entries[0]) — conflicts with the irregular-visits model; should it append a visit instead?
-  - [ ] Investigate (protected sync code, read first): use-filter-operations-offline-cache test saw two POST start-cycle in one syncPendingOperations() once under load (server dedups on clientOpId)
-  - [ ] OPERATOR DECISION: equipment-dialog shows a reading rounded to the least count (61 °C) but records the typed 60.5
-  - [ ] Web wave 2 running: cov-web-mobile · cov-web-admin (users/audit/auth/debug/notifications/admin pages/dashboard) · cov-web-ops (cleaning-cycles/pm/my-tasks/stage-approvals/deviations/checklist-admin) · cov-web-shared (components/hooks/lib)
-  - [ ] A-05 shared error handler (after agents finish — touches the e2e harness) · A-13 dead code → operator decision
+  - [x] SA, backup/notif wave-1 defects fixed + committed (see below)
+  - [x] Web wave 1 committed `3bcebf7`; F1–F3 `5859053`; harness `7b5bb7b`; config 1–13 `bbc09ce`; filter D4–D10 `8a2014b`
+  - [x] 2026-10-22 operator decisions, each fixed failing-first: offline OFF-1..5 + WSH-IDB-1/2 (+ the "network" 4xx replay stall) `037520a` · recorded readings shown exactly `5cb0f9c` · CSV backup exact restore `08c2706` · SMS exact text `3c94263` · A-13 left as is · New Schedule ADDS a visit (D-OPS-10, cov-web-ops) · "Test setup" badge: REMOVE
+  - [x] Page size: 11 list pages hard-coded / seeded their size (`1e15dee`); rule split 2026-10-22: list pages open on the FIRST configured option (`usePageSize`), report pages on `limit` = max (`useReportPageSize`; RFID Track Record had a fixed 50). Equipment Groups was one of the 11 (no operator question needed)
+  - [x] API wave 2 committed: assets slice `c33cdaf` + D1–D9 `98a9abc`/`2849fef`/`a201b41` + replacement 413 `ac0498a` + fixture isolation `3d48a52`; filter-ops `c5cdcf5`; core `0c3bc94` (+ `cc3d655` untrack a stray upload, ignore apps/api/uploads/)
+  - [ ] Web wave 2 commits: cov-web-shared fixes (30 items) · cov-web-ops fixes + D-OPS-10 (API + web) · cov-web-admin tests · cov-web-mobile tests · page-size guard — waiting on a clean full web run
+  - [ ] Defect round 2 (each agent fixes its own findings failing-first): cov-api-filterops (4: getFilter accepts AHU ids …) · cov-api-core (19: logout w/o body, config write before check, dashboards, uploads, uuid params …) · cov-web-admin (profile Cancel submits, dashboard cards → Access Denied, cancel-shows-error class, reset-request remarks rule …) · cov-web-mobile (stale dryer duration, refused start shown as started, …, blur timer) · cov-web-ops (create() upload-role check, pm-import version/UTC, drop-zone keyboard) · cov-web-shared (config datetime preview, MMM DD padding)
+  - [ ] Remove the "Test setup" header badge (operator 2026-10-22)
 - [x] API wave 1 fixes committed: SA `fc2242f`, backup/notif `419358e`, audit signature bound `b00098f`, A-05 one error handler `efa340c` (full API suite 2,427 passed / 0 failed after)
-- [ ] API wave 2 running: cov-api-filterops (filter-operations + stage-approvals) · cov-api-assets (assets, hierarchy, filter/cleaning/checklist profiles, equipment groups) · cov-api-core (replacement-schedule, dashboards, ldap, admin-requests, auth, audit, config, users, roles, user-groups, guest, help, sync, system-health, uploads, plugins, lib) · app.ts left out (cannot import without starting the server)
-- [ ] OPERATOR DECISIONS pending: A-13 dead ingestion columns; CSV backup `'` prefix round trip; SMS strips `<…>`; equipment-dialog displayed vs recorded reading
-- [ ] Web waves (after UI Phase 2 commit): config · filter-management · mobile (tablet) · users/audit/admin · components/hooks/lib
+- [ ] Final docs for the waves: CHANGELOG (2026-10-22 entry started `b6f347e`), root CLAUDE.md PM "five doors" + POST /visits, API_REFERENCE
 - [ ] Stryker install (when no agent is running tests) + mutation runs on auth / rbac / reauth / audit chain / filter-ops gates
 - [ ] Coverage thresholds 90 % in both vitest configs + html/json reporters; CI check; exclusions documented (only non-production scripts)
 - [ ] Final serial runs, coverage comparison table, `QA/COVERAGE_FINAL_REPORT.md`

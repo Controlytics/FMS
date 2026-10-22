@@ -46,10 +46,54 @@ first.
   - A body-less identifier DELETE was refused.
   - An instrument redirect read "Request failed".
   - An unknown checklist question type reached Prisma.
+- **New Schedule adds a visit (D-OPS-10, `5e7f488` API + `d532baf` web).** The dialog edited the
+  AHU's FIRST visit of the year, so a second visit could never be added from it.
+  - `POST /api/pm-schedules/visits` adds ONE visit:
+    - goes through the upload role and the usual approval workflow;
+    - 409 `PM_VISIT_EXISTS` / `PM_VISIT_OVERLAP`;
+    - never touches an existing visit.
+  - Root cause fixed with it: a schedule created directly (`POST /`) left its entries at the column
+    default (PENDING, no submitter), so with the 3-step workflow ON they skipped Review.
+    `pm-submission.ts` is now the ONE approval rule for every new visit.
+- **Page size follows Config → Pagination (`1e15dee`, `9f47353`, `d532baf`).**
+  - 14 list pages ignored it. 11 hard-coded 20 / 25 / 50, often a size their own selector did not
+    offer. 3 seeded their state from the pre-load fallback, so a cold load kept it (D6).
+  - List pages now open on the FIRST configured option (`usePageSize`). Report pages open on `limit`,
+    the maximum (`useReportPageSize`); RFID Track Record had a fixed 50.
+  - A source guard forbids both patterns.
+- **"Test setup" badge removed** from the top bar (`452407a`, operator decision). It was fixed text,
+  so it would also have shown on customer installations.
+- **Ops pages (`d532baf`):**
+  - Start PM is offered only with PM_EXECUTE.
+  - Per-row Review / Approve now respect segregation of duties, not only the checkboxes.
+  - Reordering checklist questions is signed.
+  - The PM date range can no longer send `year=0`.
+  - A failed load shows an error with Retry, not the empty state.
+  - Cancelling a password prompt is silent.
+  - Downloads honour the stored server address.
+  - Deleting a question asks first.
+- **Shared components / hooks (`94d403c`):**
+  - Super Admin edit dialogs no longer lose typed values or send stale ones when the page polls, and
+    a retry re-sends only what did not land.
+  - Signed out, a stale cached user (even a cached SUPER_ADMIN) no longer counts.
+  - ONE network-failure rule: a server answer is never treated as offline.
+  - The RFID guard no longer swallows a person's Enter.
+  - Dates on screen match the API (zero-padded MM/DD, "Sep" not "Sept").
+  - PDF cell padding is back to 2.5 mm at 7 pt.
+  - Select keeps its background colour.
+  - Dialogs, toasts and labels are announced correctly to assistive technology.
 - **Tests:**
-  - Wave-2 suites for assets, hierarchy and the profile modules (99.3% lines on the slice).
+  - Wave-2 suites:
+    - assets / hierarchy / profiles 99.3 % lines;
+    - filter-ops + stage approvals 99.2 %;
+    - core API slice 99.9 %;
+    - web shared 99.4 %;
+    - ops pages 100 %;
+    - admin pages 99.5 %;
+    - tablet 93.8 %.
   - Four suites no longer borrow another suite's AHU or template, and their cleanup cannot fail on an FK.
   - The shared re-auth fixture locks its config row.
+  - `apps/api/uploads/` is ignored (runtime photos).
 
 ## [Unreleased] - Web coverage wave: config and filter-page fixes (2026-10-21)
 
