@@ -54,10 +54,11 @@ const START_TAPE = (questions = [Q_START], id = 'clS', version = 2) => ({
 const instancesWithoutCycle = (...ids: string[]): MockRoute => ({ path: '/api/assets/instances', body: { data: OPS_INSTANCES.map((i: any) => (ids.includes(i.id) ? { ...i, currentCycleId: null, currentLifecycleState: null } : i)) } });
 const offlineFetch = () => vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
 
-/** The server, for one filter: start → (cycle at START, checklist pending) → checklist → advance. */
-const startChecklistRoutes = (id: string): MockRoute[] => [
+/** The server, for one filter: start → (cycle at START, checklist pending) → checklist → advance.
+ *  Its current-state carries the pipeline graph, as the real one does. */
+const startChecklistRoutes = (id: string, g: any = startGraph(['WASH_OUT', 'STORAGE_IN'])): MockRoute[] => [
   { method: 'POST', path: `/api/filters/${id}/start-cycle`, status: 201, body: { id: `new-${id}` } },
-  { path: `/api/filters/${id}/current-state`, body: { currentState: null, tapeVersion: 11, actions: [START_TAPE()], currentCycle: { id: `new-${id}`, status: 'IN_PROGRESS' } } },
+  { path: `/api/filters/${id}/current-state`, body: { currentState: null, tapeVersion: 11, actions: [START_TAPE()], currentCycle: { id: `new-${id}`, status: 'IN_PROGRESS' }, pipelineGraph: g } },
   { method: 'POST', path: `/api/filters/${id}/submit-checklist`, body: { currentState: null, tapeVersion: 12, actions: [adv('WASH_OUT')], currentCycle: { id: `new-${id}`, status: 'IN_PROGRESS' } } },
   { method: 'POST', path: `/api/filters/${id}/advance`, body: { currentState: 'WASH_OUT', tapeVersion: 13, actions: [adv('STORAGE_IN')], currentCycle: { id: `new-${id}`, status: 'IN_PROGRESS' } } },
 ];
@@ -394,6 +395,27 @@ describe('a cycle-start batch member whose state is not cached (offline)', () =>
     await dismissAll();
     await inQueue('F-003');
     expect(screen.getByRole('checkbox', { name: /F-003/ })).toBeChecked();
+  });
+});
+
+describe('a cycle waiting at START is answered at its first stage only (2026-10-22)', () => {
+  const AT_START = { currentState: null, currentCycle: { id: 'new-f3', status: 'IN_PROGRESS' }, tapeVersion: 11, actions: [START_TAPE()], pipelineGraph: startGraph(['WASH_OUT', 'STORAGE_IN']), homeBlock: { id: 'b1', name: 'North' }, blockChangeStatus: 'MATCH' };
+  const inCycle: MockRoute = { path: '/api/assets/instances', body: { data: OPS_INSTANCES.map((i: any) => (i.id === 'f3' ? { ...i, currentCycleId: 'new-f3', currentLifecycleState: null } : i)) } };
+
+  it('scanned at a later station: refused with the station to go to; nothing opened or written', async () => {
+    const { api } = await renderOps({ stage: 'STORAGE_IN', states: { f3: AT_START }, checklistProfiles: [START_PROFILE], routes: [inCycle] });
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await message(/F-003 has a pending checklist before its first stage — scan it at Wash Out/)).toBeInTheDocument();
+    expect(screen.queryByText('Checklist Required')).toBeNull();
+    expect(writes(api, 'f3')).toEqual([]);
+  });
+
+  it('scanned at its first stage: the checklist opens', async () => {
+    await renderOps({ stage: 'WASH_OUT', states: { f3: AT_START }, checklistProfiles: [START_PROFILE], routes: [inCycle] });
+    await scanTag('E3'); await inQueue('F-003');
+    fireEvent.click(submitButton());
+    expect(await screen.findByText('Bay cleared of debris?')).toBeInTheDocument();
   });
 });
 

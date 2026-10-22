@@ -64,8 +64,30 @@ describe('checklistMayBeAnsweredAt', () => {
     expect(checklistMayBeAnsweredAt('WASH_OUT', 'WASH_IN', null, 'F-001').ok).toBe(false);
   });
 
-  it('a checklist with no running cycle (pre-start) is not station-bound', () => {
-    expect(checklistMayBeAnsweredAt('WASH_IN', null, LOOKUP, 'F-001')).toEqual({ ok: true });
+  // START is a position (2026-10-22): a started cycle that has not entered a
+  // stage, its checklist before the first stage pending. It is answered where
+  // the first stage is entered — answered anywhere else, the advance that
+  // follows is refused (and the filter was never at that station).
+  it('a checklist waiting at START is answered only at the first stage(s), from the graph', () => {
+    expect(checklistMayBeAnsweredAt('WASH_IN', null, LOOKUP, 'F-001', GRAPH)).toEqual({ ok: true });
+    expect(checklistMayBeAnsweredAt('STORAGE_OUT', null, LOOKUP, 'F-001', GRAPH)).toEqual({
+      ok: false, stage: 'WASH_IN', reason: 'F-001 has a pending checklist before its first stage — scan it at Wash In',
+    });
+  });
+
+  it('several first stages are all named', () => {
+    const two = {
+      stages: [...GRAPH.stages, { id: 'di', nodeType: 'STAGE', stateKey: 'DRY_IN' }],
+      connections: [...GRAPH.connections, { fromStageId: 's', toStageId: 'di' }],
+    };
+    expect(checklistMayBeAnsweredAt('DRY_IN', null, LOOKUP, 'F-001', two)).toEqual({ ok: true });
+    expect(checklistMayBeAnsweredAt('STORAGE_OUT', null, LOOKUP, 'F-001', two)).toMatchObject({ ok: false, reason: expect.stringMatching(/scan it at (Wash In or Dry In|Dry In or Wash In)$/) });
+  });
+
+  it('at START with no pipeline graph the first stage cannot be told: refused (fail closed)', () => {
+    expect(checklistMayBeAnsweredAt('WASH_IN', null, LOOKUP, 'F-001')).toMatchObject({
+      ok: false, reason: 'F-001 has a pending checklist before its first stage — scan it at its first stage',
+    });
   });
 
   it('without a filter name the sentence still reads', () => {

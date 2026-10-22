@@ -12,11 +12,19 @@
  * Allowed: the station of the stage the checklist belongs to, or one of that
  * stage's NEXT stages (the tablet lets the next station answer the previous
  * stage's checklist and then advance — "answer, then move on"). Anything else
- * is refused with the station to go to. With no running cycle there is nothing
- * to misroute. When the next stages cannot be told (no stageLookup row and no
- * pipeline graph), only the current station is allowed — fail closed.
+ * is refused with the station to go to. When the next stages cannot be told
+ * (no stageLookup row and no pipeline graph), only the current station is
+ * allowed — fail closed.
+ *
+ * START is a position (2026-10-22): a started cycle that has not entered a
+ * stage (current state null) has its checklist before the first stage pending.
+ * It is answered at a FIRST stage's station only (firstStagesFromGraph) — at
+ * any other, the advance that follows is refused and the filter was never
+ * there. With no graph the first stage cannot be told: refused (fail closed).
+ * Callers ask only while a checklist is waiting, i.e. inside a running cycle.
  */
 import { findReachable as sharedFindReachable } from '@digilog/shared';
+import { firstStagesFromGraph } from './validate-offline-gate';
 
 export type ChecklistStationResult =
   | { ok: true }
@@ -63,7 +71,13 @@ export function checklistMayBeAnsweredAt(
   filterName = 'This filter',
   pipelineGraph?: { stages?: any[]; connections?: any[] } | null,
 ): ChecklistStationResult {
-  if (!currentState || scannedStage === currentState) return { ok: true };
+  if (!currentState) {
+    const firsts = firstStagesFromGraph(pipelineGraph);
+    if (firsts.includes(scannedStage)) return { ok: true };
+    const where = firsts.length > 0 ? firsts.map(stageLabel).join(' or ') : 'its first stage';
+    return { ok: false, stage: firsts[0] ?? '', reason: `${filterName} has a pending checklist before its first stage — scan it at ${where}` };
+  }
+  if (scannedStage === currentState) return { ok: true };
   if (nextStagesOf(currentState, stageLookup, pipelineGraph).includes(scannedStage)) return { ok: true };
   const at = stageLabel(currentState);
   return { ok: false, stage: currentState, reason: `${filterName} has a pending ${at} checklist — scan it at ${at}` };
