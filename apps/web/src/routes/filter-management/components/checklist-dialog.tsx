@@ -63,9 +63,11 @@ interface ChecklistDialogProps {
   onSubmit: (answers: Record<string, any>) => void;
   loading: boolean;
   error: string;
+  /** The stage the checklist belongs to, as the operator reads it ("Storage Out"). */
+  stageName?: string | null;
 }
 
-export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: ChecklistDialogProps) {
+export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error, stageName }: ChecklistDialogProps) {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [internalError, setInternalError] = useState('');
 
@@ -182,6 +184,7 @@ export function ChecklistDialog({ dialog, onClose, onSubmit, loading, error }: C
           <div>
             <h2 className="text-lg font-bold text-white">Checklist Required</h2>
             <p className="text-brand-100 text-sm">{dialog.filterName}</p>
+            {stageName && <p className="text-brand-100 text-xs">{stageName} stage checklist</p>}
           </div>
         </div>
         <div className="p-6 space-y-5 overflow-y-auto flex-1">

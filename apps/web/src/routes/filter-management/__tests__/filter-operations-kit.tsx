@@ -21,6 +21,9 @@ export const SUBMIT_CL = {
 export const NEW_FILTER_STATE = { currentState: null, currentCycle: null, actions: [], tapeVersion: 0, blockChangeStatus: 'MATCH' };
 export const AWAITING_CHECKLIST = {
   currentState: 'WASH_IN', currentCycle: { id: 'c1', status: 'IN_PROGRESS' }, actions: [SUBMIT_CL], tapeVersion: 7, blockChangeStatus: 'MATCH',
+  // As the server sends it: the station rule reads the next stages here (Wash Out
+  // may answer the Wash In checklist), and refuses when it cannot tell.
+  stageLookup: { WASH_IN: { nextStages: ['WASH_OUT'], leadsToEnd: false, pendingChecklistProfileIds: ['cl1'], interlockGated: false } },
 };
 export const REAUTH_FAILED: MockRoute['body'] = { error: 'REAUTH_FAILED', message: 'Invalid password' };
 
@@ -109,6 +112,24 @@ export async function answerYes() {
     if (yes.getAttribute('aria-pressed') !== 'true') fireEvent.click(yes);
     expect(yes).toHaveAttribute('aria-pressed', 'true');
   });
+}
+
+/**
+ * Answer the missed-PM question and save. The dialog clears its reasons in an
+ * effect when it opens (pm-pending-tasks-dialog.tsx), so a reason typed in the
+ * same frame was wiped and Save stayed disabled; re-type until Save is enabled.
+ */
+export async function answerPmQuestion(text = 'Plant shutdown in Sept') {
+  const placeholder = 'Why was this scheduled cleaning not done?';
+  await screen.findByPlaceholderText(placeholder);
+  await settle();
+  const save = screen.getByRole('button', { name: 'Save reasons & start cleaning' });
+  await waitFor(() => {
+    const t = screen.getByPlaceholderText(placeholder) as HTMLTextAreaElement;
+    if (t.value !== text) fireEvent.change(t, { target: { value: text } });
+    expect(save).toBeEnabled();
+  });
+  fireEvent.click(save);
 }
 
 export const cancelPrompt = async () => {

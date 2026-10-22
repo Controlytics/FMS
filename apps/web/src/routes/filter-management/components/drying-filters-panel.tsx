@@ -396,6 +396,7 @@ export function DryingFiltersPanel({
         onSubmit={submitChecklist}
         loading={checklistBusy}
         error={checklistError}
+        stageName="Dry In"
       />
       <div className={isMobile ? 'bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 flex items-center justify-between' : 'flex items-center justify-between'}>
         <h3 className={isMobile ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-500'}>

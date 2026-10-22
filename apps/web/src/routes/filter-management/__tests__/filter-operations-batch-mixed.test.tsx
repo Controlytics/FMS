@@ -38,7 +38,7 @@ vi.mock('@/lib/sync-engine', () => ({
 vi.mock('../components/drying-filters-panel', () => ({ DryingFiltersPanel: () => null }));
 
 import { usePageTestLifecycle, passReauth, expectSigned } from './fm-test-kit';
-import { setup, scanAndSubmit, settle, answerYes, pickReasonAndStart, cancelPrompt, F1, Q_YES, NEW_FILTER_STATE } from './filter-operations-kit';
+import { setup, scanAndSubmit, settle, answerYes, answerPmQuestion, pickReasonAndStart, cancelPrompt, F1, Q_YES, NEW_FILTER_STATE } from './filter-operations-kit';
 
 configure({ asyncUtilTimeout: 4000 });
 vi.setConfig({ testTimeout: 30_000 });
@@ -253,8 +253,7 @@ describe('the parked START: one signature, the missed-PM question', () => {
     await pickReasonAndStart();
     await answerYes();
     fireEvent.click(screen.getByRole('button', { name: /Submit Checklist/ }));
-    fireEvent.change(await screen.findByPlaceholderText('Why was this scheduled cleaning not done?'), { target: { value: 'Plant shutdown in Sept' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save reasons & start cleaning' }));
+    await answerPmQuestion('Plant shutdown in Sept');
     await waitFor(() => expect(posts(a, 'advance-with-checklist')).toHaveLength(1));
     const starts = posts(a, 'start-cycle');
     expect(starts).toHaveLength(2);
@@ -291,6 +290,7 @@ describe('a checklist already waiting: one set of answers only for the filters w
       type: 'SUBMIT_CHECKLIST', label: `Submit Checklist: ${cl.name}`, blocking: true,
       params: { checklistProfileId: cl.id, checklistProfileName: cl.name, versionPin: cl.version, afterStage: 'WASH_IN', questions: cl.questions },
     }],
+    stageLookup: { WASH_IN: { nextStages: ['WASH_OUT'], leadsToEnd: false, pendingChecklistProfileIds: [cl.id], interlockGated: false } },
   });
 
   it('F-002 waits on another checklist: the answers go to F-001 only; F-002 stays queued, named', async () => {
@@ -619,8 +619,7 @@ describe('a checklist before the first stage', () => {
     await pickReasonAndStart();
     await answerYes();
     submitChecklist();
-    fireEvent.change(await screen.findByPlaceholderText('Why was this scheduled cleaning not done?'), { target: { value: 'Plant shutdown in Sept' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save reasons & start cleaning' }));
+    await answerPmQuestion('Plant shutdown in Sept');
     await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
     expect(posts(a, 'start-cycle')[1].json.pmSkips).toEqual([{ entryId: 'pm1', reason: 'Plant shutdown in Sept' }]);
   });
@@ -640,5 +639,38 @@ describe('a checklist before the first stage', () => {
     await waitFor(() => expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist', 'f1/advance']));
     expect(screen.queryByPlaceholderText('Enter your password')).toBeNull(); // not asked a second time
     for (const kind of ['start-cycle', 'submit-checklist', 'advance']) expectSigned(posts(a, kind)[0]);
+  });
+  it('started, but the checklist is refused: named as started, nothing advanced', async () => {
+    const a = setup({
+      state: startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']),
+      routes: [
+        { path: '/api/checklist-profiles', body: { data: [CL1] } },
+        { method: 'POST', path: '/api/filters/f1/start-cycle', status: 201, body: { id: 'c-f1' } },
+        { method: 'POST', path: '/api/filters/f1/submit-checklist', status: 409, body: { error: 'SCHEMA_DRIFT', message: 'The checklist changed' } },
+      ],
+    });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await pickReasonAndStart();
+    await answerYes();
+    submitChecklist();
+    expect(await screen.findByText(/F-001: the cycle started, but its first checklist was not recorded \(The checklist changed\)\. Scan it again to answer it\./)).toBeInTheDocument();
+    expect(order(a)).toEqual(['f1/start-cycle', 'f1/submit-checklist']);
+  });
+
+  it('a cycle waiting at START: the next scan asks its checklist from the tape — never a second start', async () => {
+    const atStart = {
+      ...startGraph('cl1', ['STORAGE_IN', 'STORAGE_OUT']),
+      currentCycle: { id: 'c-f1', status: 'IN_PROGRESS' }, tapeVersion: 3,
+      actions: [{
+        type: 'SUBMIT_CHECKLIST', label: 'Submit Checklist: Release check', blocking: true,
+        params: { checklistProfileId: 'cl1', checklistProfileName: 'Release check', versionPin: 3, afterStage: null, questions: [Q_YES] },
+      }],
+    };
+    const a = setup({ state: atStart, routes: [{ path: '/api/checklist-profiles', body: { data: [CL1] } }, ...okRoutes()] });
+    await scanAndSubmit(a, 'STORAGE_IN');
+    await answerYes();
+    submitChecklist();
+    await waitFor(() => expect(order(a)).toEqual(['f1/submit-checklist']));
+    expect(posts(a, 'submit-checklist')[0].json).toMatchObject({ answers: { q1: 'Yes' } });
   });
 });

@@ -43,6 +43,9 @@ import {
   resolveChecklistForTargetStage,
   resolvePendingChecklistDialog,
   findNextPendingChecklist,
+  checklistMayBeAnsweredAt,
+  pendingChecklistStage,
+  stageLabel,
   splitByReadings,
   splitNewCycleBatch,
   splitUnread,
@@ -305,6 +308,8 @@ export function FilterOperationsPage() {
   // Checklist state (loading/error remain local; dialog state is in core)
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistError, setChecklistError] = useState('');
+  // The stage the open checklist belongs to, named in its dialog (2026-10-22).
+  const [checklistStageKey, setChecklistStageKey] = useState<string | null>(null);
 
   // Equipment group & instrument readings state (loading/error remain local)
   const [equipmentError, setEquipmentError] = useState('');
@@ -707,6 +712,7 @@ export function FilterOperationsPage() {
         if (next && !dialogOpened) {
           // AHU pre-flight BEFORE the (terminal) checklist opens (whole batch).
           if ((await gateAhuBeforeChecklist(cycleBatch.map(b => b.filterId))) === 'proceed') {
+            setChecklistStageKey(overrideTargetState ?? activeStage.key);
             core.dispatch({
               type: 'open_checklist',
               filterId: next.item.filterId,
@@ -926,10 +932,40 @@ export function FilterOperationsPage() {
       {
         const dialogChecklists = await resolvePendingChecklistDialog(first.filterId, resolvedActions);
         if (dialogChecklists) {
+          // A pending checklist is answered only at its stage's station or a NEXT
+          // one (2026-10-22, lib/filter-ops/checklist-station — the tablet's rule).
+          // Opened anywhere, a cycle parked at Storage Out with its final checklist
+          // pending was completed from another station. Per filter; the stage is
+          // the tape's own record of it (afterStage).
+          const tapeOf = (id: string) =>
+            id === first.filterId ? Promise.resolve(resolvedActions) : getCurrentActions(id, stateOf(id)?.actions);
+          const pendingStageOf = new Map<string, string | null>();
+          const refused: string[] = [];
+          const atThisStation: typeof batchQueue = [];
+          for (const q of batchQueue) {
+            const st = stateOf(q.filterId);
+            const tape = st ? await tapeOf(q.filterId) : [];
+            const at = pendingChecklistStage(tape) ?? st?.currentState ?? null;
+            pendingStageOf.set(q.filterId, at);
+            const waiting = tape.some((x) => x.type === 'SUBMIT_CHECKLIST');
+            const where = waiting ? checklistMayBeAnsweredAt(activeStage.key, at, st?.stageLookup, q.filterName, st?.pipelineGraph) : { ok: true as const };
+            if (where.ok) atThisStation.push(q);
+            else refused.push(where.reason);
+          }
+          if (atThisStation.length === 0) {
+            setPopupError(refused.join('\n'));
+            setLoading(false); setSubmitting(false);
+            return;
+          }
           // One set of answers is sent to every filter of the dialog, so only the
           // filters waiting on the SAME checklist share it.
-          const plan = await planPendingChecklistBatch(batchQueue, stateOf, (id) =>
+          const plan = await planPendingChecklistBatch(atThisStation, stateOf, (id) =>
             id === first.filterId ? Promise.resolve(dialogChecklists) : resolvePendingChecklistDialog(id, stateOf(id)?.actions));
+          if (plan.ride.length === 0) {
+            setPopupError([...refused, ...plan.left.map((l) => `${l.item.filterName}: ${l.note}`)].join('\n'));
+            setLoading(false); setSubmitting(false);
+            return;
+          }
           // AHU pre-flight BEFORE the (terminal) checklist opens (whole batch).
           if ((await gateAhuBeforeChecklist(plan.ride.map(q => q.filterId))) === 'blocked') {
             setLoading(false); setSubmitting(false);
@@ -939,6 +975,9 @@ export function FilterOperationsPage() {
           setPendingBatch(batch);
           clearScanState();
           keepQueued(plan.left);
+          // The filters refused at this station leave the queue; say where to take them.
+          if (refused.length > 0) setError(prev => [prev, `Not at this station:\n${refused.join('\n')}`].filter(Boolean).join('\n\n'));
+          setChecklistStageKey(pendingStageOf.get(batch[0].filterId) ?? null);
           core.dispatch({ type: 'open_checklist', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, checklists: plan.checklists });
           setChecklistError('');
           setLoading(false); setSubmitting(false);
@@ -1826,6 +1865,7 @@ export function FilterOperationsPage() {
   ) => {
     const batch = carry.map(c => ({ filterId: c.filterId, filterName: c.filterName }));
     setPendingBatch(batch);
+    setChecklistStageKey(targetState);
     core.dispatch({
       type: 'open_checklist',
       filterId: batch[0].filterId,
@@ -1846,6 +1886,7 @@ export function FilterOperationsPage() {
     const batch = ask.map(c => ({ filterId: c.filterId, filterName: c.filterName }));
     startChecklistRef.current = ctx;
     setPendingBatch(batch);
+    setChecklistStageKey(null);
     core.dispatch({ type: 'open_checklist', filterId: batch[0].filterId, filterName: `${batch.length} filter(s)`, checklists });
     setChecklistError('');
   };
@@ -1945,6 +1986,7 @@ export function FilterOperationsPage() {
         const ready: BatchItem[] = [];
         pmSkipsForBatch.current = [];
         for (const item of batch) {
+          let started = false;
           try {
             const startPayload = {
               ...startCl.startBody,
@@ -1962,18 +2004,25 @@ export function FilterOperationsPage() {
               pmSkipsForBatch.current = pmAnswers;
               await executeOrQueue('start-cycle', item.filterId, item.filterName, { ...startPayload, pmSkips: pmAnswers }, undefined, password);
             }
+            started = true;
+            // Only after a successful start: a checklist answer must never stand
+            // for a cycle that did not begin.
             await executeOrQueue('submit-checklist', item.filterId, item.filterName, submitPayload, undefined, password);
             ready.push(item);
           } catch (e: any) {
             if (isReauthError(e)) throw e;
-            failed.push(`${item.filterName}: ${e.message ?? 'failed'}`);
+            // Started, checklist refused: the cycle waits at START with its checklist
+            // pending — the next scan asks it again (from the tape), never a 2nd start.
+            failed.push(started
+              ? `${item.filterName}: the cycle started, but its first checklist was not recorded (${e.message ?? 'failed'}). Scan it again to answer it.`
+              : `${item.filterName}: ${e.message ?? 'failed'}`);
           }
         }
         startChecklistRef.current = null;
         core.dispatch({ type: 'close' });
         setPendingBatch(null);
         refreshFilters();
-        if (failed.length > 0) setPopupError(`${ready.length} started, ${failed.length} failed:\n${failed.join('\n')}`);
+        if (failed.length > 0) setPopupError(`${ready.length} started and checked, ${failed.length} not:\n${failed.join('\n')}`);
         if (ready.length > 0) await enterFirstStage(ready, startCl, password);
         return;
       }
@@ -2315,13 +2364,21 @@ export function FilterOperationsPage() {
             onSuccess={(m) => setToast({ type: 'success', message: m })}
             onError={setPopupError}
             onAfterSubmit={refreshFilters}
+            // Readings that complete a cycle (a final Dry In): the page's own AHU
+            // pre-flight (runAhuGate), once for every such filter (2026-10-22).
+            ahuPreflight={async (filterIds) => {
+              ahuSetChoiceRef.current = null;
+              if (ahuMode === 'NONE') return { proceed: true };
+              const proceed = (await runAhuGate(filterIds)) === 'proceed';
+              return { proceed, filterSet: ahuSetChoiceRef.current };
+            }}
             variant="desktop"
           />
         )}
         <CleaningReasonDialog dialog={reasonDialog} onClose={() => { core.dispatch({ type: 'close' }); setReasonError(''); }} onSubmit={handleReasonSubmit} loading={loading} error={reasonError} onClearError={() => setReasonError('')} defaultReasonKey={pmReasonCtx.defaultReasonKey} pmDue={pmReasonCtx.pmDue} />
         <EquipmentDialog dialog={equipmentDialog} onClose={() => core.dispatch({ type: 'close' })} onSubmit={handleEquipmentSubmit} loading={equipmentLoading} error={equipmentError} online={online} />
         <DryerDurationDialog open={!!dryerDialog} filterName={dryerDialog?.filterName ?? ''} loading={dryerLoading} error={dryerError} onClose={() => { core.dispatch({ type: 'close' }); setDryerError(''); }} onSubmit={handleDryerDurationSubmit} />
-        <ChecklistDialog dialog={checklistDialog} onClose={closeChecklistDialog} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} />
+        <ChecklistDialog dialog={checklistDialog} onClose={closeChecklistDialog} onSubmit={handleChecklistSubmit} loading={checklistLoading} error={checklistError} stageName={checklistStageKey ? stageLabel(checklistStageKey) : null} />
         <ReauthDialog open={reauth.isOpen} password={reauth.password} error={reauth.error} isVerifying={reauth.isVerifying} onPasswordChange={reauth.setPassword} onConfirm={reauth.confirm} onCancel={reauth.cancel} actionLabel={reauth.pendingActionLabel ?? 'Filter Operation'} />
         <BlockChangeRequestDialog
           dialog={blockChangeDialog}
@@ -2529,6 +2586,7 @@ export function FilterOperationsPage() {
       {/* Checklist Dialog */}
       <ChecklistDialog
         dialog={checklistDialog}
+        stageName={checklistStageKey ? stageLabel(checklistStageKey) : null}
         onClose={closeChecklistDialog}
         onSubmit={handleChecklistSubmit}
         loading={checklistLoading}

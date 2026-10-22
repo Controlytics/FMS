@@ -12,12 +12,14 @@
  *    and Submit refused "Enter a temperature", so such a cycle could not finish.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, act, configure } from '@testing-library/react';
 import { mockApi, renderPage, type MockRoute } from '@/test-utils/page-harness';
 import { baseRoutes, usePageTestLifecycle, role, passReauth } from '../../__tests__/fm-test-kit';
 import { installFakeIndexedDB, openAppDb } from '../../hooks/__tests__/fake-indexeddb';
 import { DryingFiltersPanel } from '../drying-filters-panel';
 
+configure({ asyncUtilTimeout: 4000 });
+vi.setConfig({ testTimeout: 30_000 });
 usePageTestLifecycle();
 beforeEach(async () => { installFakeIndexedDB(); await openAppDb(); });
 
@@ -36,7 +38,7 @@ const state = (o: { group?: any; final?: string | null } = {}) => ({
   disabledChecklistProfileIds: [],
 });
 
-function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[] } = {}) {
+function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[]; ahuPreflight?: any } = {}) {
   const api = mockApi([
     ...(o.routes ?? []),
     { path: '/api/filters/f1/current-state', body: st },
@@ -50,6 +52,7 @@ function setup(st: unknown, o: { routes?: MockRoute[]; reauthActions?: string[] 
     onSuccess: vi.fn(),
     onError: vi.fn(),
     onAfterSubmit: vi.fn(),
+    ...(o.ahuPreflight ? { ahuPreflight: o.ahuPreflight } : {}),
   };
   renderPage(<DryingFiltersPanel filters={[{ id: 'f1', name: 'FLT-1' }]} online variant="desktop" {...props} />, { user: OPERATOR, api });
   return { ...props, api };
@@ -62,6 +65,15 @@ const ready = async () => {
 const pickTemp = async () => {
   fireEvent.change(await screen.findByDisplayValue('Temperature for selected (°C)'), { target: { value: '60' } });
   await waitFor(() => expect(screen.getAllByRole('combobox').some((c) => (c as HTMLSelectElement).value === '60')).toBe(true));
+};
+/**
+ * A send ends with the panel's own bookkeeping (rows marked, dialog closed,
+ * Submit re-enabled) a tick after the call resolves. Wait for it, inside act,
+ * or a loaded run ends the test in between and React reports an unwrapped update.
+ */
+const finished = async (s: { onAfterSubmit: ReturnType<typeof vi.fn> }) => {
+  await waitFor(() => expect(s.onAfterSubmit).toHaveBeenCalled());
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 };
 const answerAndSubmit = async () => {
   await screen.findByText('Checklist Required');
@@ -83,6 +95,7 @@ describe('DryingFiltersPanel — a FINAL Dry In with a checklist after it', () =
     expect(s.executeOrQueue).not.toHaveBeenCalled(); // nothing written while the checklist is open
     await answerAndSubmit();
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     const [kind, id, , body, stage] = s.executeOrQueue.mock.calls[0];
     expect([kind, id, stage]).toEqual(['advance-with-checklist', 'f1', 'DRY_IN']);
     expect(body).toMatchObject({
@@ -111,6 +124,7 @@ describe('DryingFiltersPanel — a FINAL Dry In with a checklist after it', () =
     await answerAndSubmit();
     await passReauth();
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     expect(s.executeOrQueue.mock.calls[0][5]).toBe('Secret@123');
   });
 
@@ -120,6 +134,7 @@ describe('DryingFiltersPanel — a FINAL Dry In with a checklist after it', () =
     await pickTemp();
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     expect(s.executeOrQueue.mock.calls[0][0]).toBe('advance');
     expect(screen.queryByText('Checklist Required')).toBeNull();
   });
@@ -133,6 +148,7 @@ describe('DryingFiltersPanel — nothing to read', () => {
     expect(screen.getByText(/No reading to take/)).toBeInTheDocument();
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     const [kind, , , body] = s.executeOrQueue.mock.calls[0];
     expect(kind).toBe('advance');
     expect(body).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' });
@@ -146,6 +162,7 @@ describe('DryingFiltersPanel — nothing to read', () => {
     await ready();
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     const body = s.executeOrQueue.mock.calls[0][3];
     expect(body).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS' });
     expect(body.instrumentReadings).toBeUndefined();
@@ -158,9 +175,88 @@ describe('DryingFiltersPanel — nothing to read', () => {
     fireEvent.click(submit());
     await answerAndSubmit();
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
     const [kind, , , body] = s.executeOrQueue.mock.calls[0];
     expect(kind).toBe('advance-with-checklist');
     expect(body).toMatchObject({ targetState: 'DRY_IN', dryerAction: 'SUBMIT_READINGS', answers: { q1: 'Yes' } });
     expect(body.instrumentReadings).toBeUndefined();
+  });
+});
+
+// The readings of a FINAL Dry In complete the cycle, so they pass the page's AHU
+// completion pre-flight first (POPUP warns, INTERLOCK blocks) — once, before
+// anything is written. The panel had none.
+describe('DryingFiltersPanel — the AHU completion pre-flight (page-supplied)', () => {
+  it('a final Dry In: asked once with the completing filters BEFORE anything is sent; "no" sends nothing', async () => {
+    const ahuPreflight = vi.fn(async () => ({ proceed: false }));
+    const s = setup(state({ group: DRYER, final: null }), { ahuPreflight });
+    await ready();
+    await pickTemp();
+    fireEvent.click(submit());
+    await waitFor(() => expect(ahuPreflight).toHaveBeenCalledWith(['f1']));
+    await waitFor(() => expect(submit()).toBeEnabled());
+    expect(s.executeOrQueue).not.toHaveBeenCalled();
+    expect(s.onError).not.toHaveBeenCalled();
+  });
+
+  it('"yes" sends the readings, carrying the operator\'s A/B pick', async () => {
+    const ahuPreflight = vi.fn(async () => ({ proceed: true, filterSet: 'SET_A' }));
+    const s = setup(state({ group: DRYER, final: null }), { ahuPreflight });
+    await ready();
+    await pickTemp();
+    fireEvent.click(submit());
+    await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
+    expect(ahuPreflight).toHaveBeenCalledTimes(1);
+    expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ dryerAction: 'SUBMIT_READINGS', filterSet: 'SET_A' });
+  });
+
+  it('a final Dry In with a checklist: asked before the checklist opens; the pick rides on advance-with-checklist', async () => {
+    const order: string[] = [];
+    const ahuPreflight = vi.fn(async () => { order.push('preflight'); return { proceed: true, filterSet: 'SET_B' }; });
+    const s = setup(state({ group: DRYER, final: 'cl1' }), { ahuPreflight });
+    await ready();
+    await pickTemp();
+    fireEvent.click(submit());
+    await screen.findByText('Checklist Required');
+    expect(order).toEqual(['preflight']);
+    await answerAndSubmit();
+    await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
+    expect(s.executeOrQueue.mock.calls[0][0]).toBe('advance-with-checklist');
+    expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ filterSet: 'SET_B', answers: { q1: 'Yes' } });
+    expect(ahuPreflight).toHaveBeenCalledTimes(1);
+  });
+
+  it('a Dry In with stages after it completes nothing: never asked', async () => {
+    const ahuPreflight = vi.fn(async () => ({ proceed: false }));
+    const s = setup(state({ group: DRYER }), { ahuPreflight });
+    await ready();
+    await pickTemp();
+    fireEvent.click(submit());
+    await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
+    expect(ahuPreflight).not.toHaveBeenCalled();
+    expect(s.executeOrQueue.mock.calls[0][3].filterSet).toBeUndefined();
+  });
+});
+
+// /advance-with-checklist enforces ADVANCE_FILTER_STAGE, SUBMIT_CHECKLIST_WITH_SIGNATURE
+// AND the station row of its target (STAGE_DRY_IN). The panel signs all three.
+describe('DryingFiltersPanel — the signature of the readings + checklist call', () => {
+  it('with only the Dry In station row switched on, the checklist submit still asks for the password and forwards it', async () => {
+    const s = setup(state({ group: DRYER, final: 'cl1' }), {
+      reauthActions: ['STAGE_DRY_IN'],
+      routes: [{ method: 'POST', path: '/api/auth/verify', body: { success: true } }],
+    });
+    await ready();
+    await pickTemp();
+    fireEvent.click(submit());
+    await answerAndSubmit();
+    await passReauth();
+    await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    await finished(s);
+    expect(s.executeOrQueue.mock.calls[0][0]).toBe('advance-with-checklist');
+    expect(s.executeOrQueue.mock.calls[0][5]).toBe('Secret@123');
   });
 });
