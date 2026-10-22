@@ -24,6 +24,7 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | BR-086 / A-02 re-auth policy | A legacy-format policy is CONVERTED to the rules it describes (prompts stay on); saving unknown action names / roles is refused |
 | A-03 / A-06 SoD | Stage-approval "different approver" switch REMOVED (always required); filter approval step: only the approver may approve or reject |
 | A-08 / A-09 | Tablet cleartext HTTP and the RFID scanner's tracked signing passwords: LEFT AS IS — accepted by the operator, documented |
+| OD-01 (2026-10-22) | Audit edit / redact / delete, Filter Data Management writes, user delete, role + permission saves and the re-auth policy save ALWAYS require the password, for every user including SUPER_ADMIN (not configurable) |
 
 ## Environment
 
@@ -41,9 +42,9 @@ operator-approved changes.
 | 02 | `02-requirements-traceability.md` | 1 | DONE 2026-10-21 — 206 rules; re-map after next full run |
 | 03 | `03-functional-testing.md` | 1 | waiting for UI Phase 2 + SA password |
 | 04 | `04-api-testing.md` | 1 | partial evidence: QA Phase 4/5 (2026-10-21) |
-| 05 | `05-database-testing.md` | 1 | carried-forward evidence exists (05 of 10-17) |
+| 05 | `05-database-testing.md` | 1 | IN PROGRESS 2026-10-22 (cov-api-core) — re-run of what changed since 10-17, incl. BR-100/101 restore evidence |
 | 08 | `08-coverage-and-test-quality.md` | 1 | IN PROGRESS — API wave 1 agents running |
-| 06 | `06-security-assessment.md` | 2 | not started |
+| 06 | `06-security-assessment.md` | 2 | IN PROGRESS 2026-10-22 (audit-phase1-2) — 2 P1 found (OD-01 decided; redaction tamper gap being fixed) |
 | 07 | `07-performance-testing.md` | 2 | not started (needs idle PC) |
 | 09 | `09-reliability-and-recovery.md` | 3 | not started |
 | 10 | `10-deployment-readiness.md` | 3 | waiting for operator VM |
