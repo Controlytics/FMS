@@ -38,7 +38,7 @@ function getCycleDuration(cycle: any) {
 
 // Alarm helpers + Alarms tab removed 2026-05-17 (alarm subsystem retired).
 
-import { getAuditStatus } from '../audit/audit-helpers';
+import { getAuditStatus, isRedacted, canRedactRecord, AUDIT_META_ACTIONS } from '../audit/audit-helpers';
 import { DateRangeFilter } from '@/components/ui/date-range-filter';
 import { Pagination, formatListTotal } from '@/components/ui/pagination';
 import { Input } from '@/components/ui/input';
@@ -1996,10 +1996,17 @@ export function FilterDataManagementPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openAuditEdit(a)} title="Correct this record. Breaks the hash chain from here onward."
-                            className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
-                          <button onClick={() => handleRedactAuditRow(a)} title="Mask the payload but keep the record and its chain link (recommended)."
-                            className="px-2 py-1 text-amber-600 text-[11px] font-medium rounded-lg hover:bg-amber-50">Redact</button>
+                          {/* Not offered where the API refuses them (2026-10-22): a redacted row
+                              (409 ALREADY_REDACTED / META_AUDIT_IMMUTABLE on edit) or a record of
+                              an audit-trail change (409 META_AUDIT_IMMUTABLE). Delete stays. */}
+                          {!isRedacted(a) && !AUDIT_META_ACTIONS.has(a.action) && (
+                            <button onClick={() => openAuditEdit(a)} title="Correct this record. Breaks the hash chain from here onward."
+                              className="px-2 py-1 text-slate-500 text-[11px] font-medium rounded-lg hover:bg-slate-100">Edit</button>
+                          )}
+                          {canRedactRecord(a) && (
+                            <button onClick={() => handleRedactAuditRow(a)} title="Mask the payload but keep the record and its chain link (recommended)."
+                              className="px-2 py-1 text-amber-600 text-[11px] font-medium rounded-lg hover:bg-amber-50">Redact</button>
+                          )}
                           <button onClick={() => handleDeleteAuditRow(a)} title="Destroy this record. Permanently breaks the hash chain."
                             className="px-2 py-1 text-red-500 text-[11px] font-medium rounded-lg hover:bg-red-50">Delete</button>
                         </div>
