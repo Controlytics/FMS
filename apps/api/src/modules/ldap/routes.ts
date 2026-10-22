@@ -13,7 +13,7 @@ import { enforceReauthAlways } from '../../lib/reauth-check.js';
 const LDAP_AUDIT_SAFE_KEYS = [
   'enabled', 'serverUrl', 'bindDN', 'searchBase', 'searchFilter',
   'usernameAttribute', 'emailAttribute', 'fullNameAttribute',
-  'departmentAttribute', 'groupAttribute', 'tlsRejectUnauthorized', 'startTls',
+  'departmentAttribute', 'groupAttribute', 'tlsRejectUnauthorized',
   'connectionTimeout', 'roleMappings', 'ldapGroup', 'role',
   'defaultRole', 'defaultOrganizationId', 'syncAttributes',
 ];

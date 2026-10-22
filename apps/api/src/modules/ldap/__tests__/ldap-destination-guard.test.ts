@@ -20,18 +20,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const ldap = vi.hoisted(() => ({
-  instances: [] as Array<{ opts: any; bind: any; unbind: any; search: any; startTLS: any }>,
+  instances: [] as Array<{ opts: any; bind: any; unbind: any; search: any }>,
   bindImpl: null as null | (() => Promise<void>),
 }));
 vi.mock('ldapts', () => ({
   Client: class {
-    opts: any; bind: any; unbind: any; search: any; startTLS: any;
+    opts: any; bind: any; unbind: any; search: any;
     constructor(opts: any) {
       this.opts = opts;
       this.bind = vi.fn(ldap.bindImpl ?? (async () => undefined));
       this.unbind = vi.fn(async () => undefined);
       this.search = vi.fn(async () => ({ searchEntries: [] }));
-      this.startTLS = vi.fn(async () => undefined);
       ldap.instances.push(this);
     }
   },
@@ -67,8 +66,7 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
-const probe = (serverUrl: string, extra: Record<string, unknown> = {}) =>
-  ldapService.testConnection({ serverUrl, bindDN: 'cn=x', bindPassword: 'typed', ...extra } as any);
+const probe = (serverUrl: string) => ldapService.testConnection({ serverUrl, bindDN: 'cn=x', bindPassword: 'typed' });
 
 describe('test-connection: loopback / link-local are refused before any socket is opened', () => {
   it.each([
@@ -91,16 +89,11 @@ describe('test-connection: the private LAN stays usable', () => {
     expect(await probe('ldap://10.20.30.40:389')).toEqual({ success: true, message: 'Successfully connected and authenticated to LDAP server' });
     expect(await probe('ldaps://dc01.cvl.lan:636')).toMatchObject({ success: true });
     expect(ldap.instances[0].bind).toHaveBeenCalledWith('cn=x', 'typed');
-    expect(ldap.instances[0].startTLS).toHaveBeenCalledWith({ rejectUnauthorized: true, host: '10.20.30.40' });
-    expect(ldap.instances[0].startTLS.mock.invocationCallOrder[0]).toBeLessThan(ldap.instances[0].bind.mock.invocationCallOrder[0]);
-    expect(ldap.instances[1].startTLS).not.toHaveBeenCalled(); // ldaps:// is TLS already
     // SEC-14: the client connects to the address that PASSED the check, not to
     // a name ldapts would resolve again (DNS rebinding); the typed name stays
     // the TLS servername so the certificate is still checked against it.
     expect(ldap.instances.map((c) => c.opts)).toEqual([
-      // ldap:// gets NO tlsOptions on the Client (they would make ldapts open with TLS);
-      // it is upgraded with StartTLS before the bind instead — see ldap-transport-mode.test.ts.
-      { url: 'ldap://10.20.30.40:389', connectTimeout: 2000 },
+      { url: 'ldap://10.20.30.40:389', connectTimeout: 2000, tlsOptions: { rejectUnauthorized: true } },
       { url: 'ldaps://192.168.10.20:636', connectTimeout: 2000, tlsOptions: { rejectUnauthorized: true, servername: 'dc01.cvl.lan' } },
     ]);
   });
@@ -121,17 +114,6 @@ describe('test-connection: the private LAN stays usable', () => {
     await probe('ldaps://[fd00::25]:636');
     expect(ldap.instances[0].opts.url).toBe('ldaps://[fd00::25]:636');
     expect(ldap.instances[0].opts.tlsOptions).toEqual({ rejectUnauthorized: true });
-  });
-
-  it('ldap:// with startTls: false binds without StartTLS, and needs the typed password to switch it off', async () => {
-    await probe('ldap://10.20.30.40:389', { startTls: false });
-    expect(ldap.instances[0].startTLS).not.toHaveBeenCalled();
-    expect(ldap.instances[0].bind).toHaveBeenCalledWith('cn=x', 'typed');
-    // Turning StartTLS off would send the STORED password in clear: refused without a typed one.
-    expect(await ldapService.testConnection({ startTls: false })).toEqual({
-      success: false, message: 'Enter the Bind Password to test a different server URL or with TLS verification disabled.',
-    });
-    expect(ldap.instances).toHaveLength(1);
   });
 });
 

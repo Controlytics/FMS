@@ -79,48 +79,16 @@ async function checkLdapDestination(serverUrl: string): Promise<LdapDestination>
     : { ok: false, message: MSG_UNREACHABLE, reason: dest.error };
 }
 
-/**
- * Transport per scheme (2026-10-22). ldapts makes a Client TLS whenever ANY
- * `tlsOptions` value is defined (`secure = ldaps || hasTlsOptions`), and these
- * options were always passed — so every ldap:// URL opened with a TLS handshake
- * and a plain directory on 389 could never be reached (pre-existing; proven by
- * e2e/ldap-transport-mode.test.ts). Now:
- *   ldaps://                    TLS from the first byte
- *   ldap:// (startTls, default) plain connect, StartTLS, then bind — the
- *                               password never travels in clear, and a server
- *                               that refuses StartTLS is refused, not downgraded
- *   ldap:// + startTls: false   plain LDAP, the admin's explicit choice
- */
-type LdapTransport = Pick<LdapConfig, 'connectionTimeout' | 'tlsRejectUnauthorized' | 'startTls'>;
-type CheckedDestination = { connectUrl: string; servername?: string };
-
-const isLdaps = (url: string) => /^ldaps:\/\//i.test(url);
-
-function tlsOptionsFor(cfg: LdapTransport, dest: CheckedDestination) {
-  return {
-    rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true,
-    ...(dest.servername ? { servername: dest.servername } : {}),
-  };
-}
-
 /** ldapts options for a checked destination — the pinned address, the typed name for TLS. */
-function clientOptions(cfg: LdapTransport, dest: CheckedDestination) {
+function clientOptions(cfg: Pick<LdapConfig, 'connectionTimeout' | 'tlsRejectUnauthorized'>, dest: { connectUrl: string; servername?: string }) {
   return {
     url: dest.connectUrl,
     connectTimeout: cfg.connectionTimeout || 5000,
-    // Only ldaps:// gets tlsOptions on the Client: on an ldap:// Client they
-    // would turn the plain connect into a TLS one (see above).
-    ...(isLdaps(dest.connectUrl) ? { tlsOptions: tlsOptionsFor(cfg, dest) } : {}),
+    tlsOptions: {
+      rejectUnauthorized: cfg.tlsRejectUnauthorized ?? true,
+      ...(dest.servername ? { servername: dest.servername } : {}),
+    },
   };
-}
-
-/** Bind on a client built by clientOptions, upgrading an ldap:// connection with StartTLS first unless switched off. */
-async function secureBind(client: Client, cfg: LdapTransport, dest: CheckedDestination, dn: string, password: string): Promise<void> {
-  if (!isLdaps(dest.connectUrl) && cfg.startTls !== false) {
-    // A plain object: ldapts adds the plain socket to the options it is given.
-    await client.startTLS({ ...tlsOptionsFor(cfg, dest), host: new URL(dest.connectUrl).hostname.replace(/^\[(.*)\]$/, '$1') });
-  }
-  await client.bind(dn, password);
 }
 
 /** The caller-facing sentence for a bind failure. Never the raw error text. */
@@ -174,8 +142,6 @@ export interface LdapConfig {
   departmentAttribute: string;
   groupAttribute: string;
   tlsRejectUnauthorized: boolean;
-  /** ldap:// only: upgrade with StartTLS before binding (default true). false = plain LDAP. */
-  startTls: boolean;
   connectionTimeout: number;
   roleMappings: Array<{ ldapGroup: string; role: string }>;
   defaultRole: string;
@@ -211,8 +177,6 @@ const DEFAULT_CONFIG: LdapConfig = {
   // harvest the service-account bindPassword plus every user's password in
   // cleartext. Operators with an internal CA can still opt out explicitly.
   tlsRejectUnauthorized: true,
-  // ldap:// is upgraded with StartTLS before any bind unless switched off.
-  startTls: true,
   connectionTimeout: 5000,
   roleMappings: [],
   defaultRole: 'OPERATOR',
@@ -284,9 +248,7 @@ export const ldapService = {
     // DIFFERENT server, or with the TLS check switched off, requires the caller
     // to supply the bind password themselves.
     const serverChanged = !!config?.serverUrl && config.serverUrl !== stored.serverUrl;
-    // Switching StartTLS off would send the STORED password in clear: same rule.
-    const tlsLoosened = (config?.tlsRejectUnauthorized === false && stored.tlsRejectUnauthorized !== false)
-      || (config?.startTls === false && stored.startTls !== false);
+    const tlsLoosened = config?.tlsRejectUnauthorized === false && stored.tlsRejectUnauthorized !== false;
     const usingStoredPassword = !config?.bindPassword || config.bindPassword === '********';
     if ((serverChanged || tlsLoosened) && usingStoredPassword) {
       return { success: false, message: 'Enter the Bind Password to test a different server URL or with TLS verification disabled.' };
@@ -314,7 +276,7 @@ export const ldapService = {
     const client = new Client(clientOptions(cfg, dest));
 
     try {
-      await secureBind(client, cfg, dest, cfg.bindDN, cfg.bindPassword);
+      await client.bind(cfg.bindDN, cfg.bindPassword);
       await client.unbind();
       return { success: true, message: 'Successfully connected and authenticated to LDAP server' };
     } catch (err: any) {
@@ -340,7 +302,7 @@ export const ldapService = {
 
     try {
       // Step 1: Bind as service account
-      await secureBind(client, cfg, dest, cfg.bindDN, cfg.bindPassword);
+      await client.bind(cfg.bindDN, cfg.bindPassword);
 
       // Step 2: Search for the user
       // Escape the user-supplied username before substitution to prevent LDAP
@@ -399,7 +361,7 @@ export const ldapService = {
       const userClient = new Client(clientOptions(cfg, dest));
 
       try {
-        await secureBind(userClient, cfg, dest, userDn, password);
+        await userClient.bind(userDn, password);
         await userClient.unbind();
       } catch {
         return null; // Invalid password
