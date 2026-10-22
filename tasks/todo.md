@@ -48,7 +48,7 @@ fall as pages get rendered before it rises.
 - [ ] Offline queue: same-millisecond ops replay in random order (IDB key `op-${Date.now()}-rand`) → cov-web-mobile2, approved protected fix
 - [x] API wave 1 fixes committed: SA `fc2242f`, backup/notif `419358e`, audit signature bound `b00098f`, A-05 one error handler `efa340c` (full API suite 2,427 passed / 0 failed after)
 - [ ] Final docs for the waves: CHANGELOG through fab68fc `4918581` (add the client pipeline half when it lands); root CLAUDE.md PM six doors + POST /visits done `d09dd71`; Pipeline Flow section (cov-api-filterops)
-- [ ] Stryker install (when no agent is running tests) + mutation runs on auth / rbac / reauth / audit chain / filter-ops gates
+- [ ] FINAL SEQUENCE once every agent reports DONE (PC quiet): (1) server npm upgrades + Capacitor in code → full suites; (2) Stryker install + mutation runs (auth / rbac / reauth / audit chain / filter-ops gates, then wider); (3) full serial API + web coverage → 90 % thresholds; (4) perf 07 + soaks 1/4/12/24 h (operator: keep full plan); (5) 09 reliability; (6) operator SA session (probe script); (7) 10 deployment on the operator VM; (8) CHANGELOG + API_REFERENCE doc commit; FINAL-RELEASE-DECISION
 - [ ] Coverage thresholds 90 % in both vitest configs + html/json reporters; CI check; exclusions documented (only non-production scripts)
 - [ ] Final serial runs, coverage comparison table, `QA/COVERAGE_FINAL_REPORT.md`
 

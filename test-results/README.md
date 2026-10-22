@@ -29,6 +29,7 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | SEC-03 (2026-10-22) | `POST /api/notification-settings/send` (arbitrary e-mail/SMS, unaudited, no caller) is REMOVED; the test e-mail / test SMS buttons stay and gain an audit row |
 | D-DB-6 (2026-10-22) | Large-database recovery: ship a tested restore script + guide for the nightly pg_dump NOW, then rework in-app export/restore to stream with no row/size cap |
 | npm audit (2026-10-22) | Upgrade the vulnerable server packages now (full suites after); upgrade Capacitor in code now — reaches tablets only with the next APK build |
+| Long tests (2026-10-22, re-confirmed) | KEEP the full plan: 1 h, 4 h, 12 h and 24 h soaks back to back on an otherwise idle PC, plus mutation testing; the release decision comes after them |
 
 ## Environment
 
