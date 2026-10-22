@@ -63,7 +63,6 @@ export function Header({ user, onLogout, onMenuToggle, menuOpen }: HeaderProps) 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <Badge variant="warning" className="text-sm font-semibold">Test setup</Badge>
       </div>
       {/* Right side - User info */}
       <div className="flex items-center gap-3">

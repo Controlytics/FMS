@@ -47,9 +47,10 @@ afterEach(() => {
 });
 
 describe('Header', () => {
-  it('signed out: only the menu toggle and the environment label; no unread-count request', async () => {
+  it('signed out: only the menu toggle; no "Test setup" label; no unread-count request', async () => {
     const { api, onMenuToggle } = await renderHeader(undefined);
-    expect(screen.getByText('Test setup')).toBeInTheDocument();
+    // Removed 2026-10-22 (operator): fixed text that would also show on a customer install.
+    expect(screen.queryByText('Test setup')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Toggle menu' }));
     expect(onMenuToggle).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /notification/i })).toBeNull();
