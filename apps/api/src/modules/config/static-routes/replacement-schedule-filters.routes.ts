@@ -18,7 +18,9 @@ export async function replacementScheduleFiltersRoutes(app: FastifyInstance) {
   });
 
   app.put('/replacement-schedule-filters', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): edited only on a SUPER_ADMIN-only
+    // page; CONFIG_UPDATE let ADMIN save it by calling the API directly.
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update the per-role "show AHU filters" matrix',

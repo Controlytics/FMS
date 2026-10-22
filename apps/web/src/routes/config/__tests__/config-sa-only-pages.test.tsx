@@ -50,11 +50,16 @@ describe('the three pages are guarded on the role, not CONFIG_READ', () => {
   });
 });
 
-describe('Filter Setup and Role Assignments stay SUPER_ADMIN-only routes (their API writes now match)', () => {
+describe('SUPER_ADMIN-only config pages stay SUPER_ADMIN-only routes (their API writes now match)', () => {
   // func-03 (2026-10-22): both pages were already SUPER_ADMIN-only here, but
   // PUT /api/config/cleaning-profile-assignment took CONFIG_UPDATE. The API side
   // is locked in apps/api/src/e2e/config-sa-only-pages.test.ts.
-  for (const path of ['/config/filter-setup', '/config/role-assignments']) {
+  // + the pages behind the other writes made SUPER_ADMIN-only on 2026-10-22: branding /
+  // dashboard cards (appearance), report identity / labels / signatories / export
+  // options (report-config), both schedule-filter matrices, audit templates
+  // (display-settings) and the access matrix.
+  for (const path of ['/config/filter-setup', '/config/role-assignments', '/config/appearance', '/config/report-config',
+    '/config/replacement-schedule-filters', '/config/display-settings', '/config/access-matrix']) {
     it(path, () => {
       const line = routeLine(path);
       expect(line, `${path} route not found in main.tsx`).toBeTruthy();

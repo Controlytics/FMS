@@ -48,7 +48,8 @@ beforeAll(async () => {
   await prisma.role.update({ where: { name: MGR_ROLE }, data: { hierarchyLevel: 5 } });
   userIds.push(await createUser(MGR, MGR_ROLE, MGR_PW));
   // Policy-driven gates: switched on for THIS file's role only.
-  grants = await addReauth([['CREATE_USER', MGR_ROLE], ['UPDATE_CONFIG_PAGE', MGR_ROLE]]);
+  // UPDATE_CONFIG_PAGE for SUPER_ADMIN: dashboard-cards is a SUPER_ADMIN-only write (D03-15).
+  grants = await addReauth([['CREATE_USER', MGR_ROLE], ['UPDATE_CONFIG_PAGE', MGR_ROLE], ['UPDATE_CONFIG_PAGE', 'SUPER_ADMIN']]);
   saToken = await login(app, SA, SA_PW);
   mgrToken = await login(app, MGR, MGR_PW);
 });
@@ -140,10 +141,12 @@ describe('D03-09: a refused request is refused BEFORE the signature', () => {
   });
 
   it('PUT /api/config/dashboard-cards (UPDATE_CONFIG_PAGE on the policy): an unknown card is 400 and signs nothing', async () => {
+    // SUPER_ADMIN since D03-15 (2026-10-22): the write is SUPER_ADMIN-only, so a
+    // CONFIG_UPDATE role is refused (403) before validation or signature.
     const since = new Date();
-    const res = await send(mgrToken, MGR_PW, 'PUT', '/api/config/dashboard-cards', { configValue: { roles: { [MGR_ROLE]: ['no-such-card'] } } });
+    const res = await send(saToken, SA_PW, 'PUT', '/api/config/dashboard-cards', { configValue: { roles: { [MGR_ROLE]: ['no-such-card'] } } });
     expect(res.statusCode, res.body).toBe(400);
-    expect(await signatures(MGR, since)).toBe(0);
+    expect(await signatures(SA, since)).toBe(0);
   });
 
   it('a VALID request is still signed (the gate did not move out of the way)', async () => {

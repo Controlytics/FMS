@@ -20,6 +20,13 @@
     `GET …/cleaning-profile-assignment/current` stays open, because the tablet caches it for offline scans. The Role
     Assignments keys, including block-change approval, and the two other Filter Setup tabs were already refused by
     their defs' `requiredRole`. The tests now lock all of them.
+  - **The rest of the SA-only pages (one rule: a page that is SUPER_ADMIN-only in the UI is SUPER_ADMIN-only on the
+    API):** the PUTs for branding, dashboard-cards, export-options, pm- and replacement-schedule-filters,
+    report-labels, report-page-titles, report-signatories, audit-templates and access-matrix took CONFIG_UPDATE. They
+    are now `requireSuperAdmin()`. Every read the app needs stays open (branding, `*/current`,
+    `access-matrix/my-modules`). `static-routes.coverage`: a CONFIG_UPDATE role gets 403 even with its password,
+    SUPER_ADMIN is the one asked to sign, and a signed SUPER_ADMIN save goes through. `d0309-validate-before-sign`'s
+    dashboard-cards case now runs as SUPER_ADMIN.
 - **What ADMIN loses:** editing tablet login access and LDAP through a typed URL. Neither was offered in ADMIN's UI.
 - **Tests:**
   - `apps/api/src/e2e/config-sa-only-pages.test.ts`: a CONFIG_* holder gets 403 and nothing is written;

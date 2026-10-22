@@ -25,7 +25,7 @@ import ldapRoutes from '../modules/ldap/routes.js';
 import dynamicConfigRoutes from '../modules/config/dynamic-routes.js';
 import { discoverAndRegisterConfigs } from '../lib/config-discovery.js';
 import { prisma } from '../lib/prisma.js';
-import { cleanupAll, createRole, createUser, deleteRoles, deleteUsers, login, runSuffix } from './support/owned-fixtures.js';
+import { cleanupAll, createRole, createUser, deleteRoles, deleteUsers, login, runSuffix, addReauth, removeReauth, type ReauthGrant } from './support/owned-fixtures.js';
 
 const S = runSuffix();
 const ADMIN_LIKE = `saOnly${S}`;          // holds every config permission ADMIN holds
@@ -155,4 +155,51 @@ describe('Role Assignments writes are SUPER_ADMIN-only', () => {
       expect(await stored(key)).toEqual(before);
     });
   }
+});
+
+// One rule (team decision 2026-10-22): a page that is SUPER_ADMIN-only in the
+// UI is SUPER_ADMIN-only on the API. These writes back /config/appearance
+// (branding, dashboard cards), /config/report-config (identity, labels,
+// signatories, export options), /config/replacement-schedule-filters (both
+// matrices), /config/display-settings (audit templates) and
+// /config/access-matrix, every one a SUPER_ADMIN-only route. They took
+// CONFIG_UPDATE. Every read the app needs elsewhere stays open.
+describe('Appearance / Report config / Schedule filters / Display / Access matrix writes are SUPER_ADMIN-only', () => {
+  // Name the ADMIN-like role in the re-auth policy, so that if the role gate
+  // were missing the request would stop at REAUTH_REQUIRED (401), not write.
+  let grants: ReauthGrant = [];
+  beforeAll(async () => { grants = await addReauth([['UPDATE_CONFIG_PAGE', ADMIN_LIKE], ['UPDATE_BRANDING', ADMIN_LIKE]]); }, 60_000);
+  afterAll(async () => { await removeReauth(grants); }, 60_000);
+
+  const WRITES: Array<[key: string, url: string, body: unknown]> = [
+    ['branding', '/api/config/branding', {}],
+    ['dashboard-cards', '/api/config/dashboard-cards', { configValue: { roles: {} } }],
+    ['export-options', '/api/config/export-options', {}],
+    ['pm-schedule-filters', '/api/config/pm-schedule-filters', {}],
+    ['replacement-schedule-filters', '/api/config/replacement-schedule-filters', {}],
+    ['report-labels', '/api/config/report-labels', {}],
+    ['report-page-titles', '/api/config/report-page-titles', {}],
+    ['report-signatories', '/api/config/report-signatories', {}],
+    ['audit-templates', '/api/config/audit-templates', {}],
+    ['access-matrix', '/api/config/access-matrix', {}],
+  ];
+  for (const [key, url, body] of WRITES) {
+    it(`PUT ${url} refuses a CONFIG_UPDATE holder with 403 and writes nothing`, async () => {
+      const before = await stored(key);
+      const res = await authPut(app, url, admToken, body);
+      expect(res.statusCode).toBe(403);
+      expect(await stored(key)).toEqual(before);
+    });
+  }
+
+  it('every read the rest of the app needs stays open to a non-SUPER_ADMIN', async () => {
+    for (const url of [
+      '/api/config/branding', '/api/config/report-labels/current', '/api/config/report-page-titles/current',
+      '/api/config/dashboard-cards/current', '/api/config/export-options/current',
+      '/api/config/pm-schedule-filters/current', '/api/config/replacement-schedule-filters/current',
+      '/api/config/access-matrix/my-modules',
+    ]) {
+      expect((await authGet(app, url, admToken)).statusCode, url).toBe(200);
+    }
+  });
 });

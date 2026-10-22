@@ -15,7 +15,7 @@ const CONFIG_KEY = 'report-page-titles';
  *   the report chrome can render for any report viewer (mirrors the old
  *   report-settings/current contract).
  * - GET  /report-page-titles          — editor read (CONFIG_READ).
- * - PUT  /report-page-titles          — editor write (CONFIG_UPDATE), audited.
+ * - PUT  /report-page-titles          — editor write (SUPER_ADMIN only), audited.
  *
  * The def declares hasCustomPage:true so the dynamic-routes factory skips it;
  * these explicit routes own the surface instead.
@@ -45,7 +45,9 @@ export async function reportPageTitlesRoutes(app: FastifyInstance) {
 
   // Editor write.
   app.put('/report-page-titles', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): edited only on a SUPER_ADMIN-only
+    // page; CONFIG_UPDATE let ADMIN save it by calling the API directly.
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update report page titles configuration',

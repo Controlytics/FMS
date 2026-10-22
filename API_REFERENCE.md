@@ -160,6 +160,11 @@ SUPER_ADMIN only (GET and PUT), whatever CONFIG_* a role holds:
                    GET /api/config/tablet-access/my-features stays open to every user)
 PUT /api/config/cleaning-profile-assignment   SUPER_ADMIN only (2026-10-22, Filter Setup);
                    GET /api/config/cleaning-profile-assignment/current stays open to every user
+PUT SUPER_ADMIN only (2026-10-22, D03-15: each is edited only on a SUPER_ADMIN-only page):
+  branding, dashboard-cards, export-options, pm-schedule-filters, replacement-schedule-filters,
+  report-labels, report-page-titles, report-signatories, audit-templates, access-matrix
+  Their reads are unchanged: GET /branding, the */current reads and /access-matrix/my-modules
+  serve every signed-in user (every page and report renders with them)
 GET/PUT /api/config/dynamic/<key>   — every key is requiredRole SUPER_ADMIN (incl. the
                    Role Assignments workflow keys and the block-change approval mode)
 ```

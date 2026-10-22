@@ -20,11 +20,13 @@ export async function brandingRoutes(app: FastifyInstance) {
   });
 
   app.put('/branding', {
-    preHandler: [app.requirePermission('CONFIG_UPDATE')],
+    // SUPER_ADMIN only (D03-15, 2026-10-22): edited only on a SUPER_ADMIN-only
+    // page; CONFIG_UPDATE let ADMIN save it by calling the API directly.
+    preHandler: [app.requireSuperAdmin()],
     schema: {
       tags: ['Config'],
       summary: 'Update branding configuration',
-      description: 'Update branding settings such as company name, logo URL, and theme colors. Requires CONFIG_UPDATE permission.',
+      description: 'Update branding settings such as company name, logo URL, and theme colors. SUPER_ADMIN only.',
       body: { type: 'object', description: 'Branding configuration values' },
       response: {
         200: {

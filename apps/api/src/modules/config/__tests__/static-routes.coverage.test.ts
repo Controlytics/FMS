@@ -668,26 +668,58 @@ describe('policy-driven re-auth (UPDATE_CONFIG_PAGE and friends) for a role the 
       ['UPDATE_BRANDING', ADM_ROLE],
       ['UPDATE_USERID_CONFIG', ADM_ROLE],
       ['UPDATE_REAUTH_CONFIG', ADM_ROLE],
+      // D03-15: the SUPER_ADMIN-only writes below are signed by SUPER_ADMIN.
+      ['UPDATE_CONFIG_PAGE', 'SUPER_ADMIN'],
+      ['UPDATE_BRANDING', 'SUPER_ADMIN'],
     ]);
   }, 60_000);
   afterAll(async () => { await removeReauth(reauthAdded); reauthAdded = []; }, 60_000);
 
-  const cases: Array<[string, string, unknown, string]> = [
+  // D03-15 (2026-10-22): these back SUPER_ADMIN-only pages, so the API is
+  // SUPER_ADMIN-only too. The CONFIG_UPDATE role (named in the policy, even with
+  // its password) is refused with 403; SUPER_ADMIN is the one asked to sign.
+  const saOnly: Array<[string, string, unknown, string]> = [
     ['dashboard-cards', '/api/config/dashboard-cards', { configValue: { roles: {} } }, 'UPDATE_CONFIG_PAGE'],
     ['export-options', '/api/config/export-options', {}, 'UPDATE_CONFIG_PAGE'],
     ['pm-schedule-filters', '/api/config/pm-schedule-filters', {}, 'UPDATE_CONFIG_PAGE'],
     ['replacement-schedule-filters', '/api/config/replacement-schedule-filters', {}, 'UPDATE_CONFIG_PAGE'],
     ['report-labels', '/api/config/report-labels', {}, 'UPDATE_CONFIG_PAGE'],
     ['report-page-titles', '/api/config/report-page-titles', {}, 'UPDATE_CONFIG_PAGE'],
-    // cleaning-profile-assignment left this list on 2026-10-22 (D03-15): its PUT is
-    // SUPER_ADMIN-only, so this CONFIG_UPDATE role is refused before any re-auth
-    // (e2e/config-sa-only-pages.test.ts).
+    ['cleaning-profile-assignment', '/api/config/cleaning-profile-assignment', { mode: 'BY_ENTITY', rules: [] }, 'UPDATE_CONFIG_PAGE'],
     ['branding', '/api/config/branding', {}, 'UPDATE_BRANDING'],
+  ];
+  // Still CONFIG_UPDATE / ROLE_MANAGE writes: the policy-named role is asked to sign.
+  const permissionGated: Array<[string, string, unknown, string]> = [
     ['user-id', '/api/config/user-id', {}, 'UPDATE_USERID_CONFIG'],
     ['action-reauth', '/api/config/action-reauth', {}, 'UPDATE_REAUTH_CONFIG'],
   ];
 
-  for (const [key, url, body, action] of cases) {
+  for (const [key, url, body] of saOnly) {
+    it(`${key}: a CONFIG_UPDATE role is refused (403) even with its password, nothing stored, no CONFIG_CHANGED row`, async () => {
+      const before = await stored(key);
+      const rowsBefore = await auditCount({ action: 'CONFIG_CHANGED', targetId: key, userId: ADM_USER });
+      const res = await authPut(app, url, admToken, body, PW);
+      expect(res.statusCode).toBe(403);
+      expect(await stored(key)).toEqual(before);
+      expect(await auditCount({ action: 'CONFIG_CHANGED', targetId: key, userId: ADM_USER })).toBe(rowsBefore);
+      expect(internalErrors).toEqual([]);
+    });
+  }
+
+  for (const [key, url, body, action] of saOnly) {
+    it(`${key}: SUPER_ADMIN gets 401 REAUTH_REQUIRED without a password, nothing stored, no CONFIG_CHANGED row`, async () => {
+      const before = await stored(key);
+      const rowsBefore = await auditCount({ action: 'CONFIG_CHANGED', targetId: key, userId: SA_USER });
+      const res = await authPut(app, url, saToken, body);
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action });
+      expect(await stored(key)).toEqual(before);
+      expect(await auditCount({ action: 'CONFIG_CHANGED', targetId: key, userId: SA_USER })).toBe(rowsBefore);
+      expect(internalErrors).toEqual([]);
+    });
+  }
+
+  for (const [key, url, body, action] of permissionGated) {
     it(`${key}: 401 REAUTH_REQUIRED without a password, nothing stored, no CONFIG_CHANGED row`, async () => {
       const before = await stored(key);
       const rowsBefore = await auditCount({ action: 'CONFIG_CHANGED', targetId: key, userId: ADM_USER });
@@ -703,11 +735,12 @@ describe('policy-driven re-auth (UPDATE_CONFIG_PAGE and friends) for a role the 
   it('with the password a signed save goes through, and its CONFIG_CHANGED row points at the signature row', async () => {
     const snapshot = await stored('report-labels');
     try {
-      const res = await authPut(app, '/api/config/report-labels', admToken, (snapshot as object) ?? {}, PW);
+      // SUPER_ADMIN since D03-15 (a CONFIG_UPDATE role is refused above).
+      const res = await authPut(app, '/api/config/report-labels', saToken, (snapshot as object) ?? {}, PW);
       expect(res.statusCode).toBe(200);
-      const sig = await chainedAuditRow({ action: 'REAUTH_SUCCESS', userId: ADM_USER });
+      const sig = await chainedAuditRow({ action: 'REAUTH_SUCCESS', userId: SA_USER });
       expect(sig.afterValue).toMatchObject({ reauthAction: 'UPDATE_CONFIG_PAGE' });
-      const change = await chainedAuditRow({ action: 'CONFIG_CHANGED', targetId: 'report-labels', userId: ADM_USER });
+      const change = await chainedAuditRow({ action: 'CONFIG_CHANGED', targetId: 'report-labels', userId: SA_USER });
       expect(change.signatureAuditId).toBe(sig.id);
       expect(change.chainPosition! > sig.chainPosition!).toBe(true);
     } finally {
@@ -716,10 +749,11 @@ describe('policy-driven re-auth (UPDATE_CONFIG_PAGE and friends) for a role the 
   });
 
   it('branding and user-id: an empty signed save merges to the stored value unchanged', async () => {
-    for (const key of ['branding', 'user-id'] as const) {
+    // branding is SUPER_ADMIN-only since D03-15; user-id is still a CONFIG_UPDATE write.
+    for (const [key, token] of [['branding', () => saToken], ['user-id', () => admToken]] as const) {
       const snapshot = await stored(key);
       try {
-        const res = await authPut(app, `/api/config/${key}`, admToken, {}, PW);
+        const res = await authPut(app, `/api/config/${key}`, token(), {}, PW);
         expect(res.statusCode).toBe(200);
         expect(res.json().success).toBe(true);
         // The schema may fill defaults the stored row lacks; every stored key is kept.
