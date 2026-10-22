@@ -36,9 +36,15 @@ fall as pages get rendered before it rises.
 - [ ] SECURITY 06 (audit-phase1-2, in progress) findings:
   - [ ] OPERATOR DECISION 2026-10-22 (OD-01): audit edit/redact/delete, Filter Data Management writes, user delete, role + permission saves (incl. per-user overrides) and the re-auth policy save ALWAYS require the password, for every user incl. SUPER_ADMIN (live policy listed SA on 2 of 84 actions; screens had no SA column). Operator ALSO: backup restore, user edit, filter/hierarchy delete + manual lifecycle change (NOT notification deletes) → sec-od01 (API + web + docs; ALWAYS_REAUTH_ACTIONS in shared drives "Always required" rows)
   - [ ] P1 redacted audit rows escape verify-chain (hash-chain.ts checks only "payloads NULL"; who/what/when rewritable by a DB actor) → cov-api-sa
-  - [ ] P2 POST /api/notification-settings/send: arbitrary email/SMS by CONFIG_UPDATE, unaudited/unsigned → cov-api-sa (proposal)
+  - [ ] P2 SEC-03 OPERATOR: REMOVE POST /api/notification-settings/send; test e-mail/SMS get an audit row → cov-api-sa
+  - [x] SEC-07 OPERATOR: filter + replacement-schedule decisions stay policy-driven (no code change)
+  - [ ] npm audit OPERATOR: upgrade server packages now (when no agent runs tests), Capacitor in code (APK later)
+  - [ ] P3 fixes to schedule: SEC-08 LDAP test-connection destination check (ssrf.ts), SEC-12 OAuth2 code/state in http log, SEC-13 login 429 not in security log
   - [ ] P2 hypotheses needing the VM / a probe: no ACLs on digilog.env / keys / dumps; xlsx decompression bomb
   - [ ] SA-only dynamic probes: one script, one operator SA session at the end
+- [ ] DATABASE 05 defects: D-DB-3/4/5/10/7/8 → cov-api-core; D-DB-1 drift guard + D-DB-2 identifier race → cov-api-assets; D-DB-9 cycles bind overflow (server) → cov-api-filterops, tablet limit=1000000 → cov-web-mobile2
+  - [ ] D-DB-6 OPERATOR "Both": restore script + guide now (backup-restore-script agent), in-app streaming rework after
+  - [ ] Perf P-1..P-7 (batch-states 17,934 queries/call at volume, audit COUNT seq scans, events COUNT, dashboard aggregates) → deliverable 07
 - [ ] Offline queue: same-millisecond ops replay in random order (IDB key `op-${Date.now()}-rand`) → cov-web-mobile2, approved protected fix
 - [x] API wave 1 fixes committed: SA `fc2242f`, backup/notif `419358e`, audit signature bound `b00098f`, A-05 one error handler `efa340c` (full API suite 2,427 passed / 0 failed after)
 - [ ] Final docs for the waves: CHANGELOG through fab68fc `4918581` (add the client pipeline half when it lands); root CLAUDE.md PM six doors + POST /visits done `d09dd71`; Pipeline Flow section (cov-api-filterops)
