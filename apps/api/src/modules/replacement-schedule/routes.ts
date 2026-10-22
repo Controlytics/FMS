@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
+import { AppError } from '../../lib/errors.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
 import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement, blockedFilterIdsForCleaning } from './service.js';
 import * as wf from './workflow.js';
@@ -18,13 +19,24 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
     let buffer: Buffer | null = null;
     let fileName: string | undefined;
     const parts = req.parts();
-    for await (const part of parts) {
-      if (part.type === 'file' && part.fieldname === 'file') {
-        fileName = part.filename;
-        const chunks: Buffer[] = [];
-        for await (const chunk of part.file) chunks.push(chunk);
-        buffer = Buffer.concat(chunks);
+    try {
+      for await (const part of parts) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          fileName = part.filename;
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) chunks.push(chunk);
+          buffer = Buffer.concat(chunks);
+        }
       }
+    } catch (err: any) {
+      // A file over the multipart limit makes @fastify/multipart THROW on the
+      // next read (throwFileSizeLimit defaults to true). Answer it like every
+      // other upload route — it used to reach the global handler as 413
+      // INVALID_REQUEST "request file too large", shown verbatim in the dialog.
+      if (err?.code === 'FST_REQ_FILE_TOO_LARGE') {
+        throw new AppError(413, 'FILE_TOO_LARGE', 'Upload exceeds the maximum file size (5 MB).');
+      }
+      throw err;
     }
     return { buffer, fileName };
   }
