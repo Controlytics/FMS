@@ -2,6 +2,8 @@
 
 Production-readiness campaign, Round 1. Executed 2026-10-22 (16:20–17:45 IST) on the developer PC.
 No source file was changed and nothing was committed; the only file written in the repo is this report.
+**Added later the same day, after the fixes:** the Fix column of §6, defect D-DB-11 and the last part of
+§3.4 (a .dump archive that carries `digilog_keep`). Everything else describes the code as measured at `be6e0b3`.
 
 | Item | Value |
 |---|---|
@@ -35,7 +37,7 @@ Cycles window, the cached audit count, the stage-approvals window).
 | Backup round trip, JSON | PASS — chain intact, parent links and mirrors intact, sequences realigned; only µs → ms on timestamps (D-DB-5) | EXECUTED 2026-10-22 |
 | Backup round trip, CSV | **FAIL — the restore refuses the app's own CSV backup (802 of 35,327 audit rows "do not match"), D-DB-3.** With `force`: formula-like text exact, chain intact, but empty strings become NULL (D-DB-4) | EXECUTED 2026-10-22 |
 | Backup round trip, pg_dump (in-app) | PASS — byte-identical content in every table, chain intact | EXECUTED 2026-10-22 |
-| **BR-100** — a restore never destroys live audit rows the backup lacks | PASS for JSON, BAK and pg_dump: 6 rows written after each backup (incl. a signature and a signed row) are present and unchanged after the restore, chain verifies, sequence aligned (§3.4) | EXECUTED 2026-10-22 |
+| **BR-100** — a restore never destroys live audit rows the backup lacks | PASS for JSON, BAK and pg_dump: 6 rows written after each backup (incl. a signature and a signed row) are present and unchanged after the restore, chain verifies, sequence aligned (§3.4). **Not covered by this run: a .dump archive that itself carries `digilog_keep` loses every such row (D-DB-11, found and fixed later the same day)** | EXECUTED 2026-10-22 |
 | **BR-101** — a failed .dump restore rolls back | PASS — a truncated archive fails with `RESTORE_FAILED` "rolled back to its pre-restore state"; all 61 tables, sequences, indexes, triggers and the chain are as before. **It leaves a `digilog_keep` schema behind with a mutable copy of the whole audit trail (D-DB-10)** (§3.4) | EXECUTED 2026-10-22 |
 | In-app backup at production volume | **In-app JSON/CSV/BAK/SQL export is refused at 500,000 rows per table, and in-app restore is capped at 100 MB — both reached ~3–4 weeks after go-live (D-DB-6)** | EXECUTED 2026-10-22 (refusal) + CARRIED FORWARD 2026-10-17 (dump size) |
 | Query health of the hot lists (one year) | The tablet Cycles view **fails** once its window holds > 32,764 cycles: Postgres bind-variable limit (D-DB-9). Six slow paths; batch-states is **17,934 queries per call** on the one-year copy (§4) | EXECUTED 2026-10-22 — report only, nothing changed |
@@ -340,6 +342,29 @@ task) carries until the next successful `.dump` restore drops it. At one year th
 / ~5 GB. Not measured: an application writing during the restore (rows written between the safety
 dump and the rollback would not be in the safety dump).
 
+**BR-100 with an archive that carries `digilog_keep` (EXECUTED 2026-10-22, 19:59–20:32, after the run
+above) — D-DB-11.** Found by code reading (the agent writing the scripted restore for D-DB-6), then run
+with `br100-keep-archive.mts` (same two guards, `digilog_restore_perf` only). `restoreDump` parked the
+live trail in the fixed schema `digilog_keep` (`backup.service.ts:748-750` at `be6e0b3`) and then ran
+`pg_restore --clean --if-exists` (`pg-tools.ts:314-315`), which drops every object the archive holds
+before loading it. Method: put a stale `digilog_keep.audit_trail` in the database (what any dump taken
+after a failed `.dump` restore carried, D-DB-10, or one taken during a restore); take the backup; drop
+the stale schema; write 5 audit rows (6 with the export's `BACKUP_CREATED`); restore the archive.
+
+| | Before the fix (`0b823f4`, in-app export) | After `eadcf9a` (archive made with the old pg_dump argv) | After, with a stale `digilog_keep` also left in the live database |
+|---|---|---|---|
+| Archive's TOC | `SCHEMA - digilog_keep`, `TABLE digilog_keep audit_trail`, `TABLE DATA …` | same three entries | same three entries |
+| Outcome | "Database restored successfully" | success | success |
+| Rows written after the backup, present / identical | **0 / 0 of 6** | 6 / 6 of 6 | 6 / 6 of 6 |
+| `BACKUP_RESTORED.auditRowsPreserved` | **0** | 6 | 6 |
+| Schemas after | `public` | `public` | `public` (was `digilog_keep`, `public`) |
+| Chain after | intact — the rows were cut from the tail, so nothing reports the loss | intact | intact |
+
+After the fix an in-app export taken while a park schema exists lists none in its TOC. BR-100 (JSON,
+BAK, pg_dump) and BR-101 were re-run on a reloaded copy after `eadcf9a` (`br100-101-after-keepfix.json`):
+6/6 late rows each, chain intact; BR-101 rolled back with 0 of 61 tables changed and no schema object
+added.
+
 ---
 
 ## 4. Query health of the hot lists (EXECUTED 2026-10-22, report only)
@@ -441,20 +466,22 @@ an unbounded result whose failure is a defect (D-DB-9). The others are design de
 
 ## 6. Defects
 
-Severity is this report's assessment; nothing here was fixed.
+Severity is this report's assessment. Nothing was fixed during the run; the Fix column was added later
+the same day. "Rerun" = the round trip or rule script of §3 run again on a reloaded `digilog_restore_perf`.
 
-| ID | Sev. | Where (file:line) | Failure scenario |
-|---|---|---|---|
-| **D-DB-1** | Medium | `scripts/verify-migrations.ps1:101` (compares through `prisma migrate diff` only); claim at `CLAUDE.md:120` | A migration that drops or rewrites `asset_instances_active_name_key` (e.g. loses `WHERE is_active`) or drops `audit_trail_no_delete` passes the release gate with "PASS: migrations reproduce the reference schema exactly." Reproduced for all three (§1.4). A fresh install would then lack the §11 delete guard or the duplicate-name guard with no warning. |
-| **D-DB-2** | Medium | `apps/api/src/modules/assets/services/identifier.service.ts:58` (check outside the transaction) → `:93`/`:120` (insert); `apps/api/prisma/schema.prisma:798-808` (no unique per asset) | Two assign requests for the same filter with different tags arriving together (two tablets, or a double submit) both succeed: the filter holds two RFID tags. 10/10 trials (§2.4). |
-| **D-DB-3** | High (CSV format unusable) | `apps/api/src/modules/backup/backup.service.ts:110` (numeric re-typing of every text cell) + `backup.repository.ts:448` (hashes `user_id` as parsed) | Restoring the app's own CSV backup is refused with `BACKUP_AUDIT_CHAIN_INVALID` whenever an audit row's username is numeric (802 of 35,327 rows on the go-live copy; nearly all rows where usernames are numeric employee IDs). The only way through is `force`, which records "audit-chain verification BYPASSED" for an intact chain. `validate()` reports `valid: true` with 802 chain failures for the same file. |
-| **D-DB-4** | Medium | `backup.helpers.ts:113` (NULL and `''` both written as an empty cell) + `backup.service.ts:112` (empty cell → NULL) | A CSV restore turns every empty string into NULL (64 values in 40 rows of 5 tables on the go-live copy: role, asset-template, checklist-question and notification-template descriptions, checklist-question sections, user departments). A NOT NULL text column holding `''` would make the restore fail outright. |
-| **D-DB-5** | Low | rows read as JS `Date` in `fetchAllTablesRaw` (`backup.repository.ts:345`) and written back | JSON and CSV restores truncate timestamps to milliseconds (1,522 values on the go-live copy). App-written values are already milliseconds and the audit chain is unaffected; raw-SQL / default `now()` values change. pg_dump is exact. |
-| **D-DB-6** | High (recovery) | `backup.repository.ts:232-237` (500,000 rows per table) and `backup/routes.ts:11,133,282` (100 MB upload) | About 3–4 weeks after go-live at the modelled volume, in-app JSON/CSV/BAK/SQL exports are refused (verified on the one-year copy: `audit_trail` 7,407,352 > 500,000) and an in-app `.dump` can be downloaded but not restored (1,589 MB at one year vs 100 MB). Restore then needs a hand-run `pg_restore` that is not in the product's procedures. |
-| **D-DB-7** | Low (tooling) | `package.json:14` (`powershell -NoProfile -File`, no `-ExecutionPolicy Bypass`) | `npm run db:verify-migrations` stops at "running scripts is disabled on this system" on a default Windows execution policy; the drift guard only runs when invoked by hand with Bypass. |
-| **D-DB-8** | Low (test infra) | `apps/api/src/e2e/audit-chain.test.ts:48` (`beforeAll`, default 10 s hook timeout) | In a multi-file run under load the hook times out: the file is reported as failed and none of its 6 chain tests run; alone they pass 6/6. |
-| **D-DB-10** | Low–Medium | `apps/api/src/modules/backup/backup.service.ts:771` (keep schema dropped only on success; failure path `:772-795`) | After any failed `.dump` restore, schema `digilog_keep` stays with a full, mutable, unchained copy of `audit_trail` (35,353 rows here; ~5 GB at one year). Every later backup includes it; it disappears only at the next successful `.dump` restore. Reproduced with a truncated archive (§3.4). |
-| **D-DB-9** | High (at volume) | `apps/api/src/modules/filter-operations/filter-operations.service.ts:535` (all page cycle ids + 3 parameters in one `IN`); answered as 400 by `lib/error-handler.ts` (unmapped Prisma error) | `GET /api/filters/cycles` fails whenever the requested page holds more than ~32,764 cycles: *"too many bind variables in prepared statement, expected maximum of 32767, received 32770"* → `400 DATA_CONSTRAINT` after ~145 s. The tablet's Cycles view asks for ALL cycles of the last 30 days (`mobile-wrapper.tsx:371`, `limit=1000000`), so at the modelled 1,500 cycles/day it breaks once 30 days hold > 32,764 cycles (≈ 22 days of production) and stays broken. Reproduced cold and warm on the one-year copy. |
+| ID | Sev. | Where (file:line) | Failure scenario | Fix status |
+|---|---|---|---|---|
+| **D-DB-1** | Medium | `scripts/verify-migrations.ps1:101` (compares through `prisma migrate diff` only); claim at `CLAUDE.md:120` | A migration that drops or rewrites `asset_instances_active_name_key` (e.g. loses `WHERE is_active`) or drops `audit_trail_no_delete` passes the release gate with "PASS: migrations reproduce the reference schema exactly." Reproduced for all three (§1.4). A fresh install would then lack the §11 delete guard or the duplicate-name guard with no warning. | Fixed `6098b5e` — the guard also compares a catalog fingerprint (index predicates, triggers, function bodies, CHECKs, sequences) and the migration-only objects; header note `d077b21`. |
+| **D-DB-2** | Medium | `apps/api/src/modules/assets/services/identifier.service.ts:58` (check outside the transaction) → `:93`/`:120` (insert); `apps/api/prisma/schema.prisma:798-808` (no unique per asset) | Two assign requests for the same filter with different tags arriving together (two tablets, or a double submit) both succeed: the filter holds two RFID tags. 10/10 trials (§2.4). | Fixed `df5e6a1` (checks inside the assign transaction behind advisory locks) + `dfa6073` (RFID Track Record edit takes the same locks). |
+| **D-DB-3** | High (CSV format unusable) | `apps/api/src/modules/backup/backup.service.ts:110` (numeric re-typing of every text cell) + `backup.repository.ts:448` (hashes `user_id` as parsed) | Restoring the app's own CSV backup is refused with `BACKUP_AUDIT_CHAIN_INVALID` whenever an audit row's username is numeric (802 of 35,327 rows on the go-live copy; nearly all rows where usernames are numeric employee IDs). The only way through is `force`, which records "audit-chain verification BYPASSED" for an intact chain. `validate()` reports `valid: true` with 802 chain failures for the same file. | Fixed `7cdd9c5` — cells typed by the live column type; `validate()` uses the same parse. Rerun: 0 checksum failures, restores without `force`. |
+| **D-DB-4** | Medium | `backup.helpers.ts:113` (NULL and `''` both written as an empty cell) + `backup.service.ts:112` (empty cell → NULL) | A CSV restore turns every empty string into NULL (64 values in 40 rows of 5 tables on the go-live copy: role, asset-template, checklist-question and notification-template descriptions, checklist-question sections, user departments). A NOT NULL text column holding `''` would make the restore fail outright. | Fixed `7cdd9c5` — `""` is an empty string, an empty cell is NULL; older files read as before. Rerun: 0 table differences. |
+| **D-DB-5** | Low | rows read as JS `Date` in `fetchAllTablesRaw` (`backup.repository.ts:345`) and written back | JSON and CSV restores truncate timestamps to milliseconds (1,522 values on the go-live copy). App-written values are already milliseconds and the audit chain is unaffected; raw-SQL / default `now()` values change. pg_dump is exact. | Fixed `0b823f4` — timestamps exported as ISO text, microseconds kept; millisecond values unchanged. Rerun: JSON and CSV 0 table differences. |
+| **D-DB-6** | High (recovery) | `backup.repository.ts:232-237` (500,000 rows per table) and `backup/routes.ts:11,133,282` (100 MB upload) | About 3–4 weeks after go-live at the modelled volume, in-app JSON/CSV/BAK/SQL exports are refused (verified on the one-year copy: `audit_trail` 7,407,352 > 500,000) and an in-app `.dump` can be downloaded but not restored (1,589 MB at one year vs 100 MB). Restore then needs a hand-run `pg_restore` that is not in the product's procedures. | Open — a scripted `pg_restore` is in progress (`scripts/restore-database.ps1`, not committed); the in-app ceilings need the operator's call. |
+| **D-DB-7** | Low (tooling) | `package.json:14` (`powershell -NoProfile -File`, no `-ExecutionPolicy Bypass`) | `npm run db:verify-migrations` stops at "running scripts is disabled on this system" on a default Windows execution policy; the drift guard only runs when invoked by hand with Bypass. | Fixed `7cdd9c5` — the npm script passes `-ExecutionPolicy Bypass`. |
+| **D-DB-8** | Low (test infra) | `apps/api/src/e2e/audit-chain.test.ts:48` (`beforeAll`, default 10 s hook timeout) | In a multi-file run under load the hook times out: the file is reported as failed and none of its 6 chain tests run; alone they pass 6/6. | Fixed `7cdd9c5` — the file builds only the routes it uses (~0.2 s). Follow-up `e7312ca`: it asserts on its own rows (a concurrent writer made its row count read 5). |
+| **D-DB-10** | Low–Medium | `apps/api/src/modules/backup/backup.service.ts:771` (keep schema dropped only on success; failure path `:772-795`) | After any failed `.dump` restore, schema `digilog_keep` stays with a full, mutable, unchained copy of `audit_trail` (35,353 rows here; ~5 GB at one year). Every later backup includes it; it disappears only at the next successful `.dump` restore. Reproduced with a truncated archive (§3.4). | Fixed `7cdd9c5` — the park is dropped on every exit except a failed rollback. Follow-up `eadcf9a` (D-DB-11). |
+| **D-DB-9** | High (at volume) | `apps/api/src/modules/filter-operations/filter-operations.service.ts:535` (all page cycle ids + 3 parameters in one `IN`); answered as 400 by `lib/error-handler.ts` (unmapped Prisma error) | `GET /api/filters/cycles` fails whenever the requested page holds more than ~32,764 cycles: *"too many bind variables in prepared statement, expected maximum of 32767, received 32770"* → `400 DATA_CONSTRAINT` after ~145 s. The tablet's Cycles view asks for ALL cycles of the last 30 days (`mobile-wrapper.tsx:371`, `limit=1000000`), so at the modelled 1,500 cycles/day it breaks once 30 days hold > 32,764 cycles (≈ 22 days of production) and stays broken. Reproduced cold and warm on the one-year copy. | API fixed `928ea36` (any page size; a database-limit failure answers 500). Tablet paging: in progress. |
+| **D-DB-11** | High | `apps/api/src/modules/backup/backup.service.ts:748-750` (park in the fixed schema `digilog_keep`) + `pg-tools.ts:314-315` (`--clean --if-exists`) | A `.dump` archive that carries a `digilog_keep` of its own (any dump taken after a failed `.dump` restore while D-DB-10 stood, or during a restore) drops the parked live trail and loads its stale copy: every audit row written after the backup is lost, the restore reports success, and the chain still verifies because the rows were cut from the tail. 0 of 6 rows survived (§3.4). Found after the run. | Fixed `eadcf9a` — park named per run, every park dropped after a successful restore, pg_dump leaves park schemas out. After: 6/6, BR-100/BR-101 re-run PASS. |
 
 Performance findings P-1 … P-3 and P-5 … P-7 (§4.3) are reported, not filed as defects; P-4's failure is D-DB-9.
 
@@ -473,9 +500,11 @@ All under `C:\Users\hello\AppData\Local\Temp\claude\C--Users-hello-21cfrlogbook-
 | `integrity.mts`, `integrity.json`, `trigger-probes.log`, `tamper.log`, `constraints.sql`, `constraints*.log` | §2 |
 | `vitest-integrity.log`, `vitest-audit-chain-alone.log` | §2.5 |
 | `day1.dump`, `reload-restore-perf.sh`, `roundtrip.mts`, `summarize-rt.cjs`, `rt*.json`, `csv-why.mts`, `csv-why.log`, `export-cap.mts`, `export-cap.log` | §3 |
-| `br100-101.mts`, `br100-101.json`, `br100-101.err`, `br101-truncated.dump` | §3.4 (BR-100, BR-101) |
+| `br100-101.mts`, `br100-101.json`, `br100-101.err`, `br101-truncated.dump` | §3.4 (BR-100, BR-101). `br100-101.json` now holds the last re-run (after `eadcf9a`, = `br100-101-after-keepfix.json`); the 17:40 figures are the ones in §3.4's tables. `br100-101-before-fix.json` / `-after-fix.json`: re-runs before and after `7cdd9c5` |
+| `br100-keep-archive.mts`, `fail-br100-keep.json`, `pass-br100-keep.json`, `pass-br100-keep-livepark.json`, `br100-keep-*.dump` | §3.4 (D-DB-11) |
+| `fail-DDB-*.log`, `pass-DDB-*.log`, `fix-rt-csv.json`, `fix5-rt-json.json`, `fix5-rt-csv.json`, `fail-keep-archive-unit.log`, `pass-keep-archive-unit.log` | the fixes in §6: failing test first, then passing, then the rerun |
 | `hotpaths.mts`, `hotpaths.json`, `explain2.mts`, `explain2.json`, `batch-group*.mts`, `batch-*.json`, `warm-counts.sql` | §4 |
 
 Databases left behind: `digilog_migrate_perf` (fresh build + seed + the probe rows, incl. the tampered
-row 30 and the 10 two-tag filters) and `digilog_restore_perf` (go-live copy after the BR-100 restores
-and the rolled-back BR-101 restore, still holding the leftover `digilog_keep` schema of D-DB-10). Both are disposable; dropping them is the operator's call.
+row 30 and the 10 two-tag filters) and `digilog_restore_perf` (go-live copy after the last BR-100 /
+BR-101 re-run; it no longer holds a `digilog_keep` schema). Both are disposable; dropping them is the operator's call.
