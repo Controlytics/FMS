@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import useSWR from 'swr';
 
 // Filter creation workflow — the details popup (2026-09-24).
@@ -70,6 +70,7 @@ function dash(v: unknown): string {
 
 export function FilterApprovalDialog({ filter, mode, canReject, submitting, formatDateTime, onClose, onComplete, onReject }: Props) {
   const [remarks, setRemarks] = useState('');
+  const remarksId = useId();
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -211,8 +212,9 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
 
           {isDecision && !rejecting && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Remarks <span className="text-slate-400 font-normal">(optional)</span></label>
-              <textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={2}
+              {/* Approval/decision flows require remarks (2026-10-22; were optional). */}
+              <label htmlFor={remarksId} className="block text-sm font-medium text-slate-700 mb-1">Remarks <span className="text-red-500">*</span></label>
+              <textarea id={remarksId} required value={remarks} onChange={e => setRemarks(e.target.value)} rows={2}
                 placeholder={mode === 'review' ? 'Anything the approver should know' : 'Approval remarks'}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-3 focus:ring-[var(--theme-primary)] focus:border-[var(--theme-primary)]" />
             </div>
@@ -247,7 +249,7 @@ export function FilterApprovalDialog({ filter, mode, canReject, submitting, form
             </button>
           )}
           {isDecision && !rejecting && (
-            <button onClick={() => onComplete(remarks.trim())} disabled={submitting}
+            <button onClick={() => onComplete(remarks.trim())} disabled={submitting || !remarks.trim()}
               className={`px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${mode === 'review' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}>
               {submitting ? (mode === 'review' ? 'Completing…' : 'Approving…') : (mode === 'review' ? 'Complete Review' : 'Approve')}
             </button>

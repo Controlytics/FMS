@@ -110,7 +110,24 @@ async function auditEach(rows: { id: string; name: string }[], ctx: RequestConte
   }
 }
 
+/**
+ * Approval/decision flows require remarks (CLAUDE.md): a review or an approval
+ * says why as much as a rejection does (2026-10-22; both used to be optional).
+ * The routes refuse a blank one BEFORE the re-auth gate (400 VALIDATION, see
+ * `hasDecisionRemarks` / `DECISION_REMARKS_MESSAGE`); this is the same rule for
+ * any other caller of the service.
+ */
+export const DECISION_REMARKS_MESSAGE = 'Remarks are required to review, approve or reject filters.';
+export function hasDecisionRemarks(remarks: unknown): remarks is string {
+  return typeof remarks === 'string' && remarks.trim().length > 0;
+}
+function requireDecisionRemarks(remarks: unknown): string {
+  if (!hasDecisionRemarks(remarks)) throw new AppError(400, 'REMARKS_REQUIRED', DECISION_REMARKS_MESSAGE);
+  return remarks.trim();
+}
+
 export async function reviewFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+  const why = requireDecisionRemarks(remarks);
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.reviewRole, 'review', 'filters');
   const rows = await loadInState(filterIds, ['PENDING_REVIEW'], 'review');
@@ -121,14 +138,15 @@ export async function reviewFilters(ctx: RequestContext, filterIds: string[], re
     data: {
       approvalStatus: 'PENDING_APPROVAL',
       reviewedBy: ctx.userSub ?? null, reviewedByName: ctx.userId ?? null,
-      reviewedAt: new Date(), reviewRemarks: remarks ?? null,
+      reviewedAt: new Date(), reviewRemarks: why,
     },
   });
-  await auditEach(rows, ctx, 'FILTER_REVIEWED', { reviewRemarks: remarks ?? null }, remarks);
+  await auditEach(rows, ctx, 'FILTER_REVIEWED', { reviewRemarks: why }, why);
   return { reviewed: rows.length, filters: rows.map(r => r.name) };
 }
 
 export async function approveFilters(ctx: RequestContext, filterIds: string[], remarks?: string) {
+  const why = requireDecisionRemarks(remarks);
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.approvalRole, 'approve', 'filters');
   // PENDING_REVIEW is accepted as well so an approver is not blocked when the
@@ -146,10 +164,10 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
     data: {
       approvalStatus: 'APPROVED',
       approvedBy: ctx.userSub ?? null, approvedByName: ctx.userId ?? null,
-      approvedAt: new Date(), approvalRemarks: remarks ?? null,
+      approvedAt: new Date(), approvalRemarks: why,
     },
   });
-  await auditEach(rows, ctx, 'FILTER_APPROVED', { approvalRemarks: remarks ?? null }, remarks);
+  await auditEach(rows, ctx, 'FILTER_APPROVED', { approvalRemarks: why }, why);
   return { approved: rows.length, filters: rows.map(r => r.name) };
 }
 

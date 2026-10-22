@@ -12,7 +12,7 @@ import { api } from '@/lib/api-client';
 import { retireOrReplaceFilter } from '@/lib/filter-lifecycle-actions';
 import { createReport } from '@/lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
-import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
+import { requireExportReauth, isReauthCancelled, isReauthError } from '@/lib/report-export-log';
 import { normalizeRfidScan, rfidValuesMatch } from '@/lib/rfid-scan';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { ExportMenu } from '@/components/ExportMenu';
@@ -821,7 +821,9 @@ export function FilterListPage() {
   const handleWorkflowDecision = (
     kind: 'review' | 'approve' | 'reject',
     ids: string[],
-    remarks?: string,
+    // Required for every decision (2026-10-22): the server refuses a blank one
+    // before the signature, and the dialogs do not offer the button without it.
+    remarks: string,
     label?: string,
   ) => {
     if (ids.length === 0) return;
@@ -832,7 +834,7 @@ export function FilterListPage() {
     const subject = ids.length === 1 ? (label ?? approvalDialog?.filter?.name ?? 'Filter') : `${ids.length} filters`;
     setApprovalSubmitting(true);
     reauth.execute(action, async (password?: string) => {
-      const body: Record<string, unknown> = { filterIds: ids, ...(remarks ? { remarks } : {}) };
+      const body: Record<string, unknown> = { filterIds: ids, remarks };
       const url = `/api/assets/instances/${kind}`;
       if (password) await api.postWithReauth(url, body, password);
       else await api.post(url, body);
@@ -949,10 +951,11 @@ export function FilterListPage() {
           } catch (e: any) {
             // Reauth errors MUST escape the loop so reauth.execute opens the
             // password dialog instead of silently counting them as failures
-            // (which made bulk update appear to do nothing). api-client throws
-            // either {error} or {code} shapes — check both.
-            if (e?.error === 'REAUTH_REQUIRED' || e?.code === 'REAUTH_REQUIRED' ||
-                e?.error === 'REAUTH_FAILED' || e?.code === 'REAUTH_FAILED') throw e;
+            // (which made bulk update appear to do nothing). So must a lockout
+            // (ACCOUNT_LOCKED, 2026-10-22): it refuses the SIGNATURE, not this
+            // filter — counting it re-sent the same wrong password for every
+            // remaining filter, one more failed signature each.
+            if (isReauthError(e)) throw e;
             failed++;
             failures.push({ name: nameById.get(id) ?? id, message: e?.message ?? 'Update failed' });
           }
@@ -1021,10 +1024,10 @@ export function FilterListPage() {
             }
             completed++;
           } catch (e: any) {
-            // Reauth errors MUST escape so the password dialog opens (see
-            // handleBulkStatusSubmit) instead of being counted as failures.
-            if (e?.error === 'REAUTH_REQUIRED' || e?.code === 'REAUTH_REQUIRED' ||
-                e?.error === 'REAUTH_FAILED' || e?.code === 'REAUTH_FAILED') throw e;
+            // Reauth errors and a lockout MUST escape so the password dialog /
+            // onError handles them (see handleBulkStatusSubmit) instead of being
+            // counted as failures.
+            if (isReauthError(e)) throw e;
             failed++;
             if (!firstError) firstError = e?.message ?? null;
           }
@@ -2305,7 +2308,7 @@ export function FilterListPage() {
           formatDateTime={formatDateTime}
           onClose={() => { if (!approvalSubmitting) setBulkApprovalMode(null); }}
           onViewDetails={(f) => setApprovalDialog({ filter: f, mode: 'view' })}
-          onComplete={(ids, remarks) => handleWorkflowDecision(bulkApprovalMode, ids, remarks || undefined, bulkTargets.find(f => f.id === ids[0])?.name)}
+          onComplete={(ids, remarks) => handleWorkflowDecision(bulkApprovalMode, ids, remarks, bulkTargets.find(f => f.id === ids[0])?.name)}
           onReject={(ids, reason) => handleWorkflowDecision('reject', ids, reason, bulkTargets.find(f => f.id === ids[0])?.name)}
         />
       )}
@@ -2319,7 +2322,7 @@ export function FilterListPage() {
           submitting={approvalSubmitting}
           formatDateTime={formatDateTime}
           onClose={() => { if (!approvalSubmitting) setApprovalDialog(null); }}
-          onComplete={(remarks) => handleWorkflowDecision(approvalDialog.mode === 'review' ? 'review' : 'approve', [approvalDialog.filter.id], remarks || undefined, approvalDialog.filter.name)}
+          onComplete={(remarks) => handleWorkflowDecision(approvalDialog.mode === 'review' ? 'review' : 'approve', [approvalDialog.filter.id], remarks, approvalDialog.filter.name)}
           onReject={(reason) => handleWorkflowDecision('reject', [approvalDialog.filter.id], reason, approvalDialog.filter.name)}
         />
       )}

@@ -92,7 +92,7 @@ describe('filter approval — service guard for non-HTTP callers', () => {
   it('an empty id list is refused by the service itself (the route schema refuses it first)', async () => {
     const ctx = { userId: sa.username, userSub: sa.id, userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1' } as any;
     for (const fn of [reviewFilters, approveFilters]) {
-      await expect(fn(ctx, [])).rejects.toMatchObject({ statusCode: 400, code: 'NO_FILTERS', message: 'Select at least one filter' });
+      await expect(fn(ctx, [], 'checked')).rejects.toMatchObject({ statusCode: 400, code: 'NO_FILTERS', message: 'Select at least one filter' });
     }
     await expect(rejectFilters(ctx, [], 'reason')).rejects.toMatchObject({ code: 'NO_FILTERS' });
   });
@@ -102,7 +102,7 @@ describe('filter approval — review', () => {
   it('moves a batch to PENDING_APPROVAL with attribution and one audit row per filter', async () => {
     const a = await pending('RV-A', 'PENDING_REVIEW');
     const b = await pending('RV-B', 'PENDING_REVIEW');
-    const noPw = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, b] } });
+    const noPw = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, b], remarks: 'sizes checked' } });
     expect(noPw.status).toBe(401);
     const res = await rv.call('POST', '/api/assets/instances/review', { pw: PASSWORD, body: { filterIds: [a, b], remarks: 'sizes checked' } });
     expect(res.status).toBe(200);
@@ -113,20 +113,15 @@ describe('filter approval — review', () => {
       const [audit] = await auditFor(id, 'FILTER_REVIEWED');
       expect(audit).toMatchObject({ reason: 'sizes checked', afterValue: { reviewRemarks: 'sizes checked' } });
     }
-    // No remarks: stored as null, no reason on the audit row.
-    const c = await pending('RV-C', 'PENDING_REVIEW');
-    await rv.call('POST', '/api/assets/instances/review', { pw: PASSWORD, body: { filterIds: [c] } });
-    expect((await stateOf(c))!.reviewRemarks).toBeNull();
-    expect((await auditFor(c, 'FILTER_REVIEWED'))[0].reason).toBeNull();
   });
 
   it('is all-or-nothing: an unknown id (404), a filter in the wrong state (409) or the creator\'s own filter (403) refuses the batch', async () => {
     const a = await pending('RV-D', 'PENDING_REVIEW');
     const wrong = await pending('RV-E', 'APPROVED');
-    const unknown = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, randomUUID()] } });
+    const unknown = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, randomUUID()], remarks: 'checked' } });
     expect(unknown.status).toBe(404);
     expect(unknown.body.message).toBe('One or more filters no longer exist');
-    const state = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, wrong] } });
+    const state = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [a, wrong], remarks: 'checked' } });
     expect(state.status).toBe(409);
     expect(state.body).toMatchObject({
       error: 'INVALID_STATUS',
@@ -134,11 +129,11 @@ describe('filter approval — review', () => {
       details: { filters: [{ id: wrong, name: own.n('RV-E'), approvalStatus: 'APPROVED' }] },
     });
     const self = await pending('RV-SELF', 'PENDING_REVIEW', { submittedBy: rv.id });
-    const own403 = await rv.call('POST', '/api/assets/instances/review', { pw: PASSWORD, body: { filterIds: [a, self] } });
+    const own403 = await rv.call('POST', '/api/assets/instances/review', { pw: PASSWORD, body: { filterIds: [a, self], remarks: 'checked' } });
     expect(own403.status).toBe(403);
     expect(own403.body.error).toBe('SELF_APPROVAL_FORBIDDEN');
     expect((await stateOf(a))!.approvalStatus).toBe('PENDING_REVIEW');
-    const empty = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [] } });
+    const empty = await sa.call('POST', '/api/assets/instances/review', { body: { filterIds: [], remarks: 'checked' } });
     expect(empty.status).toBe(400);
     const wrongPerm = await ap.call('POST', '/api/assets/instances/review', { body: { filterIds: [a] } });
     expect(wrongPerm.status).toBe(403);
@@ -149,7 +144,7 @@ describe('filter approval — approve', () => {
   it('approves from PENDING_APPROVAL — and, with no review role configured, straight from PENDING_REVIEW', async () => {
     const reviewed = await pending('AP-A', 'PENDING_APPROVAL', { reviewedBy: rv.id });
     const unreviewed = await pending('AP-B', 'PENDING_REVIEW');
-    const noPw = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [reviewed] } });
+    const noPw = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [reviewed], remarks: 'released' } });
     expect(noPw.status).toBe(401);
     const res = await ap.call('POST', '/api/assets/instances/approve', { pw: PASSWORD, body: { filterIds: [reviewed, unreviewed], remarks: 'released' } });
     expect(res.status).toBe(200);
@@ -162,11 +157,11 @@ describe('filter approval — approve', () => {
 
   it('the reviewer of a filter may not also approve it', async () => {
     const id = await pending('AP-C', 'PENDING_APPROVAL', { reviewedBy: sa.id });
-    const res = await sa.call('POST', '/api/assets/instances/approve', { body: { filterIds: [id] } });
+    const res = await sa.call('POST', '/api/assets/instances/approve', { body: { filterIds: [id], remarks: 'released' } });
     expect(res.status).toBe(403);
     expect(res.body.message).toBe(`You cannot approve a filter you created or reviewed yourself ("${own.n('AP-C')}"). A different user must sign off.`);
     const rejected = await pending('AP-D', 'REJECTED');
-    const bad = await ap.call('POST', '/api/assets/instances/approve', { pw: PASSWORD, body: { filterIds: [rejected] } });
+    const bad = await ap.call('POST', '/api/assets/instances/approve', { pw: PASSWORD, body: { filterIds: [rejected], remarks: 'released' } });
     expect(bad.status).toBe(409);
     expect(bad.body.message).toBe(`Cannot approve: "${own.n('AP-D')}" is REJECTED. Expected PENDING_APPROVAL or PENDING_REVIEW.`);
   });
@@ -178,9 +173,14 @@ describe('filter approval — reject and resubmit', () => {
     const atApproval = await pending('RJ-B', 'PENDING_APPROVAL', { reviewedBy: ap.id });
     const missing = await rv.call('POST', '/api/assets/instances/reject', { pw: PASSWORD, body: { filterIds: [atReview] } });
     expect(missing.status).toBe(400);
+    // one rule, one answer: a missing reason is refused like a blank one (before the signature)
+    expect(missing.body).toMatchObject({ error: 'VALIDATION', message: 'Remarks are required to review, approve or reject filters.' });
+    const empty = await rv.call('POST', '/api/assets/instances/reject', { pw: PASSWORD, body: { filterIds: [atReview], remarks: '' } });
+    expect(empty.body).toMatchObject({ error: 'VALIDATION' });
     const blank = await rv.call('POST', '/api/assets/instances/reject', { pw: PASSWORD, body: { filterIds: [atReview], remarks: '   ' } });
     expect(blank.status).toBe(400);
-    expect(blank.body).toMatchObject({ error: 'REASON_REQUIRED', message: 'A rejection reason is required' });
+    // Refused before the signature since 2026-10-22 (was REASON_REQUIRED after it).
+    expect(blank.body).toMatchObject({ error: 'VALIDATION', message: 'Remarks are required to review, approve or reject filters.' });
     const noPw = await rv.call('POST', '/api/assets/instances/reject', { body: { filterIds: [atReview], remarks: 'x' } });
     expect(noPw.status).toBe(401);
     const res = await rv.call('POST', '/api/assets/instances/reject', { pw: PASSWORD, body: { filterIds: [atReview, atApproval], remarks: '  wrong micron size  ' } });
@@ -223,5 +223,58 @@ describe('filter approval — reject and resubmit', () => {
     expect(ghost.status).toBe(404);
     const denied = await rd.call('POST', `/api/assets/instances/${id}/resubmit`);
     expect(denied.status).toBe(403);
+  });
+});
+
+describe('filter approval — remarks on every decision (2026-10-22)', () => {
+  // Approval/decision flows require remarks (CLAUDE.md). Review and approve used
+  // to accept none; a blank reject was refused only AFTER the signature.
+  const REFUSED = { error: 'VALIDATION', message: 'Remarks are required to review, approve or reject filters.' };
+  const signatures = (since: Date) => prisma.auditTrail.count({
+    where: { userId: { in: [rv.username, ap.username] }, action: { in: ['REAUTH_SUCCESS', 'REAUTH_FAILED'] }, timestamp: { gte: since } },
+  });
+
+  it('review, approve and reject without remarks are refused before the signature; nothing moves', async () => {
+    const atReview = await pending('RM-A', 'PENDING_REVIEW');
+    const atApproval = await pending('RM-B', 'PENDING_APPROVAL', { reviewedBy: rv.id });
+    const since = new Date();
+    const cases: Array<[U, string, string, Record<string, unknown>]> = [
+      [rv, 'review', atReview, {}],
+      [rv, 'review', atReview, { remarks: '   ' }],
+      [ap, 'approve', atApproval, {}],
+      [ap, 'approve', atApproval, { remarks: ' \t ' }],
+      [rv, 'reject', atReview, { remarks: '   ' }],
+    ];
+    for (const [who, step, id, extra] of cases) {
+      const res = await who.call('POST', `/api/assets/instances/${step}`, { pw: PASSWORD, body: { filterIds: [id], ...extra } });
+      expect({ step, extra, status: res.status, body: res.body }).toEqual({ step, extra, status: 400, body: REFUSED });
+    }
+    // A wrong password is never checked either, so it costs no attempt.
+    const wrong = await ap.call('POST', '/api/assets/instances/approve', { pw: 'Wrong@Pass1', body: { filterIds: [atApproval] } });
+    expect(wrong.body).toEqual(REFUSED);
+    expect(await signatures(since)).toBe(0);
+    expect((await stateOf(atReview))!.approvalStatus).toBe('PENDING_REVIEW');
+    expect((await stateOf(atApproval))!.approvalStatus).toBe('PENDING_APPROVAL');
+    expect(await auditFor(atReview, 'FILTER_REVIEWED')).toEqual([]);
+    expect(await auditFor(atApproval, 'FILTER_APPROVED')).toEqual([]);
+  });
+
+  it('the service refuses a review or an approval without remarks for any other caller, before reading a row', async () => {
+    const ctx = { userId: sa.username, userSub: sa.id, userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1' } as any;
+    const id = await pending('RM-C', 'PENDING_REVIEW');
+    for (const fn of [reviewFilters, approveFilters]) {
+      for (const remarks of [undefined, '', '   ']) {
+        await expect(fn(ctx, [id], remarks as any)).rejects.toMatchObject({ statusCode: 400, code: 'REMARKS_REQUIRED' });
+      }
+    }
+    expect((await stateOf(id))!.approvalStatus).toBe('PENDING_REVIEW');
+  });
+
+  it('remarks are stored trimmed on the row and the audit row', async () => {
+    const id = await pending('RM-D', 'PENDING_REVIEW');
+    const res = await rv.call('POST', '/api/assets/instances/review', { pw: PASSWORD, body: { filterIds: [id], remarks: '  label checked  ' } });
+    expect(res.status).toBe(200);
+    expect((await stateOf(id))!.reviewRemarks).toBe('label checked');
+    expect((await auditFor(id, 'FILTER_REVIEWED'))[0]).toMatchObject({ reason: 'label checked', afterValue: { reviewRemarks: 'label checked' } });
   });
 });

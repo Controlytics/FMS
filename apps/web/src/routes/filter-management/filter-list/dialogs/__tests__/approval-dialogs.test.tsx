@@ -119,14 +119,19 @@ describe('FilterApprovalDialog — view mode', () => {
 describe('FilterApprovalDialog — decisions', () => {
   const okDetail = () => mockApi([{ path: '/api/assets/instances/f1', body: { approvalStatus: 'PENDING_REVIEW', submittedByName: 'Op One', submittedAt: '2026-09-01T00:00:00Z' } }]);
 
-  it('review: optional remarks are trimmed and sent with Complete Review', async () => {
+  it('review: remarks are required (Complete Review stays disabled until they are typed), then sent trimmed', async () => {
     const onComplete = vi.fn();
     renderPage(<FilterApprovalDialog filter={F1} mode="review" canReject submitting={false} formatDateTime={fmt} onClose={vi.fn()} onComplete={onComplete} onReject={vi.fn()} />, { api: okDetail() });
     expect(screen.getByRole('heading', { name: 'Review Filter' })).toBeInTheDocument();
     expect(screen.getByText(/complete the review to send this filter for approval/)).toBeInTheDocument();
     await screen.findByText('Op One', { exact: false });
+    const complete = screen.getByRole('button', { name: 'Complete Review' });
+    expect(complete).toBeDisabled();
+    expect(screen.getByLabelText(/^Remarks/)).toBeRequired();
+    fireEvent.change(screen.getByPlaceholderText('Anything the approver should know'), { target: { value: '   ' } });
+    expect(complete).toBeDisabled();
     fireEvent.change(screen.getByPlaceholderText('Anything the approver should know'), { target: { value: '  Checked against drawing  ' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Complete Review' }));
+    fireEvent.click(complete);
     expect(onComplete).toHaveBeenCalledWith('Checked against drawing');
   });
 
@@ -155,7 +160,7 @@ describe('FilterApprovalDialog — decisions', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('approve without reject rights: no Reject button; Approve sends empty remarks', async () => {
+  it('approve without reject rights: no Reject button; Approve needs remarks, then sends them', async () => {
     const onComplete = vi.fn();
     renderPage(<FilterApprovalDialog filter={F1} mode="approve" canReject={false} submitting={false} formatDateTime={fmt} onClose={vi.fn()} onComplete={onComplete} onReject={vi.fn()} />, { api: okDetail() });
     expect(screen.getByRole('heading', { name: 'Approve Filter' })).toBeInTheDocument();
@@ -163,8 +168,10 @@ describe('FilterApprovalDialog — decisions', () => {
     expect(screen.getByPlaceholderText('Approval remarks')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reject…' })).toBeNull();
     await screen.findByText('Op One', { exact: false });
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText('Approval remarks'), { target: { value: ' Released ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(onComplete).toHaveBeenCalledWith('');
+    expect(onComplete).toHaveBeenCalledWith('Released');
   });
 
   it('while submitting every action is disabled and labelled', async () => {
@@ -251,6 +258,8 @@ describe('FilterBulkApprovalDialog', () => {
     expect(screen.getByRole('button', { name: 'Complete Review (0)' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reject selected (0)…' })).toBeDisabled();
     fireEvent.click(all);
+    expect(screen.getByRole('button', { name: 'Complete Review (4)' })).toBeDisabled(); // no remarks yet
+    fireEvent.change(screen.getByPlaceholderText('Anything the approver should know'), { target: { value: 'ok' } });
     expect(screen.getByRole('button', { name: 'Complete Review (4)' })).toBeEnabled();
   });
 
@@ -289,8 +298,11 @@ describe('FilterBulkApprovalDialog', () => {
     fireEvent.click(within(rowOf('FLT-002')).getByTitle('Filter Details'));
     expect(onViewDetails).toHaveBeenCalledWith(ROWS[1]);
     fireEvent.change(screen.getByPlaceholderText('Approval remarks'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: 'Approve (2)' })).toBeDisabled();
+    expect(screen.getByLabelText(/^Remarks/)).toBeRequired();
+    fireEvent.change(screen.getByPlaceholderText('Approval remarks'), { target: { value: ' Batch OK ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve (2)' }));
-    expect(onComplete).toHaveBeenCalledWith(['f1', 'f2'], '');
+    expect(onComplete).toHaveBeenCalledWith(['f1', 'f2'], 'Batch OK');
   });
 
   it('a row that leaves the list stops counting as selected', async () => {
@@ -299,8 +311,9 @@ describe('FilterBulkApprovalDialog', () => {
     await within(rowOf('FLT-001')).findByText('Op One');
     view.rerender(<FilterBulkApprovalDialog filters={ROWS.slice(1)} {...props} />);
     expect(screen.getByText(/waiting for review/)).toHaveTextContent('3 filter(s) waiting for review in this block · 3 selected');
+    fireEvent.change(screen.getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(screen.getByRole('button', { name: 'Complete Review (3)' }));
-    expect(props.onComplete).toHaveBeenCalledWith(['f2', 'f3', 'f4'], '');
+    expect(props.onComplete).toHaveBeenCalledWith(['f2', 'f3', 'f4'], 'Checked');
   });
 
   it('empty block: says nothing is waiting and offers no action', async () => {

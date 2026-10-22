@@ -1,5 +1,5 @@
  
- import type { FastifyInstance } from 'fastify';
+ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { enforceReauth } from '../../../lib/reauth-check.js';
 import { AppError } from '../../../lib/errors.js';
 import { buildContext } from '../../../lib/build-context.js';
@@ -14,6 +14,7 @@ import { buildFilterUploadTemplate } from '../services/filter-upload-template.se
 import { prisma } from '../../../lib/prisma.js';
 import {
   listPendingFilters, reviewFilters, approveFilters, rejectFilters, resubmitFilter, pendingFilterCounts,
+  hasDecisionRemarks, DECISION_REMARKS_MESSAGE,
 } from '../filter-approval.service.js';
 
 // Opt-in visibility scoping (EntityAssignment / TemplateAssignment) is unused
@@ -557,6 +558,14 @@ export default async function instanceRoutes(app: FastifyInstance) {
     },
   }, async (req) => pendingFilterCounts(buildContext(req)));
 
+  // Remarks first, on every decision (2026-10-22): no signature is spent on a
+  // review, approval or rejection that will be refused for having no reason.
+  const refuseWithoutRemarks = (req: { body: unknown }, reply: FastifyReply) => {
+    if (hasDecisionRemarks((req.body as { remarks?: unknown } | null)?.remarks)) return false;
+    reply.code(400).send({ error: 'VALIDATION', message: DECISION_REMARKS_MESSAGE });
+    return true;
+  };
+
   const idsBody = {
     type: 'object',
     required: ['filterIds'],
@@ -575,6 +584,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (refuseWithoutRemarks(req, reply)) return;
     const { ok } = await enforceReauth('REVIEW_FILTER', req, reply);
     if (!ok) return;
     const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
@@ -590,6 +600,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (refuseWithoutRemarks(req, reply)) return;
     const { ok } = await enforceReauth('APPROVE_FILTER', req, reply);
     if (!ok) return;
     const { filterIds, remarks } = req.body as { filterIds: string[]; remarks?: string };
@@ -605,15 +616,18 @@ export default async function instanceRoutes(app: FastifyInstance) {
       summary: 'Reject filters (→ REJECTED). The row survives so it can be corrected and resubmitted.',
       body: {
         type: 'object',
-        required: ['filterIds', 'remarks'],
+        // remarks are required, but checked by refuseWithoutRemarks (blank or
+        // missing → the same 400 VALIDATION as review/approve), not the schema.
+        required: ['filterIds'],
         properties: {
           filterIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
-          remarks: { type: 'string', minLength: 1 },
+          remarks: { type: 'string' },
         },
       },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
+    if (refuseWithoutRemarks(req, reply)) return;
     const { ok } = await enforceReauth('REJECT_FILTER', req, reply);
     if (!ok) return;
     const { filterIds, remarks } = req.body as { filterIds: string[]; remarks: string };

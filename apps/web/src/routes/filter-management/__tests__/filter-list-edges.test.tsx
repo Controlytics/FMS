@@ -313,9 +313,10 @@ describe('Filters page — remaining reachable paths', () => {
     const b = screen.getByTestId('filter-bulk-approval-dialog');
     expect(b).toHaveTextContent('1 filter(s) waiting for review');
     expect(within(b).queryByText('PF-003')).toBeNull();
+    fireEvent.change(within(b).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(within(b).getByRole('button', { name: 'Complete Review (1)' }));
     expect(await screen.findByText('PF-008 reviewed')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/assets/instances/review')[0].json).toEqual({ filterIds: ['f8'] });
+    expect(api.calls('POST', '/api/assets/instances/review')[0].json).toEqual({ filterIds: ['f8'], remarks: 'Checked' });
   });
 
   it('correcting a rejected filter that holds an RFID prefills the SA dialog tag; clearing the status sends no lifecycle move', async () => {

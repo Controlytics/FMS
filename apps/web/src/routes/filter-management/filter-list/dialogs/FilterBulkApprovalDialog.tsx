@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import type { ApprovalDialogFilter, ApprovalDialogMode } from './FilterApprovalDialog';
 import { Input } from '@/components/ui/input';
@@ -36,6 +36,7 @@ const dash = (v: unknown) => (v === null || v === undefined || v === '' || v ===
 export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting, formatDateTime, onClose, onViewDetails, onComplete, onReject }: Props) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(filters.map(f => f.id)));
   const [remarks, setRemarks] = useState('');
+  const remarksId = useId();
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -156,8 +157,9 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
         <div className="shrink-0 px-6 py-3 border-t border-slate-200 space-y-3">
           {!rejecting ? (
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Remarks <span className="text-slate-400 font-normal">(optional, recorded on every selected filter)</span></label>
-              <Input value={remarks} onChange={e => setRemarks(e.target.value)}
+              {/* Approval/decision flows require remarks (2026-10-22; were optional). */}
+              <label htmlFor={remarksId} className="block text-xs font-medium text-slate-600 mb-1">Remarks <span className="text-red-500">*</span> <span className="text-slate-400 font-normal">(recorded on every selected filter)</span></label>
+              <Input id={remarksId} required value={remarks} onChange={e => setRemarks(e.target.value)}
                 placeholder={isReview ? 'Anything the approver should know' : 'Approval remarks'} />
             </div>
           ) : (
@@ -189,7 +191,7 @@ export function FilterBulkApprovalDialog({ filters, mode, canReject, submitting,
               </button>
             )}
             {!rejecting && (
-              <button onClick={() => onComplete(picked, remarks.trim())} disabled={submitting || picked.length === 0}
+              <button onClick={() => onComplete(picked, remarks.trim())} disabled={submitting || picked.length === 0 || !remarks.trim()}
                 className={`px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isReview ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}>
                 {submitting ? (isReview ? 'Completing…' : 'Approving…') : `${verb} (${picked.length})`}
               </button>

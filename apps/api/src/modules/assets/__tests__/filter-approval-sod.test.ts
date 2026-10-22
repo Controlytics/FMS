@@ -47,7 +47,7 @@ describe('filter approval — segregation of duties (OQ-18)', () => {
 
   it('the creator cannot review, approve or reject their own filter', async () => {
     const id = await filter('PENDING_REVIEW');
-    for (const fn of [() => reviewFilters(creator, [id]), () => approveFilters(creator, [id]), () => rejectFilters(creator, [id], 'not mine to reject')]) {
+    for (const fn of [() => reviewFilters(creator, [id], 'checked'), () => approveFilters(creator, [id], 'released'), () => rejectFilters(creator, [id], 'not mine to reject')]) {
       await expect(fn()).rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
     }
     expect((await prisma.assetInstance.findUnique({ where: { id } }))?.approvalStatus).toBe('PENDING_REVIEW');
@@ -55,13 +55,13 @@ describe('filter approval — segregation of duties (OQ-18)', () => {
 
   it('the reviewer cannot also approve', async () => {
     const id = await filter('PENDING_APPROVAL', reviewer.userSub);
-    await expect(approveFilters(reviewer, [id])).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
+    await expect(approveFilters(reviewer, [id], 'released')).rejects.toMatchObject({ code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 
   it('a different reviewer and a different approver succeed', async () => {
     const id = await filter('PENDING_REVIEW');
-    await reviewFilters(reviewer, [id]);
-    await approveFilters(approver, [id]);
+    await reviewFilters(reviewer, [id], 'checked');
+    await approveFilters(approver, [id], 'released');
     expect((await prisma.assetInstance.findUnique({ where: { id } }))?.approvalStatus).toBe('APPROVED');
   });
 
@@ -69,7 +69,7 @@ describe('filter approval — segregation of duties (OQ-18)', () => {
     const other = await filter('PENDING_REVIEW');
     await prisma.assetInstance.update({ where: { id: other }, data: { submittedBy: randomUUID() } });
     const own = await filter('PENDING_REVIEW');
-    await expect(reviewFilters(creator, [other, own])).rejects.toThrow(/SOD-/);
+    await expect(reviewFilters(creator, [other, own], 'checked')).rejects.toThrow(/SOD-/);
     const rows = await prisma.assetInstance.findMany({ where: { id: { in: [other, own] } } });
     expect(rows.every((r) => r.approvalStatus === 'PENDING_REVIEW')).toBe(true);
   });
@@ -133,6 +133,6 @@ describe('filter approval — reject by step (A-06) and fail-closed SoD (A-07)',
   it('a caller with no id is refused (fail closed)', async () => {
     const id = await filter('PENDING_APPROVAL', reviewer.userSub);
     const anonymous = { ...approver, userSub: undefined } as unknown as RequestContext;
-    await expect(approveFilters(anonymous, [id])).rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
+    await expect(approveFilters(anonymous, [id], 'released')).rejects.toMatchObject({ statusCode: 403, code: 'SELF_APPROVAL_FORBIDDEN' });
   });
 });

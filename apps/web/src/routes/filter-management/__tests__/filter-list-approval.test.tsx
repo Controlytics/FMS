@@ -44,7 +44,7 @@ describe('Filters page — single review / approve / reject', () => {
     expect(screen.queryByTestId('filter-approval-dialog')).toBeNull();
   });
 
-  it('an approver approves (no remarks → no remarks key); "It can now be cleaned."', async () => {
+  it('an approver must say why: Approve stays disabled until remarks are typed; POST carries them; "It can now be cleaned."', async () => {
     const api = setupApi({ extra: [{ method: 'POST', path: '/api/assets/instances/approve', body: {} }] });
     renderFilters(APPROVER, api);
     await openFiltersTab();
@@ -52,9 +52,14 @@ describe('Filters page — single review / approve / reject', () => {
     fireEvent.click(within(row('PF-004')).getByRole('button', { name: 'Approve' }));
     expect(within(dlg()).getByRole('heading', { name: 'Approve Filter' })).toBeInTheDocument();
     expect(await within(dlg()).findByText('No workflow history recorded.')).toBeInTheDocument();
+    // approval/decision flows require remarks (2026-10-22): blank or spaces keep Approve disabled
+    expect(within(dlg()).getByRole('button', { name: 'Approve' })).toBeDisabled();
+    fireEvent.change(within(dlg()).getByPlaceholderText('Approval remarks'), { target: { value: '   ' } });
+    expect(within(dlg()).getByRole('button', { name: 'Approve' })).toBeDisabled();
+    fireEvent.change(within(dlg()).getByPlaceholderText('Approval remarks'), { target: { value: ' Released for use ' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Approve' }));
     expect(await screen.findByText('It can now be cleaned.')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/assets/instances/approve')[0].json).toEqual({ filterIds: ['f4'] });
+    expect(api.calls('POST', '/api/assets/instances/approve')[0].json).toEqual({ filterIds: ['f4'], remarks: 'Released for use' });
   });
 
   it('reject needs a reason; Back returns to the decision; Confirm Reject POSTs /reject', async () => {
@@ -80,6 +85,7 @@ describe('Filters page — single review / approve / reject', () => {
     renderFilters(ADMIN_ALL, api);
     await openFiltersTab();
     fireEvent.click(within(row('PF-004')).getByRole('button', { name: 'Approve' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText('Approval remarks'), { target: { value: 'Released' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Approve' }));
     expect(await screen.findByText('The person who reviewed this filter cannot approve it')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
@@ -93,6 +99,7 @@ describe('Filters page — single review / approve / reject', () => {
     renderFilters(REVIEWER, api);
     await openFiltersTab();
     fireEvent.click(within(row('PF-003')).getByRole('button', { name: 'Review' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Complete Review' }));
     await cancelReauth();
     await waitFor(() => expect(within(dlg()).getByRole('button', { name: 'Complete Review' })).toBeEnabled());
@@ -109,6 +116,7 @@ describe('Filters page — single review / approve / reject', () => {
     await waitForReauthConfig(api);
     await openFiltersTab();
     fireEvent.click(within(row('PF-003')).getByRole('button', { name: 'Review' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Complete Review' }));
     await passReauth();
     await screen.findByText('PF-003 reviewed');
@@ -164,9 +172,11 @@ describe('Filters page — bulk review / approve', () => {
     expect(await within(b).findByText('Op One')).toBeInTheDocument();
     fireEvent.click(within(b).getByRole('checkbox', { name: 'Select PF-008' }));
     expect(b).toHaveTextContent('· 1 selected');
+    expect(within(b).getByRole('button', { name: 'Complete Review (1)' })).toBeDisabled(); // remarks first
+    fireEvent.change(within(b).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Labels checked' } });
     fireEvent.click(within(b).getByRole('button', { name: 'Complete Review (1)' }));
     expect(await screen.findByText('PF-003 reviewed')).toBeInTheDocument();
-    expect(api.calls('POST', '/api/assets/instances/review')[0].json).toEqual({ filterIds: ['f3'] });
+    expect(api.calls('POST', '/api/assets/instances/review')[0].json).toEqual({ filterIds: ['f3'], remarks: 'Labels checked' });
     expect(screen.queryByTestId('filter-bulk-approval-dialog')).toBeNull();
   });
 
@@ -230,6 +240,7 @@ describe('Filters page — bulk review / approve', () => {
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByTestId('filter-bulk-approval-dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Review (2)' }));
+    fireEvent.change(within(bulk()).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Complete Review (2)' }));
     expect(await within(bulk()).findByRole('button', { name: 'Completing…' })).toBeDisabled();
     fireEvent.click(within(bulk()).getByRole('button', { name: 'Close' }));
@@ -247,6 +258,7 @@ describe('Filters page — workflow failure titles name the action', () => {
     renderFilters(REVIEWER, api);
     await openFiltersTab();
     fireEvent.click(within(row('PF-003')).getByRole('button', { name: 'Review' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText('Anything the approver should know'), { target: { value: 'Checked' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Complete Review' }));
     expect(await screen.findByText('review refused')).toBeInTheDocument();
     expect(screen.getByText('Review failed')).toBeInTheDocument();
@@ -258,6 +270,7 @@ describe('Filters page — workflow failure titles name the action', () => {
     renderFilters(APPROVER, api);
     await openFiltersTab();
     fireEvent.click(within(row('PF-004')).getByRole('button', { name: 'Approve' }));
+    fireEvent.change(within(dlg()).getByPlaceholderText('Approval remarks'), { target: { value: 'Released' } });
     fireEvent.click(within(dlg()).getByRole('button', { name: 'Approve' }));
     expect(await screen.findByText('approve refused')).toBeInTheDocument();
     expect(screen.getByText('Approval failed')).toBeInTheDocument();

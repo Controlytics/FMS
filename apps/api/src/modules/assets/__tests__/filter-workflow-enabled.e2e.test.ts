@@ -126,20 +126,20 @@ describe('workflow on — creation lands in PENDING_REVIEW, attributed', () => {
 
 describe('workflow on — each step is decided by its configured role', () => {
   it('review needs the review role; approval needs a reviewed filter and the approval role', async () => {
-    const wrongReviewer = await ap.call('POST', '/api/assets/instances/review', { body: { filterIds: [typed] } });
+    const wrongReviewer = await ap.call('POST', '/api/assets/instances/review', { body: { filterIds: [typed], remarks: 'checked' } });
     expect(wrongReviewer.status).toBe(403);
     expect(wrongReviewer.body.message).toBe(`Only users with role "${rv.role}" can review filters`);
     // With a review role configured, approval may not skip the review (A-F3).
-    const skip = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed] } });
+    const skip = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed], remarks: 'checked' } });
     expect(skip.status).toBe(409);
     expect(skip.body.message).toBe(`Cannot approve: "${own.n('TYPED')}" is PENDING_REVIEW. Expected PENDING_APPROVAL.`);
 
-    const reviewed = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [typed] } });
+    const reviewed = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [typed], remarks: 'checked' } });
     expect(reviewed.status).toBe(200);
-    const wrongApprover = await rv.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed] } });
+    const wrongApprover = await rv.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed], remarks: 'checked' } });
     expect(wrongApprover.status).toBe(403);
     expect(wrongApprover.body.message).toBe(`Only users with role "${ap.role}" can approve filters`);
-    const approved = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed] } });
+    const approved = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [typed], remarks: 'checked' } });
     expect(approved.status).toBe(200);
     expect((await stateOf(typed))!.approvalStatus).toBe('APPROVED');
     expect(await auditFor(typed, 'FILTER_APPROVED')).toHaveLength(1);
@@ -159,7 +159,7 @@ describe('workflow on — each step is decided by its configured role', () => {
 
     const atApproval = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('RJ-2'), ahuId } });
     const id2 = atApproval.body.data.id;
-    await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [id2] } });
+    await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [id2], remarks: 'checked' } });
     const reviewerAtApproval = await rv.call('POST', '/api/assets/instances/reject', { body: { filterIds: [id2], remarks: 'no' } });
     expect(reviewerAtApproval.status).toBe(403);
     expect(reviewerAtApproval.body.message).toBe(`You cannot reject "${own.n('RJ-2')}" at its current step: approval is decided by role "${ap.role}".`);
