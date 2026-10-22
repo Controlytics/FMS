@@ -112,6 +112,7 @@ describe('backup.repository', () => {
         .mockResolvedValueOnce([])            // foreign-keys (no FKs found)
         .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "roles" (pre-flight size guard)
         .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "users" (pre-flight size guard)
+        .mockResolvedValueOnce([])           // information_schema.columns
         .mockResolvedValueOnce([{ id: 1 }])  // SELECT * FROM "roles"
         .mockResolvedValueOnce([{ id: 2 }]); // SELECT * FROM "users"
 
@@ -119,8 +120,8 @@ describe('backup.repository', () => {
 
       expect(result).toHaveProperty('roles');
       expect(result).toHaveProperty('users');
-      // 1 pg_tables + 1 FKs + 2 COUNTs (pre-flight) + 2 SELECTs
-      expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(6);
+      // 1 pg_tables + 1 FKs + 2 COUNTs (pre-flight) + 1 columns + 2 SELECTs
+      expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(7);
     });
 
     it('orders the audit_trail SELECT by id ASC for byte-for-byte reproducible backups', async () => {
@@ -129,6 +130,7 @@ describe('backup.repository', () => {
         .mockResolvedValueOnce([])            // foreign-keys
         .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "audit_trail" (pre-flight size guard)
         .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "roles" (pre-flight size guard)
+        .mockResolvedValueOnce([])           // information_schema.columns
         .mockResolvedValueOnce([])           // SELECT * FROM "audit_trail"
         .mockResolvedValueOnce([]);          // SELECT * FROM "roles"
 
@@ -139,6 +141,46 @@ describe('backup.repository', () => {
       );
       expect(auditCall).toBeDefined();
       expect(auditCall![0] as string).toContain('ORDER BY id ASC');
+    });
+
+    // D-DB-5 (2026-10-22): a Date holds milliseconds only, so a timestamptz is
+    // read as ISO text. A table without one is still read with SELECT *.
+    it('names every column, in order, for a table with a timestamptz, and reads that column as text', async () => {
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ tablename: 'notifications' }, { tablename: 'roles' }]) // pg_tables
+        .mockResolvedValueOnce([])            // foreign-keys
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "notifications"
+        .mockResolvedValueOnce([{ c: 0n }])  // COUNT(*) "roles"
+        .mockResolvedValueOnce([             // information_schema.columns, ordinal order
+          { table_name: 'notifications', column_name: 'id', data_type: 'uuid' },
+          { table_name: 'notifications', column_name: 'created_at', data_type: 'timestamp with time zone' },
+          { table_name: 'notifications', column_name: 'title', data_type: 'text' },
+          { table_name: 'roles', column_name: 'name', data_type: 'text' },
+        ])
+        .mockResolvedValueOnce([])           // SELECT … FROM "notifications"
+        .mockResolvedValueOnce([]);          // SELECT * FROM "roles"
+
+      await fetchAllTablesRaw();
+
+      const sql = mockPrisma.$queryRawUnsafe.mock.calls.map((c: unknown[]) => c[0] as string);
+      const notif = sql.find((q) => q.endsWith('FROM "notifications"') && !q.includes('COUNT('))!;
+      expect(notif.startsWith('SELECT "id", CASE WHEN "created_at" IS NULL')).toBe(true);
+      expect(notif).toContain(`to_char("created_at" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`);
+      expect(notif).toContain('END AS "created_at", "title" FROM');
+      expect(sql).toContain('SELECT * FROM "roles"');
+    });
+
+    it('refuses an unsafe column name rather than interpolating it', async () => {
+      mockPrisma.$queryRawUnsafe
+        .mockResolvedValueOnce([{ tablename: 'notifications' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ c: 0n }])
+        .mockResolvedValueOnce([
+          { table_name: 'notifications', column_name: 'x"; DROP TABLE users; --', data_type: 'text' },
+          { table_name: 'notifications', column_name: 'created_at', data_type: 'timestamp with time zone' },
+        ]);
+
+      await expect(fetchAllTablesRaw()).rejects.toThrow(/unsafe SQL identifier/);
     });
   });
 

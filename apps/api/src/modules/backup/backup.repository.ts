@@ -342,6 +342,54 @@ export async function getUserTriggerState(): Promise<Array<{ table: string; trig
   return rows.map(r => ({ table: r.relname, trigger: r.tgname, enabled: r.tgenabled !== 'D' }));
 }
 
+/**
+ * Each public table's columns in ordinal order, flagged when the column is a
+ * timestamptz, for the export SELECT below.
+ */
+async function getExportColumns(): Promise<Record<string, Array<{ name: string; timestamptz: boolean }>>> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ table_name: string; column_name: string; data_type: string }>>(
+    `SELECT table_name, column_name, data_type
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+      ORDER BY table_name, ordinal_position`,
+  );
+  const out: Record<string, Array<{ name: string; timestamptz: boolean }>> = {};
+  for (const r of rows) {
+    (out[r.table_name] ??= []).push({ name: r.column_name, timestamptz: r.data_type === 'timestamp with time zone' });
+  }
+  return out;
+}
+
+/**
+ * The export reads a timestamptz as ISO-8601 UTC text, never as a JS Date
+ * (D-DB-5, 2026-10-22). A Date holds milliseconds only, so a value written by
+ * Postgres itself (`now()`, a column default) lost its last three digits in
+ * every JSON / BAK / SQL / CSV backup, and the restore wrote the shortened
+ * value back: 1,522 values changed on a round trip of the go-live copy.
+ *
+ * A value with no finer part than milliseconds is rendered exactly as
+ * `Date.toISOString()` rendered it (`…:40.965Z`), so app-written values, the
+ * audit checksums computed over that string, and every older backup file are
+ * unchanged. Only a value that has microseconds gets six digits (`…:40.188630Z`).
+ */
+function isoTimestampColumn(column: string): string {
+  const c = `"${column}"`;
+  return `CASE WHEN ${c} IS NULL THEN NULL`
+    + ` WHEN NOT isfinite(${c}) THEN ${c}::text`
+    + ` WHEN EXTRACT(MICROSECONDS FROM ${c})::bigint % 1000 = 0`
+    + ` THEN to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+    + ` ELSE to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') END AS ${c}`;
+}
+
+/** `*` for a table with no timestamptz column; otherwise every column, in order. */
+function selectList(columns: Array<{ name: string; timestamptz: boolean }> | undefined): string {
+  if (!columns || !columns.some((col) => col.timestamptz)) return '*';
+  return columns.map((col) => {
+    assertSafeIdentifier(col.name);
+    return col.timestamptz ? isoTimestampColumn(col.name) : `"${col.name}"`;
+  }).join(', ');
+}
+
 export async function fetchAllTablesRaw(): Promise<Record<string, Record<string, any>[]>> {
   const tables = await getAllTables();
 
@@ -359,12 +407,13 @@ export async function fetchAllTablesRaw(): Promise<Record<string, Record<string,
     }
   }
 
+  const columns = await getExportColumns();
   const result: Record<string, Record<string, any>[]> = {};
   for (const table of tables) {
     assertSafeIdentifier(table);
     const orderClause = table === 'audit_trail' ? ' ORDER BY id ASC' : '';
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "${table}"${orderClause}`,
+      `SELECT ${selectList(columns[table])} FROM "${table}"${orderClause}`,
     ) as Record<string, any>[];
     result[table] = stripSensitiveColumns(table, stringifyBigInts(rows));
   }

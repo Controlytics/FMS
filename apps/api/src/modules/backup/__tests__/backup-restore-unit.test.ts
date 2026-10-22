@@ -226,6 +226,7 @@ describe('buildSqlScript (the .sql export) over a fake catalog', () => {
       if (sql.includes('key_column_usage')) return [{ table_name: 'asset_instances', column_name: 'parent_id', is_nullable: 'YES' }];
       if (sql.includes("constraint_type = 'FOREIGN KEY'")) return [];
       if (sql.includes("data_type = 'ARRAY'")) return [{ table_name: 'notification_rules', column_name: 'event_types', udt_name: '_NotificationEventType' }];
+      if (sql.includes('ORDER BY table_name, ordinal_position')) return []; // no timestamptz columns: SELECT *
       const count = /COUNT\(\*\)::bigint AS c FROM "(\w+)"/.exec(sql);
       if (count) return [{ c: BigInt(rows[count[1]].length) }];
       const select = /^SELECT \* FROM "(\w+)"/.exec(sql);
