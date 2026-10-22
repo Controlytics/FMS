@@ -114,6 +114,20 @@ function clientOptions(cfg: LdapTransport, dest: CheckedDestination) {
   };
 }
 
+/**
+ * Close a client's connection. ldapts' unbind destroys the socket in its own
+ * `finally`, so even a failed unbind (server already gone) leaves nothing open;
+ * the failure itself is logged, not thrown — it must not turn a finished bind
+ * into an error.
+ */
+async function releaseClient(client: Client): Promise<void> {
+  try {
+    await client.unbind();
+  } catch (err) {
+    ldapLog.warn({ err }, 'LDAP unbind failed (socket destroyed anyway)');
+  }
+}
+
 /** Bind on a client built by clientOptions, upgrading an ldap:// connection with StartTLS first unless switched off. */
 async function secureBind(client: Client, cfg: LdapTransport, dest: CheckedDestination, dn: string, password: string): Promise<void> {
   if (!isLdaps(dest.connectUrl) && cfg.startTls !== false) {
@@ -313,15 +327,22 @@ export const ldapService = {
 
     const client = new Client(clientOptions(cfg, dest));
 
+    let bound = false;
+    let failure: unknown;
     try {
       await secureBind(client, cfg, dest, cfg.bindDN, cfg.bindPassword);
-      await client.unbind();
-      return { success: true, message: 'Successfully connected and authenticated to LDAP server' };
-    } catch (err: any) {
-      // The raw error is for the operator's log, not the response (SEC-08).
-      ldapLog.warn({ err, serverUrl: cfg.serverUrl }, 'LDAP test-connection failed');
-      return answer(describeBindFailure(err));
+      bound = true;
+    } catch (err) {
+      failure = err;
+    } finally {
+      // Released on EVERY path, before the failure floor below is waited out —
+      // a refused StartTLS or bind used to leave the socket open on the directory.
+      await releaseClient(client);
     }
+    if (bound) return { success: true, message: 'Successfully connected and authenticated to LDAP server' };
+    // The raw error is for the operator's log, not the response (SEC-08).
+    ldapLog.warn({ err: failure, serverUrl: cfg.serverUrl }, 'LDAP test-connection failed');
+    return answer(describeBindFailure(failure));
   },
 
   async authenticateUser(username: string, password: string): Promise<LdapAuthResult | null> {
@@ -398,12 +419,17 @@ export const ldapService = {
       // Step 3: Verify user's password by binding as the user
       const userClient = new Client(clientOptions(cfg, dest));
 
+      let userBound = false;
       try {
         await secureBind(userClient, cfg, dest, userDn, password);
-        await userClient.unbind();
+        userBound = true;
       } catch {
-        return null; // Invalid password
+        // Invalid password (or a refused StartTLS) — the answer is null either way.
+      } finally {
+        // A wrong password used to leave this connection open on the directory.
+        await releaseClient(userClient);
       }
+      if (!userBound) return null;
 
       return {
         success: true,

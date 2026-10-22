@@ -22,16 +22,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const ldap = vi.hoisted(() => ({
   instances: [] as Array<{ opts: any; bind: any; unbind: any; search: any; startTLS: any }>,
   bindImpl: null as null | (() => Promise<void>),
+  /** Bind behaviour per constructed client, in order (falls back to bindImpl). */
+  bindQueue: [] as Array<() => Promise<void>>,
+  startTlsImpl: null as null | (() => Promise<void>),
+  searchEntries: [] as any[],
 }));
 vi.mock('ldapts', () => ({
   Client: class {
     opts: any; bind: any; unbind: any; search: any; startTLS: any;
     constructor(opts: any) {
       this.opts = opts;
-      this.bind = vi.fn(ldap.bindImpl ?? (async () => undefined));
+      this.bind = vi.fn(ldap.bindQueue.shift() ?? ldap.bindImpl ?? (async () => undefined));
       this.unbind = vi.fn(async () => undefined);
-      this.search = vi.fn(async () => ({ searchEntries: [] }));
-      this.startTLS = vi.fn(async () => undefined);
+      this.search = vi.fn(async () => ({ searchEntries: ldap.searchEntries }));
+      this.startTLS = vi.fn(ldap.startTlsImpl ?? (async () => undefined));
       ldap.instances.push(this);
     }
   },
@@ -57,6 +61,9 @@ const netErr = (code: string, message: string) => Object.assign(new Error(messag
 beforeEach(() => {
   ldap.instances.length = 0;
   ldap.bindImpl = null;
+  ldap.bindQueue.length = 0;
+  ldap.startTlsImpl = null;
+  ldap.searchEntries = [];
   vi.spyOn(ldapService, 'getConfig').mockResolvedValue({ ...STORED } as any);
   dns.lookup.mockReset().mockImplementation(async (host: string) => {
     if (host === 'dc01.cvl.lan') return [{ address: '192.168.10.20', family: 4 }];
@@ -214,5 +221,39 @@ describe('login bind: the same destination check', () => {
     vi.spyOn(ldapService, 'getConfig').mockResolvedValue({ ...STORED, serverUrl: 'ldaps://dc01.cvl.lan:636' } as any);
     await ldapService.authenticateUser('jdoe', 'pw');
     expect(ldap.instances[0].opts).toMatchObject({ url: 'ldaps://192.168.10.20:636', tlsOptions: { servername: 'dc01.cvl.lan' } });
+  });
+});
+
+describe('every path releases the LDAP socket', () => {
+  // A connection left open on a failure path holds a socket on the directory
+  // until the server times it out — one per failed login. Found by the
+  // real-listener suite (e2e/ldap-transport-mode.test.ts), whose afterAll hung
+  // on the socket a refused StartTLS left behind.
+  const ldapError = (code: number) => Object.assign(new Error(`Code: ${code}`), { code });
+
+  it('test-connection: a refused StartTLS, a refused bind and a successful bind all unbind', async () => {
+    ldap.startTlsImpl = async () => { throw ldapError(2); };
+    expect((await probe('ldap://10.20.30.40:389')).success).toBe(false);
+    ldap.startTlsImpl = null;
+    ldap.bindImpl = async () => { throw ldapError(49); };
+    expect((await probe('ldap://10.20.30.40:389')).success).toBe(false);
+    ldap.bindImpl = null;
+    expect((await probe('ldap://10.20.30.40:389')).success).toBe(true);
+    expect(ldap.instances.map((c) => c.unbind.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+
+  it('login: a wrong user password releases the user connection as well as the service one', async () => {
+    ldap.searchEntries = [{ dn: 'cn=jdoe,dc=cvl,dc=lan' }];
+    ldap.bindQueue.push(async () => undefined, async () => { throw ldapError(49); });
+    expect(await ldapService.authenticateUser('jdoe', 'wrong')).toBeNull();
+    expect(ldap.instances).toHaveLength(2);
+    expect(ldap.instances[0].unbind).toHaveBeenCalledTimes(1);
+    expect(ldap.instances[1].unbind).toHaveBeenCalledTimes(1);
+  });
+
+  it('login: a right user password releases both connections too', async () => {
+    ldap.searchEntries = [{ dn: 'cn=jdoe,dc=cvl,dc=lan', memberOf: ['cn=Ops'] }];
+    expect(await ldapService.authenticateUser('jdoe', 'right')).toMatchObject({ success: true, userDn: 'cn=jdoe,dc=cvl,dc=lan' });
+    expect(ldap.instances.map((c) => c.unbind.mock.calls.length)).toEqual([1, 1]);
   });
 });

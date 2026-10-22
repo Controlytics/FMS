@@ -139,7 +139,8 @@ describe('authenticateUser', () => {
     useConfig();
     ldap.queue.push({ search: async () => ({ searchEntries: [{ dn: 'cn=c' }] }) }, { bind: async () => { throw new Error('49 invalid credentials'); } });
     expect(await ldapService.authenticateUser('c', 'bad')).toBeNull();
-    expect(ldap.instances[1].unbind).not.toHaveBeenCalled();
+    // The failed user connection is released (it used to be left open on the directory).
+    expect(ldap.instances[1].unbind).toHaveBeenCalledTimes(1);
   });
 
   it('a directory failure is null, and the best-effort unbind is attempted', async () => {

@@ -43,7 +43,7 @@ const message = (id: number, op: number, body: Buffer) => Buffer.concat([
 /** LDAPResult { resultCode, matchedDN "", diagnosticMessage "" } (+ extra tail). */
 const result = (code: number, tail = Buffer.alloc(0)) => Buffer.concat([Buffer.from([0x0a, 0x01, code, 0x04, 0x00, 0x04, 0x00]), tail]);
 
-type Seen = { firstByte: number; ops: string[]; tlsUpgraded: boolean };
+type Seen = { firstByte: number; ops: string[]; tlsUpgraded: boolean; bindCode?: number };
 /** What the directory saw, without the unbind (the client may close before it is read). */
 const ops = (seen: Seen) => seen.ops.filter((o) => o !== 'UNBIND');
 
@@ -57,9 +57,9 @@ function serve(socket: net.Socket, seen: Seen, opts: { startTls: boolean }) {
     if (len & 0x80) i += len & 0x7f;
     const id = buf[i + 2];
     const op = buf[i + 3];
-    if (op === 0x60) { // BindRequest → success
+    if (op === 0x60) { // BindRequest → success (or the configured result code)
       seen.ops.push('BIND');
-      socket.write(message(id, 0x61, result(0)));
+      socket.write(message(id, 0x61, result(seen.bindCode ?? 0)));
     } else if (op === 0x77) { // ExtendedRequest (StartTLS)
       seen.ops.push('STARTTLS');
       if (!opts.startTls) { socket.write(message(id, 0x78, result(2))); return; } // protocolError
@@ -81,15 +81,26 @@ function serve(socket: net.Socket, seen: Seen, opts: { startTls: boolean }) {
 }
 
 const servers: net.Server[] = [];
-async function listen(kind: 'plain' | 'tls', startTls = false): Promise<{ port: number; seen: Seen }> {
-  const seen: Seen = { firstByte: 0, ops: [], tlsUpgraded: false };
+async function listen(kind: 'plain' | 'tls', startTls = false, bindCode = 0): Promise<{ port: number; seen: Seen; server: net.Server }> {
+  const seen: Seen = { firstByte: 0, ops: [], tlsUpgraded: false, bindCode };
   const server = kind === 'tls'
     ? tls.createServer(tlsCreds(), (s) => serve(s as unknown as net.Socket, seen, { startTls: false }))
     : net.createServer((s) => serve(s, seen, { startTls }));
   servers.push(server);
   await new Promise<void>((r) => server.listen(0, lanIp, () => r()));
-  return { port: (server.address() as net.AddressInfo).port, seen };
+  return { port: (server.address() as net.AddressInfo).port, seen, server };
 }
+/** Connections the directory still holds, once the client has had a moment to close. */
+async function openConnections(server: net.Server): Promise<number> {
+  let n = 0;
+  for (let i = 0; i < 20; i++) {
+    n = await new Promise<number>((r) => server.getConnections((_e, c) => r(c)));
+    if (n === 0) return 0;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return n;
+}
+// Every case asserts its own socket was released, so close() has nothing to wait for.
 afterAll(async () => { await Promise.all(servers.map((s) => new Promise((r) => s.close(() => r(null))))); });
 
 const test = (serverUrl: string, extra: Record<string, unknown> = {}) => ldapService.testConnection({
@@ -116,11 +127,20 @@ describe.skipIf(!lanIp || !haveCert)('ldap:// and ldaps:// against real listener
   });
 
   it('ldap:// by default refuses a server without StartTLS instead of falling back to a cleartext bind', async () => {
-    const { port, seen } = await listen('plain', false);
+    const { port, seen, server } = await listen('plain', false);
     const res = await test(`ldap://${lanIp}:${port}`);
     expect(res.success).toBe(false);
     expect(res.message).toBe('LDAP connection failed: the server answered with LDAP result code 2.');
     expect(seen.ops).toEqual(['STARTTLS']); // no BIND was ever sent
+    // …and the refused connection is released, not left open on the directory.
+    expect(await openConnections(server)).toBe(0);
+  });
+
+  it('a refused bind (invalid credentials) is reported and its connection released', async () => {
+    const { port, server } = await listen('plain', false, 49);
+    const res = await test(`ldap://${lanIp}:${port}`, { startTls: false });
+    expect(res).toEqual({ success: false, message: 'LDAP connection failed: the server rejected the bind credentials.' });
+    expect(await openConnections(server)).toBe(0);
   });
 
   it('ldaps:// is TLS from the first byte', async () => {
