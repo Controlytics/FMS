@@ -21,7 +21,7 @@ vi.mock('../filter-workflow.js', async (importOriginal) => {
 import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { prisma } from '../../../lib/prisma.js';
-import { buildSliceApp, SliceOwner, runTag, auditFor, type Caller } from './slice-support.js';
+import { buildSliceApp, SliceOwner, runTag, PASSWORD, auditFor, type Caller } from './slice-support.js';
 
 const own = new SliceOwner(runTag('CVWF'));
 let app: FastifyInstance;
@@ -119,7 +119,7 @@ describe('workflow on — creation lands in PENDING_REVIEW, attributed', () => {
     const tagRes = await sa.call('POST', '/api/assets/identifiers', { body: { assetId: typed, identifierType: 'RFID', identifierValue: `${own.tag}T` } });
     expect(tagRes.status).toBe(409);
     expect(tagRes.body.error).toBe('FILTER_NOT_APPROVED');
-    const move = await sa.call('PATCH', `/api/assets/instances/${typed}/lifecycle-state`, { body: { lifecycleState: 'INSTALLED', remarks: 'x' } });
+    const move = await sa.call('PATCH', `/api/assets/instances/${typed}/lifecycle-state`, { body: { lifecycleState: 'INSTALLED', remarks: 'x' }, pw: PASSWORD });
     expect(move.status).toBe(409);
   });
 });

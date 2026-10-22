@@ -2,7 +2,7 @@ import { type FastifyInstance } from 'fastify';
 import { ldapService } from './ldap.service.js';
 import { auditLog } from '../../lib/audit.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../lib/reauth-check.js';
 
 // Audit allowlist — see lib/mask-secrets.ts. This was `{ ...body,
 // bindPassword: '********' }`: a denylist that happens to be complete only
@@ -41,7 +41,8 @@ export default async function ldapRoutes(app: FastifyInstance) {
     // and base-DN are the source-of-trust for every login flow. Tampering
     // with them can redirect every login to an attacker-controlled
     // directory.
-    const { ok } = await enforceReauth('UPDATE_LDAP_CONFIG', req, reply);
+    // OD-01 (2026-10-22): the group -> role mapping is a role rule — always signed.
+    const { ok } = await enforceReauthAlways('UPDATE_LDAP_CONFIG', req, reply);
     if (!ok) return;
     const body = req.body as Record<string, any>;
     // Audit 2026-09-24: beforeValue was never written for this security-critical config.

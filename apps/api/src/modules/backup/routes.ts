@@ -1,6 +1,6 @@
 import { type FastifyInstance } from 'fastify';
 import { createReadStream } from 'node:fs';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { buildContext } from '../../lib/build-context.js';
 import * as backupService from './backup.service.js';
@@ -126,7 +126,9 @@ export default async function backupRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('RESTORE_BACKUP', req, reply);
+    // OD-01 (2026-10-22): a restore rewrites every record — always signed, for
+    // every caller incl. SUPER_ADMIN, before any of the upload is read.
+    const { ok } = await enforceReauthAlways('RESTORE_BACKUP', req, reply);
     if (!ok) return;
 
     try {

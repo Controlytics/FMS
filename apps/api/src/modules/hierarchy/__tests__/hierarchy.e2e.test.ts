@@ -303,7 +303,7 @@ describe('hierarchy — filters (write)', () => {
   it('delete refuses while the filter is mid-cycle, ignores a stale pointer at a finished cycle, and cascades the RFID tag with audit rows', async () => {
     const live = await own.cycle(created, cpId);
     await prisma.filterDetails.update({ where: { assetInstanceId: created }, data: { currentCycleId: live } });
-    const blocked = await sa.call('DELETE', `/api/hierarchy/filters/${created}`);
+    const blocked = await sa.call('DELETE', `/api/hierarchy/filters/${created}`, { pw: PASSWORD });
     expect(blocked.status).toBe(409);
     expect(blocked.body.error).toBe('FILTER_CYCLE_IN_PROGRESS');
     expect(blocked.body.message).toContain(own.n('NEW-2'));
@@ -324,13 +324,13 @@ describe('hierarchy — filters (write)', () => {
     const [del] = await auditFor(created, 'ASSET_DELETED');
     expect(del.afterValue).toEqual({ isActive: false, templateKind: 'FILTER' });
     // A filter with no sidecar at all deletes too.
-    const plain = await sa.call('DELETE', `/api/hierarchy/filters/${fNoDetails}`);
+    const plain = await sa.call('DELETE', `/api/hierarchy/filters/${fNoDetails}`, { pw: PASSWORD });
     expect(plain.status).toBe(200);
   });
 
   it('deleting a filter that does not exist is 404, like editing one', async () => {
     internalErrors.length = 0;
-    const res = await sa.call('DELETE', `/api/hierarchy/filters/${randomUUID()}`);
+    const res = await sa.call('DELETE', `/api/hierarchy/filters/${randomUUID()}`, { pw: PASSWORD });
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'NOT_FOUND', message: 'Filter not found' });
     expect(internalErrors).toEqual([]);

@@ -19,7 +19,7 @@ import type { FastifyInstance } from 'fastify';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { hierarchyService, type CreateFilterInput } from './hierarchy.service.js';
 import { buildContext } from '../../lib/build-context.js';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 
 // Shared building blocks for response schemas. Block/Area/Ahu share most
 // fields; Filter adds the legacy FilterDetails columns inlined by Step 6.
@@ -405,7 +405,8 @@ export default async function hierarchyRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth(['DELETE_ASSET', 'DELETE_FILTER'], req, reply);
+    // OD-01 (2026-10-22): deleting a filter — always signed.
+    const { ok } = await enforceReauthAlways(['DELETE_ASSET', 'DELETE_FILTER'], req, reply);
     if (!ok) return;
     const { id } = req.params as { id: string };
     await hierarchyService.deleteFilter(id, buildContext(req));

@@ -245,26 +245,26 @@ describe('users routes', () => {
 
   describe('update', () => {
     it('404s an unknown user', async () => {
-      const res = await authPut(app, '/api/users/00000000-0000-4000-8000-0000000000ce', saTok, { fullName: 'X' });
+      const res = await authPut(app, '/api/users/00000000-0000-4000-8000-0000000000ce', saTok, { fullName: 'X' }, PW);
       expect(res.statusCode).toBe(404);
     });
 
     it('400s an invalid email (zod)', async () => {
-      const res = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: 'not-an-email' });
+      const res = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: 'not-an-email' }, PW);
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe('VALIDATION_ERROR');
     });
 
     it('a manager cannot touch a user above it, change its own role, or assign a role above it', async () => {
-      const high = await authPut(app, `/api/users/${ids.HIGH}`, mgrTok, { fullName: 'Nope' });
+      const high = await authPut(app, `/api/users/${ids.HIGH}`, mgrTok, { fullName: 'Nope' }, PW);
       expect(high.statusCode).toBe(403);
       expect(high.json().message).toBe('You cannot manage a user whose role is higher than yours');
 
-      const self = await authPut(app, `/api/users/${ids.MGR}`, mgrTok, { role: R_LOW });
+      const self = await authPut(app, `/api/users/${ids.MGR}`, mgrTok, { role: R_LOW }, PW);
       expect(self.statusCode).toBe(403);
       expect(self.json().message).toBe('Cannot change your own role');
 
-      const raise = await authPut(app, `/api/users/${ids.LOW2}`, mgrTok, { role: R_HIGH });
+      const raise = await authPut(app, `/api/users/${ids.LOW2}`, mgrTok, { role: R_HIGH }, PW);
       expect(raise.statusCode).toBe(403);
       expect(raise.json().message).toBe(`Cannot assign role ${R_HIGH}`);
       expect((await prisma.user.findUnique({ where: { id: ids.LOW2 } }))?.role).toBe(R_LOW);
@@ -272,18 +272,18 @@ describe('users routes', () => {
 
     it('normalises a blank email to NULL and 409s an email another user holds', async () => {
       await prisma.user.update({ where: { id: ids.LOW2 }, data: { email: `cva.l2.${S.toLowerCase()}@example.com` } });
-      const blank = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: '' });
+      const blank = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: '' }, PW);
       expect(blank.statusCode).toBe(200);
       expect((await prisma.user.findUnique({ where: { id: ids.LOW2 } }))?.email).toBeNull();
 
       const taken = (await prisma.user.findUnique({ where: { id: ids.LOW1 } }))!.email!;
-      const dup = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: taken });
+      const dup = await authPut(app, `/api/users/${ids.LOW2}`, saTok, { email: taken }, PW);
       expect(dup.statusCode).toBe(409);
     });
 
     it('a role change ends the target\'s sessions and is audited without any password', async () => {
       const tok = await login(app, LOW3, PW);
-      const res = await authPut(app, `/api/users/${ids.LOW3}`, saTok, { role: R_MGR, fullName: 'Cov Promoted' });
+      const res = await authPut(app, `/api/users/${ids.LOW3}`, saTok, { role: R_MGR, fullName: 'Cov Promoted' }, PW);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ role: R_MGR, fullName: 'Cov Promoted' });
       const sessions = await prisma.session.findMany({ where: { userId: ids.LOW3 } });
@@ -299,7 +299,7 @@ describe('users routes', () => {
 
     it('disabling through update ends sessions with reason account_disabled', async () => {
       await login(app, LOW3, PW);
-      const res = await authPut(app, `/api/users/${ids.LOW3}`, saTok, { status: 'DISABLED' });
+      const res = await authPut(app, `/api/users/${ids.LOW3}`, saTok, { status: 'DISABLED' }, PW);
       expect(res.statusCode).toBe(200);
       const s = await prisma.session.findFirst({ where: { userId: ids.LOW3 }, orderBy: { createdAt: 'desc' } });
       expect(s).toMatchObject({ isActive: false, terminationReason: 'account_disabled' });
@@ -535,7 +535,7 @@ describe('users routes', () => {
       expect((await authGet(app, '/api/users/stats', tok)).statusCode).toBe(200);
       // …then remove the role row directly (no cache invalidation), as a restore would.
       await prisma.role.delete({ where: { name: R_TMP } });
-      const upd = await authPut(app, `/api/users/${ids.LOW3}`, tok, { fullName: 'Should Not Apply' });
+      const upd = await authPut(app, `/api/users/${ids.LOW3}`, tok, { fullName: 'Should Not Apply' }, PW);
       const crt = await authPost(app, '/api/users', tok, { username: await validUserId(), fullName: 'X', role: R_LOW, password: PW, confirmPassword: PW });
       // The rbac cache lives 5 s; inside it the service's own role lookup is the guard.
       for (const res of [upd, crt]) {
@@ -552,7 +552,7 @@ describe('users routes', () => {
       expect(res.statusCode).toBe(201);
       const row = await prisma.user.findUnique({ where: { username } });
       expect(row?.email).toBeNull();
-      const upd = await authPut(app, `/api/users/${row!.id}`, saTok, { email: null, department: 'Lab' });
+      const upd = await authPut(app, `/api/users/${row!.id}`, saTok, { email: null, department: 'Lab' }, PW);
       expect(upd.statusCode).toBe(200);
       expect(await prisma.user.findUnique({ where: { username } })).toMatchObject({ email: null, department: 'Lab' });
     });

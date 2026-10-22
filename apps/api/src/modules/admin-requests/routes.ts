@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { enforceReauth } from '../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { buildContext } from '../../lib/build-context.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { adminRequestService } from './admin-request.service.js';
@@ -262,10 +262,22 @@ export default async function adminRequestRoutes(app: FastifyInstance) {
     // The admin-request approve/reject flow covers password-reset / unlock /
     // modify-user as well, none of which are user-creation. The dedicated
     // action keeps the audit trail honest about WHICH role action this is.
-    const { ok } = await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
+    //
+    // OD-01 (operator decision 2026-10-22): APPROVING a request that changes a
+    // user's ROLE is a role change, signed always like PUT /api/users/:id
+    // (UPDATE_USER), for every caller. Decided from the STORED request, never
+    // from the body. Every other decision stays policy-driven.
+    const { id } = req.params as { id: string };
+    const stored = action === 'approve'
+      ? await prisma.adminRequest.findUnique({ where: { id }, select: { requestType: true, requestData: true } })
+      : null;
+    const changesRole = stored?.requestType === 'MODIFY_USER'
+      && String((stored.requestData as Record<string, unknown> | null)?.modifyField ?? '').trim() === 'role';
+    const { ok } = changesRole
+      ? await enforceReauthAlways(['APPROVE_ADMIN_REQUEST', 'UPDATE_USER'], req, reply)
+      : await enforceReauth('APPROVE_ADMIN_REQUEST', req, reply);
     if (!ok) return;
 
-    const { id } = req.params as { id: string };
     const ctx = buildContext(req);
 
     const result = await adminRequestService.process(id, action, remarks, ctx);

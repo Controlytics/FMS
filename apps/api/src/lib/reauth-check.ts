@@ -306,12 +306,18 @@ function takeBodyPassword(req: FastifyRequest): string | undefined {
  * `enforceReauth`, but NOT gated on the admin-managed action-reauth config — the
  * password confirmation is intrinsic to the action, not an opt-in policy, so it
  * cannot be turned off. Still honors a verified offline-replay grant.
+ *
+ * Accepts one action or several, like `enforceReauth`, for a route that serves
+ * more than one logical action (e.g. DELETE /instances/:id deletes a Block, an
+ * AHU or a filter). Every listed action is required; the signature is recorded
+ * under the first.
  */
 export async function enforceReauthAlways(
-  action: string,
+  actionOrActions: string | string[],
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<{ ok: boolean }> {
+  const action = Array.isArray(actionOrActions) ? actionOrActions[0] : actionOrActions;
   const bodyPw = takeBodyPassword(req);
   if (req.offlineReplayVerified === true) return { ok: true };
   const password = bodyPw ?? (req.headers['x-reauth-password'] as string);

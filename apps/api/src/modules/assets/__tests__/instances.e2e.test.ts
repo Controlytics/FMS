@@ -383,7 +383,7 @@ describe('instances — delete (soft, with cascade)', () => {
   it('refuses while any filter in the subtree is mid-cycle, naming it', async () => {
     const cp = await prisma.filterProfile.findUnique({ where: { id: fpId } });
     const cycle = await own.cycle(I.FB, cp!.cleaningProfileId);
-    const res = await sa.call('DELETE', `/api/assets/instances/${I.B}`);
+    const res = await sa.call('DELETE', `/api/assets/instances/${I.B}`, { pw: PASSWORD });
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('FILTER_CYCLE_IN_PROGRESS');
     const code = (await prisma.cleaningCycle.findUnique({ where: { id: cycle } }))!.cycleCode;
@@ -418,11 +418,11 @@ describe('instances — delete (soft, with cascade)', () => {
   });
 
   it('a leaf deletes on its own (no groups recorded); an unknown id is 404', async () => {
-    const res = await sa.call('DELETE', `/api/assets/instances/${I.BSC1}`);
+    const res = await sa.call('DELETE', `/api/assets/instances/${I.BSC1}`, { pw: PASSWORD });
     expect(res.body).toEqual({ success: true, deactivatedCount: 1 });
     const [del] = await auditFor(I.BSC1, 'ASSET_DELETED');
     expect(del.afterValue).toEqual({ isActive: false, cascadeDeactivated: 0, templateKind: 'OTHER' });
-    const missing = await sa.call('DELETE', `/api/assets/instances/${randomUUID()}`);
+    const missing = await sa.call('DELETE', `/api/assets/instances/${randomUUID()}`, { pw: PASSWORD });
     expect(missing.status).toBe(404);
   });
 });

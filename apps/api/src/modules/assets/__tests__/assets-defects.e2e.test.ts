@@ -9,7 +9,7 @@ import ExcelJS from 'exceljs';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../lib/prisma.js';
 import { internalErrors } from '../../../e2e/test-helper.js';
-import { buildSliceApp, SliceOwner, runTag, auditFor, type Caller } from './slice-support.js';
+import { buildSliceApp, SliceOwner, runTag, PASSWORD, auditFor, type Caller } from './slice-support.js';
 
 const own = new SliceOwner(runTag('CVDA'));
 let app: FastifyInstance;
@@ -154,7 +154,7 @@ describe('D9 — PUT/POST /instances store a name exactly as the duplicate check
 
 describe('D2 — deleting a filter that does not exist is 404', () => {
   it('DELETE /api/hierarchy/filters/:unknown', async () => {
-    const res = await sa.call('DELETE', `/api/hierarchy/filters/${randomUUID()}`);
+    const res = await sa.call('DELETE', `/api/hierarchy/filters/${randomUUID()}`, { pw: PASSWORD });
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'NOT_FOUND', message: 'Filter not found' });
   });

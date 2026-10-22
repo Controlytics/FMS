@@ -1,5 +1,5 @@
 import { type FastifyInstance } from 'fastify';
-import { enforceReauth, enforceReauthAlways } from '../../../lib/reauth-check.js';
+import { enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { configService } from '../config.service.js';
 import { requireChangeReason, changeReasonSchemaProp } from '../../../lib/change-reason.js';
@@ -170,7 +170,9 @@ export async function rolesConfigRoutes(app: FastifyInstance) {
     },
   }, async (req, reply) => {
     const reason = (req.body as { permissions?: unknown }).permissions !== undefined ? requireChangeReason(req.body) : undefined;
-    const { ok } = await enforceReauth('UPDATE_USER_CONFIG', req, reply);
+    // OD-01 (2026-10-22): per-user permission overrides are permission changes —
+    // always signed, for every caller incl. SUPER_ADMIN.
+    const { ok } = await enforceReauthAlways('UPDATE_USER_CONFIG', req, reply);
     if (!ok) return;
     const { userId } = req.params as { userId: string };
     const { sidebarItems, homeWidgets, permissions } = req.body as {

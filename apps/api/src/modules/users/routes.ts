@@ -302,7 +302,8 @@ export default async function userRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('UPDATE_USER', req, reply);
+    // OD-01 (2026-10-22): an edit can change the user's role — always signed.
+    const { ok } = await enforceReauthAlways('UPDATE_USER', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

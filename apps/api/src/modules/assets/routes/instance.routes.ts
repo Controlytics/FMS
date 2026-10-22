@@ -1,6 +1,6 @@
  
  import type { FastifyInstance, FastifyReply } from 'fastify';
-import { enforceReauth } from '../../../lib/reauth-check.js';
+import { enforceReauth, enforceReauthAlways } from '../../../lib/reauth-check.js';
 import { AppError } from '../../../lib/errors.js';
 import { buildContext } from '../../../lib/build-context.js';
 import { errorResponses } from '../../../lib/error-schemas.js';
@@ -788,7 +788,8 @@ export default async function instanceRoutes(app: FastifyInstance) {
     // UPDATE_ASSET. Manual lifecycle moves (INSTALLED / WASH_IN / DRY_OUT / etc.)
     // belong to the cleanroom filter workflow, not generic asset edits, and the
     // audit key should reflect that for inspector traceability.
-    const { ok } = await enforceReauth('UPDATE_FILTER_LIFECYCLE', req, reply);
+    // OD-01 (2026-10-22): a manual lifecycle move rewrites the filter's record — always signed.
+    const { ok } = await enforceReauthAlways('UPDATE_FILTER_LIFECYCLE', req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };
@@ -824,7 +825,8 @@ export default async function instanceRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth(['DELETE_ASSET', 'DELETE_FILTER', 'DELETE_HIERARCHY_NODE'], req, reply);
+    // OD-01 (2026-10-22): deleting a Block / Area / AHU / filter — always signed.
+    const { ok } = await enforceReauthAlways(['DELETE_ASSET', 'DELETE_FILTER', 'DELETE_HIERARCHY_NODE'], req, reply);
     if (!ok) return;
 
     const { id } = req.params as { id: string };

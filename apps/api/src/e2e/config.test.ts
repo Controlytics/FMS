@@ -597,19 +597,21 @@ describe('Config endpoints', () => {
         const original = JSON.parse(getRes.body);
 
         // Update
+        // OD-01 (2026-10-22): per-user overrides always take the password.
         const putRes = await authPut(app, `/api/config/users/${userId}`, adminToken, {
           sidebarItems: ['dashboard', 'audit'],
           homeWidgets: [],
-        });
+        }, ADMIN_PASSWORD);
         expect(putRes.statusCode).toBe(200);
         const putBody = JSON.parse(putRes.body);
         expect(putBody.success).toBe(true);
 
         // Restore original
-        await authPut(app, `/api/config/users/${userId}`, adminToken, {
+        const restoreRes = await authPut(app, `/api/config/users/${userId}`, adminToken, {
           sidebarItems: original.sidebarItems ?? [],
           homeWidgets: original.homeWidgets ?? [],
-        });
+        }, ADMIN_PASSWORD);
+        expect(restoreRes.statusCode).toBe(200);
       }
     });
   });

@@ -425,15 +425,20 @@ describe('admin-requests', () => {
         [{ username: T_ON, modifyField: 'email', newValue: 12345 }, 400, /Requested value for "email" is not valid/],
         [{ username: T_ON, modifyField: 'status', newValue: 'LOCKED' }, 400, /Requested value for "status" is not valid/],
       ];
+      // OD-01 (2026-10-22): approving a request whose modifyField is 'role' is a role
+      // change and always takes the password, so every approval here is signed.
       for (const [data, code, msg] of bad) {
         const id = await seedRequest('MODIFY_USER', data);
-        const res = await proc(appTok, id, 'approve');
+        const res = await proc(appTok, id, 'approve', PW);
         expect(res.statusCode).toBe(code);
         expect(res.json().message).toMatch(msg);
         await expectHandedBack(id);
       }
       const ok = await seedRequest('MODIFY_USER', { username: T_ON, modifyField: 'role', currentRole: R_LOW, newValue: R_LOW2 });
-      const res = await proc(appTok, ok, 'approve');
+      const unsigned = await proc(appTok, ok, 'approve');
+      expect(unsigned.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'APPROVE_ADMIN_REQUEST' });
+      expect((await prisma.user.findUnique({ where: { id: uid.T_ON } }))?.role).toBe(R_LOW);
+      const res = await proc(appTok, ok, 'approve', PW);
       expect(res.json()).toMatchObject({ username: T_ON, message: `User "${T_ON}" updated (role).` });
       expect((await prisma.user.findUnique({ where: { id: uid.T_ON } }))?.role).toBe(R_LOW2);
       expect(internalErrors).toHaveLength(0);

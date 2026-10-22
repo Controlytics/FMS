@@ -18,7 +18,12 @@ const svc = vi.hoisted(() => ({
   restore: vi.fn(), restoreDump: vi.fn(), validate: vi.fn(),
 }));
 vi.mock('../backup.service.js', () => svc);
-vi.mock('../../../lib/reauth-check.js', () => ({ enforceReauth: vi.fn(async () => ({ ok: true })) }));
+// Route-mapping unit test: the signature gate is stubbed open here. The real gate on
+// /restore (always-on since OD-01, 2026-10-22) is covered by e2e/od01-always-reauth.test.ts.
+vi.mock('../../../lib/reauth-check.js', () => ({
+  enforceReauth: vi.fn(async () => ({ ok: true })),
+  enforceReauthAlways: vi.fn(async () => ({ ok: true })),
+}));
 
 import backupRoutes from '../routes.js';
 import { PgToolError } from '../pg-tools.js';

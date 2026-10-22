@@ -67,9 +67,9 @@ describe('lifecycle-state — gates', () => {
     const forbidden = await move(editOnly, fA, { lifecycleState: 'WASH_IN', remarks: 'x' });
     expect(forbidden.status).toBe(403);
     internalErrors.length = 0;
-    expect((await move(sa, fA, { lifecycleState: 'BOGUS', remarks: 'x' })).status).toBe(400);
-    expect((await move(sa, fA, { lifecycleState: 'WASH_IN' })).status).toBe(400);
-    expect((await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: '' })).status).toBe(400);
+    expect((await move(sa, fA, { lifecycleState: 'BOGUS', remarks: 'x' }, PASSWORD)).status).toBe(400);
+    expect((await move(sa, fA, { lifecycleState: 'WASH_IN' }, PASSWORD)).status).toBe(400);
+    expect((await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: '' }, PASSWORD)).status).toBe(400);
     const noPw = await move(lc, fA, { lifecycleState: 'WASH_IN', remarks: 'x', cleaningReasonKey: 'PM' });
     expect(noPw.status).toBe(401);
     expect(noPw.body).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'UPDATE_FILTER_LIFECYCLE' });
@@ -78,31 +78,31 @@ describe('lifecycle-state — gates', () => {
   });
 
   it('refuses a filter that has not passed the creation workflow, naming why', async () => {
-    const pending = await move(sa, fPending, { lifecycleState: 'INSTALLED', remarks: 'x' });
+    const pending = await move(sa, fPending, { lifecycleState: 'INSTALLED', remarks: 'x' }, PASSWORD);
     expect(pending.status).toBe(409);
     expect(pending.body).toMatchObject({
       error: 'FILTER_NOT_APPROVED',
       message: `Filter "${own.n('FP-PEND')}" is still awaiting review/approval, so it cannot be operated yet.`,
       details: { approvalStatus: 'PENDING_REVIEW' },
     });
-    const rejected = await move(sa, fRejected, { lifecycleState: 'INSTALLED', remarks: 'x' });
+    const rejected = await move(sa, fRejected, { lifecycleState: 'INSTALLED', remarks: 'x' }, PASSWORD);
     expect(rejected.body.message).toBe(`Filter "${own.n('FP-REJ')}" was rejected and must be corrected and re-submitted, so it cannot be operated yet.`);
-    const missing = await move(sa, randomUUID(), { lifecycleState: 'INSTALLED', remarks: 'x' });
+    const missing = await move(sa, randomUUID(), { lifecycleState: 'INSTALLED', remarks: 'x' }, PASSWORD);
     expect(missing.status).toBe(404);
   });
 
   it('refuses a forward skip and lists the moves that ARE allowed', async () => {
-    const res = await move(sa, fA, { lifecycleState: 'WASH_OUT', remarks: 'skip' });
+    const res = await move(sa, fA, { lifecycleState: 'WASH_OUT', remarks: 'skip' }, PASSWORD);
     expect(res.status).toBe(400);
     expect(res.body.message).toBe('Invalid stage movement. Please follow the configured cleaning profile sequence. Allowed next for this filter: Wash In, Cleaning Cycle Completed.');
   });
 
   it('a move that starts a cycle needs a valid cleaning reason (and a justification when the reason demands one)', async () => {
-    const none = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go' });
+    const none = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go' }, PASSWORD);
     expect(none.body).toMatchObject({ error: 'REASON_REQUIRED' });
-    const bad = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go', cleaningReasonKey: 'NOPE' });
+    const bad = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go', cleaningReasonKey: 'NOPE' }, PASSWORD);
     expect(bad.body).toMatchObject({ error: 'INVALID_REASON', message: 'Invalid cleaning reason: NOPE' });
-    const short = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go', cleaningReasonKey: 'BD', cleaningJustification: 'too short' });
+    const short = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'go', cleaningReasonKey: 'BD', cleaningJustification: 'too short' }, PASSWORD);
     expect(short.body).toMatchObject({ error: 'JUSTIFICATION_REQUIRED' });
     expect(await prisma.cleaningCycle.count({ where: { filterId: fA } })).toBe(0);
   });
@@ -137,7 +137,7 @@ describe('lifecycle-state — the cycle it drives', () => {
   });
 
   it('FORWARD: attaches to the running cycle, no new cycle', async () => {
-    const res = await move(sa, fA, { lifecycleState: 'WASH_OUT', remarks: 'next' });
+    const res = await move(sa, fA, { lifecycleState: 'WASH_OUT', remarks: 'next' }, PASSWORD);
     expect(res.status).toBe(200);
     expect(await prisma.cleaningCycle.count({ where: { filterId: fA } })).toBe(1);
     const last = (await eventsOf(fA)).at(-1)!;
@@ -147,7 +147,7 @@ describe('lifecycle-state — the cycle it drives', () => {
   });
 
   it('BACKWARD with a running cycle: breaks it (TERMINATED, broken event) and starts a fresh one from the target stage', async () => {
-    const res = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'redo', cleaningReasonKey: 'BD', cleaningJustification: '  pressure dropped mid wash  ' });
+    const res = await move(sa, fA, { lifecycleState: 'WASH_IN', remarks: 'redo', cleaningReasonKey: 'BD', cleaningJustification: '  pressure dropped mid wash  ' }, PASSWORD);
     expect(res.status).toBe(200);
     const old = await prisma.cleaningCycle.findUnique({ where: { id: cycle1 } });
     expect(old).toMatchObject({ status: 'TERMINATED' });
@@ -164,7 +164,7 @@ describe('lifecycle-state — the cycle it drives', () => {
   });
 
   it('COMPLETED with a running cycle: force-completes it and clears the cycle pointer', async () => {
-    const res = await move(sa, fA, { lifecycleState: 'CLEANING_CYCLE_COMPLETED', remarks: 'done by hand' });
+    const res = await move(sa, fA, { lifecycleState: 'CLEANING_CYCLE_COMPLETED', remarks: 'done by hand' }, PASSWORD);
     expect(res.status).toBe(200);
     expect(await prisma.cleaningCycle.findUnique({ where: { id: cycle2 } })).toMatchObject({ status: 'COMPLETED' });
     expect(await detailsOf(fA)).toMatchObject({ currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', currentCycleId: null });
@@ -178,18 +178,18 @@ describe('lifecycle-state — the cycle it drives', () => {
   });
 
   it('an operational state with no running cycle attaches the event to the most recent cycle; with no cycle at all, to none', async () => {
-    const res = await move(sa, fA, { lifecycleState: 'INSTALLED', remarks: 'back in the AHU' });
+    const res = await move(sa, fA, { lifecycleState: 'INSTALLED', remarks: 'back in the AHU' }, PASSWORD);
     expect(res.status).toBe(200);
     const last = (await eventsOf(fA)).at(-1)!;
     expect(last).toMatchObject({ toState: 'INSTALLED', cycleId: cycle2, fromState: 'CLEANING_CYCLE_COMPLETED' });
     expect(await prisma.cleaningCycle.count({ where: { filterId: fA } })).toBe(2);
 
-    const lone = await move(sa, fNoCycle, { lifecycleState: 'INSTALLED', remarks: 'fitted' });
+    const lone = await move(sa, fNoCycle, { lifecycleState: 'INSTALLED', remarks: 'fitted' }, PASSWORD);
     expect(lone.status).toBe(200);
     const ev = await eventsOf(fNoCycle);
     expect(ev.map((e) => [e.toState, e.cycleId])).toEqual([['INSTALLED', null]]);
     // Completion with nothing running only moves the state.
-    const complete = await move(sa, fNoCycle, { lifecycleState: 'CLEANING_CYCLE_COMPLETED', remarks: 'paperwork' });
+    const complete = await move(sa, fNoCycle, { lifecycleState: 'CLEANING_CYCLE_COMPLETED', remarks: 'paperwork' }, PASSWORD);
     expect(complete.status).toBe(200);
     expect(await prisma.cleaningCycle.count({ where: { filterId: fNoCycle } })).toBe(0);
     expect(await detailsOf(fNoCycle)).toMatchObject({ currentLifecycleState: 'CLEANING_CYCLE_COMPLETED', currentCycleId: null });
@@ -197,7 +197,7 @@ describe('lifecycle-state — the cycle it drives', () => {
 
   it('a legacy filter with no FilterDetails row gets one on its first manual move', async () => {
     expect(await detailsOf(fBare)).toBeNull();
-    const res = await move(sa, fBare, { lifecycleState: 'IN_USE', remarks: 'legacy' });
+    const res = await move(sa, fBare, { lifecycleState: 'IN_USE', remarks: 'legacy' }, PASSWORD);
     expect(res.status).toBe(200);
     expect(await detailsOf(fBare)).toMatchObject({ currentLifecycleState: 'IN_USE' });
   });
