@@ -32,7 +32,8 @@ function setup(extra: MockRoute[] = [], base: BaseRouteOpts = {}, rows: any = pa
     { path: '/api/users', body: { data: [{ id: 'u1', username: 'opr1', fullName: 'Operator One' }, { id: 'u2', username: 'opr2' }] } },
     { path: '/api/assets/identifiers', body: [{ identifierType: 'RFID', identifierValue: 'E2000017' }, { identifierType: 'QR', identifierValue: 'Q1' }] },
     { method: 'POST', path: '/api/audit/report-export-log', status: 201, body: {} },
-    ...baseRoutes(base),
+    // The page opens on the configured Pagination `limit` (2026-10-22; it was a fixed 50).
+    ...baseRoutes({ pagination: { limit: 50, options: [10, 25, 50] }, ...base }),
   ]);
 }
 const lastList = (api: ReturnType<typeof setup>) => api.calls('GET', '/api/assets/identifiers/track-record').at(-1)!;
@@ -52,8 +53,15 @@ describe('RFID Track Record page', () => {
     expect(removed).toHaveTextContent('Tag damaged');
     expect(screen.getByText('Page 1 / 1')).toBeInTheDocument();
     expect(lastList(api).query.get('page')).toBe('1');
-    expect(lastList(api).query.get('limit')).toBe('50');
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('50'));
     expect(api.unmatched).toEqual([]);
+  });
+
+  it('reads its page size from the configured Pagination limit, not a fixed size', async () => {
+    const api = setup([], { pagination: { limit: 100, options: [25, 50, 100] } });
+    renderPage(<RfidTrackRecordPage />, { user: SA, api });
+    expect(await screen.findByText('E2000017')).toBeInTheDocument();
+    await waitFor(() => expect(lastList(api).query.get('limit')).toBe('100'));
   });
 
   it('empty: says so, offers no export and no pager', async () => {

@@ -13,6 +13,7 @@ import { ReportPageWrapper } from '@/components/report-page-wrapper';
 import { useReportLabels } from '../../hooks/use-report-labels';
 import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { useExportLimit } from '@/hooks/use-export-limit';
+import { useReportPageSize } from '@/hooks/use-pagination-config';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { ReauthPrompt } from '@/components/reauth-prompt';
@@ -39,7 +40,6 @@ type TrackRow = {
 };
 type Resp = { data: TrackRow[]; total: number; page: number; limit: number; totalPages: number };
 
-const PER_PAGE = 50;
 
 export function RfidTrackRecordPage() {
   const can = useCan();
@@ -60,6 +60,8 @@ export function RfidTrackRecordPage() {
   const [ahu, setAhu] = useState('');
   const [userQ, setUserQ] = useState('');
   const [page, setPage] = useState(1);
+  // A report page opens on the configured Pagination `limit` (2026-10-22); it was a fixed 50.
+  const [perPage] = useReportPageSize();
   const [downloading, setDownloading] = useState(false);
 
   const buildQs = (limit: number, pg: number) => {
@@ -75,7 +77,7 @@ export function RfidTrackRecordPage() {
     return qs.toString();
   };
 
-  const { data, isLoading } = useSWR<Resp>(`/api/assets/identifiers/track-record?${buildQs(PER_PAGE, page)}`);
+  const { data, isLoading } = useSWR<Resp>(`/api/assets/identifiers/track-record?${buildQs(perPage, page)}`);
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -294,7 +296,7 @@ export function RfidTrackRecordPage() {
               <tbody className="bg-white">
                 {rows.map((r, idx) => (
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-2.5 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * PER_PAGE + idx + 1}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
                     <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.timestamp)}</td>
                     <td className="px-4 py-2.5">
                       <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-bold rounded-full ${r.event === 'ASSIGN' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
@@ -345,9 +347,9 @@ export function RfidTrackRecordPage() {
         {total > 0 && (
           <div className="px-6 py-3 border-t border-slate-200 bg-white shrink-0 flex items-center justify-between flex-wrap gap-3">
             <span className="text-[13px] text-slate-500">
-              Showing <span className="font-semibold text-slate-700">{(page - 1) * PER_PAGE + 1}</span>
+              Showing <span className="font-semibold text-slate-700">{(page - 1) * perPage + 1}</span>
               {' '}-{' '}
-              <span className="font-semibold text-slate-700">{Math.min(page * PER_PAGE, total)}</span>
+              <span className="font-semibold text-slate-700">{Math.min(page * perPage, total)}</span>
               {' '}of{' '}
               <span className="font-semibold text-slate-700">{total.toLocaleString()}</span>
             </span>

@@ -136,7 +136,8 @@ describe('Replacement Schedule page — table', () => {
 
   it('paginates the combined entry list', async () => {
     const many = Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, ahuName: `AHU-${String(i).padStart(2, '0')}`, filterMicron: '1', filterSize: `S${i}`, qty: 1, scheduleDate: '2026-11-01T00:00:00Z', toleranceDays: 1, approvalStatus: 'APPROVED' }));
-    const api = setup([], {}, { data: [{ id: 's', uploadedByName: null, createdAt: '2026-10-01T00:00:00Z', entries: many }] });
+    // 25 per page = the first configured option (2026-10-22: usePageSize; it used a fixed 25).
+    const api = setup([], { pagination: { limit: 100, options: [25, 50, 100] } }, { data: [{ id: 's', uploadedByName: null, createdAt: '2026-10-01T00:00:00Z', entries: many }] });
     renderPage(<ReplacementSchedulePage />, { user: SA, api });
     await screen.findByText('S0');
     expect(screen.getByText(/last upload by —/)).toBeInTheDocument();

@@ -1,7 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { resetEnv, signReauth, cancelReauth, ackMessage, reauthRequired } from './config-test-helpers';
 import { renderFdm, modal, field, setField, typeReason, click, row, waitForCalls, openTab } from './fdm-helpers';
+
+// Page flows run several real round trips; under full-suite load one took 5.3 s,
+// past the 5 s default (2026-10-22). Same limit as the other heavy page suites.
+vi.setConfig({ testTimeout: 20_000 });
 
 afterEach(resetEnv);
 

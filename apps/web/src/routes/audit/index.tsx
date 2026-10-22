@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
-import { usePaginationDefaults, usePageSize } from '@/hooks/use-pagination-config';
+import { usePaginationDefaults, useReportPageSize } from '@/hooks/use-pagination-config';
 import { useRoleColors } from '@/hooks/use-role-colors';
 import { apiClient, api } from '@/lib/api-client';
 import { resolveBulkTargets } from '@/lib/resolve-bulk-targets';
@@ -64,7 +64,7 @@ export function AuditTrailPage() {
   const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
   const { data: rolesData } = useSWR<any>(isSuperAdmin ? '/api/roles/active' : null);
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = usePageSize();
+  const [perPage, setPerPage] = useReportPageSize();
 
   // Fetch configurable audit text templates (cached for 5 min)
   const { data: templatesData } = useSWR<Record<string, string>>('/api/config/audit-templates/current', {

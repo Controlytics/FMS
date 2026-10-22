@@ -120,9 +120,10 @@ describe('Equipment Groups page - list', () => {
     expect(await screen.findByText('No equipment groups for this block')).toBeInTheDocument();
   });
 
-  it('paginates the cards (25 per page by default)', async () => {
+  it('paginates the cards on the first configured page-size option (25 here)', async () => {
     const many = Array.from({ length: 27 }, (_, i) => ({ ...G2, id: `x${i}`, name: `Group ${String(i + 1).padStart(2, '0')}` }));
-    setup({ groups: many });
+    // The page reads Config -> Pagination (2026-10-22: usePageSize); it used a fixed 25.
+    setup({ groups: many, extra: [{ path: '/api/config/pagination/current', body: { limit: 100, count: 3, options: [25, 50, 100] } }] });
     await screen.findByRole('heading', { name: 'Group 01' });
     expect(screen.queryByRole('heading', { name: 'Group 26' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));

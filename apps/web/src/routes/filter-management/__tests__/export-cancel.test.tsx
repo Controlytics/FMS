@@ -32,7 +32,7 @@ vi.mock('swr', () => ({
 }));
 vi.mock('@/hooks/use-can', () => ({ useCan: () => () => true }));
 vi.mock('../../../hooks/use-datetime-format', () => ({ useDatetimeFormat: () => ({ formatDateTime: () => 'dt' }) }));
-vi.mock('@/hooks/use-pagination-config', () => ({ usePaginationDefaults: () => ({ options: [25], defaultLimit: 25 }) }));
+vi.mock('@/hooks/use-pagination-config', () => ({ usePaginationDefaults: () => ({ options: [25], defaultLimit: 25 }), useReportPageSize: () => [25, () => {}] }));
 vi.mock('@/hooks/use-export-limit', () => ({ useExportLimit: () => ({ maxRecords: 100000, tooLargeMessage: () => 'too large' }) }));
 vi.mock('@/hooks/use-export-options', () => ({ useExportOptions: () => ({ pdf: false, excel: true }) }));
 const toast = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };

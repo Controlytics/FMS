@@ -280,7 +280,8 @@ describe('DryingFiltersPanel — instrument auto-fetch', () => {
       states: { f1: state({}, GA) },
       routes: [{ method: 'POST', path: '/api/equipment-groups/fetch-readings', body: { results: [{ instrumentId: 't1', ok: true, value: 60.47 }, { instrumentId: 'h1', ok: true, value: 14 }] } }],
     });
-    expect(await screen.findByText('60.47 °C')).toBeInTheDocument();
+    // 5 s: the half-time fetch lands after findBy's 1 s default when the full suite loads the machine.
+    expect(await screen.findByText('60.47 °C', {}, { timeout: 5_000 })).toBeInTheDocument();
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalled());
     expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ instrumentReadings: { t1: 60.47, h1: 14 } });

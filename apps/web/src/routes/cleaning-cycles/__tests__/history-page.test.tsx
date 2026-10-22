@@ -87,7 +87,7 @@ describe('Filter Cleaning Record — table', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Filter Cleaning Record');
     expect(screen.getByText(/9 records \(cycles \+ manual updates\)/)).toBeInTheDocument();
     expect(cells('FLT-001').slice(0, 14)).toEqual([
-      '1', 'FLT-001Set A', '610X610X292', '6.1 bar', '2 bar', '2026-10-01 08:00', '2026-10-01 09:00', 'opr1',
+      '1', 'FLT-001Set A', '610X610X292', '6.123 bar', '2 bar', '2026-10-01 08:00', '2026-10-01 09:00', 'opr1',
       '1h 30m', '2026-10-01 10:00', '55 °C', '2026-10-01 12:00', 'opr3', 'Completed',
     ]);
     expect(api.unmatched).toEqual([]);
@@ -279,7 +279,7 @@ describe('Filter Cleaning Record — export', () => {
     expect(arg.filename).toMatch(/^cleaning-cycles-All-Filters-\d{4}-\d{2}-\d{2}$/);
     expect(arg.head).toHaveLength(14);
     expect(arg.rows).toHaveLength(151);
-    expect(arg.rows[0]).toEqual(['1', 'FLT-001', '610X610X292', '6.1 bar', '2 bar', '2026-10-01 08:00', '2026-10-01 09:00', 'opr1', '1h 30m', '2026-10-01 10:00', '55 °C', '2026-10-01 12:00', 'opr3', 'Completed']);
+    expect(arg.rows[0]).toEqual(['1', 'FLT-001', '610X610X292', '6.123 bar', '2 bar', '2026-10-01 08:00', '2026-10-01 09:00', 'opr1', '1h 30m', '2026-10-01 10:00', '55 °C', '2026-10-01 12:00', 'opr3', 'Completed']);
     // the export says Skipped / Terminated exactly where the screen does
     expect(arg.rows[1]).toEqual(['2', 'T-0', '-', '-', '-', 'Skipped', '2026-10-01 05:00', 'opr9', 'Terminated', 'Terminated', 'Terminated', 'Terminated', '-', 'Terminated']);
   });
