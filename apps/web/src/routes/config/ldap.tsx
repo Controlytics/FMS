@@ -202,7 +202,7 @@ export default function LdapConfigPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Server URL <span className="text-red-500">*</span></label>
               <Input disabled={!canWrite} value={config.serverUrl} onChange={e => updateField('serverUrl', e.target.value)} placeholder="ldaps://ad.company.com:636"
                 className="font-mono" />
-              <p className="text-xs text-slate-400 mt-1">Use ldaps:// for secure connection (port 636) or ldap:// for plain (port 389)</p>
+              <p className="text-xs text-slate-400 mt-1">ldap:// connects, then upgrades with StartTLS (port 389); ldaps:// is TLS (port 636)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Bind DN <span className="text-red-500">*</span></label>
