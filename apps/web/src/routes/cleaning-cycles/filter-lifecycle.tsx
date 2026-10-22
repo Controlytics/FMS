@@ -12,6 +12,7 @@ import { SendForReviewButton } from '@/components/SendForReviewButton';
 import { cycleEndInfo, effectiveCycleStatus, performerLabel } from '../../lib/cleaning-cycle-report';
 import { requireExportReauth, isReauthCancelled } from '@/lib/report-export-log';
 import { startOfDayIso, endOfDayIso } from '@/lib/datetime-input';
+import { fetchAllCycleSummaries, fetchManualChanges } from '@/lib/filter-lifecycle-reads';
 import { useExportLimit } from '@/hooks/use-export-limit';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
@@ -63,47 +64,6 @@ function buildLifecycle(
   return out
     .filter((e) => e.at && (!fromIso || new Date(e.at) >= new Date(fromIso)) && (!toIso || new Date(e.at) <= new Date(toIso)))
     .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
-}
-
-/** GET all cycle summaries for one filter, paginated to exhaustion (the cycles
- *  endpoint caps limit at 100). Period-bounded when from/to provided. */
-async function fetchAllCycleSummaries(filterId: string, fromIso: string, toIso: string): Promise<any[]> {
-  const all: any[] = [];
-  let page = 1;
-  const limit = 100;
-  while (page <= 100) {
-    const u = new URLSearchParams({ filterId, page: String(page), limit: String(limit) });
-    if (fromIso) u.set('from', fromIso);
-    if (toIso) u.set('to', toIso);
-    const res: any = await api.get(`/api/filters/cycles?${u.toString()}`);
-    const batch: any[] = res?.data ?? [];
-    all.push(...batch);
-    const total: number = res?.total ?? all.length;
-    if (batch.length === 0 || all.length >= total) break;
-    page++;
-  }
-  return all;
-}
-
-/** GET all manual status changes for one filter (cycleId=null STATE_TRANSITIONs).
- *  These don't belong to a cleaning cycle, so the report shows them in their own
- *  section — otherwise a manually-moved filter looks like it has no history. */
-async function fetchManualChanges(filterId: string, fromIso: string, toIso: string): Promise<any[]> {
-  const all: any[] = [];
-  let page = 1;
-  const limit = 100;
-  while (page <= 100) {
-    const u = new URLSearchParams({ filterId, page: String(page), limit: String(limit) });
-    if (fromIso) u.set('from', fromIso);
-    if (toIso) u.set('to', toIso);
-    const res: any = await api.get(`/api/filters/manual-status-changes?${u.toString()}`);
-    const batch: any[] = res?.data ?? [];
-    all.push(...batch);
-    const total: number = res?.total ?? all.length;
-    if (batch.length === 0 || all.length >= total) break;
-    page++;
-  }
-  return all;
 }
 
 const humanizeState = (s: string | null | undefined) =>
