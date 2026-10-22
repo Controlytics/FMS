@@ -19,6 +19,26 @@ export function neutralizeFormula<T>(value: T): T | string {
 }
 
 /**
+ * The REVERSIBLE form, for a file the app reads back: the CSV backup (operator
+ * decision 2026-10-22, "exact restore"). Text that is any run of quotes
+ * followed by a trigger gets one more quote, and restoreNeutralizedFormula
+ * takes exactly one off text that is one or more quotes followed by a trigger.
+ * That maps every string back to itself, including one that already began with
+ * `'=`, which the one-way form above leaves alone, so a reader could not tell
+ * it from a neutralised `=`.
+ */
+const QUOTES_THEN_TRIGGER = /^'*[=+\-@\t\r]/;
+const NEUTRALIZED = /^'+[=+\-@\t\r]/;
+
+export function neutralizeFormulaReversibly(value: string): string {
+  return QUOTES_THEN_TRIGGER.test(value) ? `'${value}` : value;
+}
+
+export function restoreNeutralizedFormula(value: string): string {
+  return NEUTRALIZED.test(value) ? value.slice(1) : value;
+}
+
+/**
  * Map an object's string values through {@link neutralizeFormula}, leaving
  * non-strings intact. Use when building an ExcelJS `addRow({...})` payload from
  * data that contains any user-supplied text.

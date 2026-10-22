@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { neutralizeFormula } from '../../lib/spreadsheet-safe.js';
+import { neutralizeFormulaReversibly } from '../../lib/spreadsheet-safe.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,7 +115,9 @@ export function escapeCsvValue(value: any): string {
   if (typeof value === 'object') return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
   // Audit 2026-09-24 (B-F7): same formula neutralisation as the PM / replacement
   // exports — a filter named `=HYPERLINK(...)` must not execute when the CSV is opened.
-  const str = String(neutralizeFormula(value));
+  // The REVERSIBLE form (2026-10-22): this file is read back by restore, which
+  // removes the quote again (parseCsvContent), so the restore is exact.
+  const str = typeof value === 'string' ? neutralizeFormulaReversibly(value) : String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;
   }

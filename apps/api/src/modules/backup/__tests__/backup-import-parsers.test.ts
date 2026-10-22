@@ -105,6 +105,23 @@ describe('CSV (ZIP) importer', () => {
     ]);
   });
 
+  // Operator decision 2026-10-22 ("Exact restore"): the export prefixes ' to text
+  // that a spreadsheet would run as a formula, and the restore must take it off
+  // again. It never did: "=SUM(A1)" came back as "'=SUM(A1)", and a numeric
+  // column read as text ("-1.50") came back as "'-1.50", which Postgres cannot
+  // cast. Text that ALREADY began with quotes + a trigger must survive too.
+  it('round-trips formula-like text exactly: the export\'s neutralising quote is removed on restore', async () => {
+    const values = ['=SUM(A1)', '+91 98765', '-1.50', '@user', '\tTAB', "'=already quoted", "''-twice", "it's fine", "'plain", 'x=1', '-'];
+    const rows = values.map((v, i) => ({ id: `r${i}`, text: v }));
+    const csv = generateCsv(rows);
+    for (const line of csv.split('\n').slice(1)) {
+      // still safe to open in a spreadsheet: no cell starts with a trigger
+      expect(line.split(',')[1].replace(/^"/, '')).not.toMatch(/^[=+\-@\t\r]/);
+    }
+    await restore(zip({ 'help_articles.csv': csv }), saCtx);
+    expect(parsed().data.help_articles.map((r: any) => r.text)).toEqual(values);
+  });
+
   // D9 (2026-10-21): a file with the ZIP magic but no valid archive behind it
   // threw an uncoded AdmZip error, which both routes reported as a 500.
   it('a malformed ZIP is a coded INVALID_ZIP client error on restore and validate', async () => {

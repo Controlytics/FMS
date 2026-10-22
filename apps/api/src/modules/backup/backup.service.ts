@@ -21,6 +21,7 @@ const MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 
 import { auditLog } from '../../lib/audit.js';
 import { prisma } from '../../lib/prisma.js';
+import { restoreNeutralizedFormula } from '../../lib/spreadsheet-safe.js';
 import type { RequestContext } from '../../types/context.js';
 import {
   fetchAllTablesRaw,
@@ -83,7 +84,9 @@ function parseCsvContent(csvString: string): Record<string, any>[] {
     const values = records[i];
     const row: Record<string, any> = {};
     for (let j = 0; j < headers.length; j++) {
-      let val: any = values[j] ?? '';
+      // Undo the export's formula neutralisation first (escapeCsvValue), so the
+      // value is restored exactly as it was stored (2026-10-22).
+      let val: any = restoreNeutralizedFormula(values[j] ?? '');
       // Try to parse JSON objects/arrays
       if ((val.startsWith('{') && val.endsWith('}')) || (val.startsWith('[') && val.endsWith(']'))) {
         try {
