@@ -2150,6 +2150,14 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
    * checklist is never sent as part of a compound start-and-advance: an offline
    * replay exempts START_CHECKLIST, so it would be skipped silently.
    */
+  /**
+   * The justification goes only with a reason that requires one (D03-07,
+   * 2026-10-22; the server now ignores it otherwise, 5fa2b28): a text typed for
+   * such a reason used to ride along after a switch to one that needs none.
+   */
+  const justificationToSend = (): string | undefined =>
+    cleaningReasons.find((r: any) => r.key === selectedReason)?.requiresJustification ? (justification || undefined) : undefined;
+
   const splitReasonBatchByStartChecklist = async (rdIn: NonNullable<typeof reasonDialog>) => {
     const all = [{ filterId: rdIn.filterId, filterName: rdIn.filterName }, ...(rdIn.remainingBatch ?? [])];
     const states = new Map<string, any>();
@@ -2194,7 +2202,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
     if (plan.ask.length > 0) {
       startChecklistRef.current = {
         stage: rdIn.stage,
-        cyclePayload: { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id },
+        cyclePayload: { cleaningReasonKey: selectedReason, cleaningJustification: justificationToSend(), cleaningAreaId: selectedBlock?.id },
         batch: plan.ask.map(b => ({ filterId: b.filterId, filterName: b.filterName })),
         checklistProfileIds: [...new Set(plan.checklists.map((c: PendingChecklist) => c.checklistProfileId))],
         remarks,
@@ -2217,7 +2225,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
     setLoading(true); setError('');
     const rd = await splitReasonBatchByStartChecklist(reasonDialog);
     if (!rd) { setLoading(false); return; }
-    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justification || undefined, cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(rd.filterId) };
+    const cyclePayload = { cleaningReasonKey: selectedReason, cleaningJustification: justificationToSend(), cleaningAreaId: selectedBlock?.id, acknowledgeBlockChange: ackedBlockFiltersRef.current.has(rd.filterId) };
     const advancePayload = { targetState: rd.stage, cleaningAreaId: selectedBlock?.id, remarks: remarks || `${rd.stage.replace(/_/g, ' ')} - ${rd.filterName}`, ...dryerFieldsForStart(rd.stage, rd.filterId) };
 
     // Check for equipment groups BEFORE executing — works for both online and offline.
@@ -3809,7 +3817,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
                 </div>
               )}
               {cleaningReasons.filter((r: any) => r.isActive !== false).map((r: any) => (
-                <button key={r.key} onClick={() => setSelectedReason(r.key)} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedReason === r.key ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
+                <button key={r.key} onClick={() => { if (r.key !== selectedReason) { setSelectedReason(r.key); setJustification(''); } }} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${selectedReason === r.key ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200'}`}>
                   <div className="text-sm font-medium text-slate-800">{r.name}</div>
                   {r.requiresJustification && <div className="text-[10px] text-amber-600">Requires justification</div>}
                 </button>

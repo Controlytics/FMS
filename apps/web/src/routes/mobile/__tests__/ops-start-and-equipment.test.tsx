@@ -67,6 +67,27 @@ describe('Cleaning Reason dialog', () => {
     expect(screen.queryByText('Cleaning Reason')).toBeNull();
   });
 
+  // D03-07 (2026-10-22): a justification typed for a reason that needs one rode
+  // along when the operator switched to a reason that needs none.
+  it('switching reason clears the justification; a reason that needs none sends none', async () => {
+    const { api } = await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN']) }, routes: startRoutes('f3') });
+    await scanTag('E3'); await inQueue('F-003');
+    await toReasonDialog('WASH_OUT');
+    fireEvent.click(reasonBtn(/Breakdown/));
+    fireEvent.change(screen.getByPlaceholderText('Justification (min 10 chars)'), { target: { value: 'Fan bearing seized' } });
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(reasonBtn(/Breakdown/));
+    expect(screen.getByPlaceholderText('Justification (min 10 chars)')).toHaveValue('');
+    fireEvent.change(screen.getByPlaceholderText('Justification (min 10 chars)'), { target: { value: 'Fan bearing seized' } });
+    fireEvent.click(reasonBtn(/Preventive Maintenance/));
+    fireEvent.click(startBtn());
+    expect(await message('F-003 → WASH OUT')).toBeInTheDocument();
+    const start = api.calls('POST', '/api/filters/f3/start-cycle')[0].json;
+    expect(start.cleaningReasonKey).toBe('PM');
+    expect(start).not.toHaveProperty('cleaningJustification');
+    await dismissAll();
+  });
+
   it('a filter due for PM opens the dialog on the PM reason, with the PM banner (as the desktop page does)', async () => {
     const { api } = await renderOps({ stage: 'WASH_OUT', states: { f3: NO_CYCLE(['WASH_OUT', 'STORAGE_IN'], { isPmDue: true, pmReasonKey: 'PM' }) }, routes: startRoutes('f3') });
     await scanTag('E3'); await inQueue('F-003');
