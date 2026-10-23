@@ -11,6 +11,11 @@ export default defineConfig({
     include: [
       'src/lib/hash-chain.test.ts',
       'src/lib/__tests__/audit-verify-legacy-key-order.test.ts',
+      // hash-chain.ts / audit-verify.ts (prisma mocked: crafted rows, no database)
+      'src/lib/__tests__/audit-redaction.test.ts',
+      'src/lib/__tests__/audit-chain-walk.coverage.test.ts',
+      'src/lib/__tests__/hash-chain-mutation.test.ts',
+      'src/lib/__tests__/audit-verify-mutation.test.ts',
       'src/lib/ssrf.test.ts',
       'src/lib/__tests__/ssrf-host.test.ts',
       'src/lib/rate-limit-key.test.ts',
