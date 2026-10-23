@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - FMS 1.2.3: final fixes, coverage gates, mutation testing, builds (2026-10-23)
+
+Release decision: **CONDITIONAL PASS** (test-results/FINAL-RELEASE-DECISION.md). Operator 2026-10-23:
+clean-machine install, Super Admin probe session and the performance / endurance re-run were NOT run
+("finish right now"); they are the go-live conditions.
+
+- **Dates are local days at both ends (`d195f84`, `d7a4dc0`).** A bare start date was read as UTC
+  midnight and a bare end date as local end-of-day, so on the India server a filter "from 1 Feb" dropped
+  records made 00:00–05:30 IST that day (audit, notifications, QNN, RFID Track Record, stage approvals,
+  Filter Data Management). The audit list read a bare end date as midnight; PM date columns compared
+  in UTC. One `parseRangeStart` / `parseRangeEnd` pair now; an invalid date is 400, not 500.
+- **One Prisma pool per process (`a8dad9a`).** Two modules built a second PrismaClient; one swallowed a
+  token-save failure. The API suite exhausted Postgres's 100 connections until each test file
+  disconnected its pool.
+- **Tape and server agree at Dry In (`3404627`, `3fdc67e`).** The next-action list offered leaving Dry In
+  before the readings were in (the server refused it); offline the tablet then said "re-sync" instead of
+  "submit the dryer temperature". A checklist path that converged offered the same stage twice (`5857a9b`).
+- **Security / config:** validate-before-sign completed (`c7a6730`, `8858ad2`); every SA-only settings
+  page is SA-only on the API (`ec4d16b`, `0160d09`, `80df68e`); decisions require remarks (`7382683`,
+  `ad8980d`); dialogs close on logout (`48a6b22`); LDAP sockets no longer leak on failed binds (`b856e94`).
+- **Volume:** "10,000+" totals (`83bb8b4`); dashboard stats cached 60 s (`460470b`); stage-approvals
+  index + split query, one-tag-per-filter unique index (`a92b6d3`, `ced1e4b`, `2bb164c`).
+- **Dependencies:** Capacitor 8.5.3 (critical), nodemailer 10, transitive fixes (`ca3670a`); Prisma 7
+  deferred (3 HIGH in its CLI).
+- **Test quality:** coverage gates at 90 % on API (97.5 / 95.0 / 99.5 / 97.5), Web (97.6 / 94.4 / 97.0 /
+  97.6) and Shared; Stryker mutation 88.7 % (pipeline executor) and 96.6 % (API security libraries).
+- **Builds:** `DigiLog-FilterOps.apk` (`11e36da`) and `dist\FMS-Setup-1.2.3.exe` (unsigned).
+
 ## [Unreleased] - Tablet App Access, LDAP and the dynamic config pages are SUPER_ADMIN-only (D03-15, 2026-10-22)
 
 - **Team decision: align with what the UI showed.** All three pages were Super Admin Settings cards that no role

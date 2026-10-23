@@ -1,3 +1,13 @@
+# STATUS 2026-10-23 — campaign closed (operator: "finish right now")
+
+- [x] Release decision: **CONDITIONAL PASS** (`test-results/FINAL-RELEASE-DECISION.md`); 01–10 written; CHANGELOG through 1.2.3
+- [x] Coverage gates 90×4 on API / Web / Shared; Stryker: pipeline 88.7 %, API security libs 96.6 %
+- [x] Builds: `DigiLog-FilterOps.apk` (`11e36da`), `dist\FMS-Setup-1.2.3.exe` (unsigned)
+- [ ] GO-LIVE CONDITIONS (not run by operator decision): clean-machine install of 1.2.3; 100-user perf + 2–8 h soak on client hardware (plan + tooling in tests/performance); SA probe session (QA/tests/security/sa-session-probes.mjs); copy backups off the server; sign the installer
+- [ ] Open decisions: Prisma 7 upgrade (3 HIGH CLI advisories); audit pg_trgm index; whether ADMIN gets back audit-templates / report-signatories / access-matrix
+- [ ] Minor known: Deviations PDF date filter west of UTC; desktop offline pending-checklist vs stale-cache; FDM page split; HTTP SSRF pinning; field-ids gate
+- [ ] PUSH: operator runs `! git push origin RFID`
+
 # Coverage campaign: ≥90% lines/statements/branches/functions, API and Web separately (started 2026-10-21)
 
 Operator pasted "MASTER PROMPT: Full Application Test Audit and 90%+ Code Coverage". Decisions 2026-10-21:

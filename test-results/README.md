@@ -60,7 +60,7 @@ operator-approved changes.
 | 05 | `05-database-testing.md` | 1 | DONE 2026-10-22 — 10 defects (D-DB-1..10) being fixed; BR-100/101 PASS (runtime) |
 | 08 | `08-coverage-and-test-quality.md` | 1 | DONE 2026-10-23 — API 97.5/95.0/99.5/97.5, Web 97.6/94.4/97.0/97.6, Shared 93.3/97.8/93.1/93.3 (gates 90×4 on); mutation: pipeline executor 88.7 %, API security libs 96.6 % |
 | 06 | `06-security-assessment.md` | 2 | DONE 2026-10-22 — P0 0 · P1 2 · P2 5 · P3 13; fixes in progress; SA-session probes pending (`QA/tests/security/sa-session-probes.mjs`) |
-| 07 | `07-performance-testing.md` | 2 | not started (needs idle PC) |
-| 09 | `09-reliability-and-recovery.md` | 3 | not started |
+| 07 | `07-performance-testing.md` | 2 | NOT re-run (operator 2026-10-23 "finish right now"): 10-17/19 evidence carried forward + query-level fixes measured 10-22/23 |
+| 09 | `09-reliability-and-recovery.md` | 3 | partial: backup/restore fixes EXECUTED; restart / outage / one-year restore not re-run |
 | 10 | `10-deployment-readiness.md` | 3 | clean-machine install NOT run (operator 2026-10-23); report from build + packed-API smoke + staged checks |
-| — | `FINAL-RELEASE-DECISION.md` | 3 | not started |
+| — | `FINAL-RELEASE-DECISION.md` | 3 | **CONDITIONAL PASS** 2026-10-23 — conditions: clean install, 100-user perf + soak on client hardware, SA probe session, off-machine backups, signing |
