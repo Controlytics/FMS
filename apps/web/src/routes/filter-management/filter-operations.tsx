@@ -38,6 +38,7 @@ import {
 // in lib/filter-ops so the two pages cannot drift on these primitives.
 import {
   firstStagesFromGraph,
+  leavingDryInRefusal,
   equipmentGroupChoice,
   groupHasStageInstruments,
   resolveChecklistForTargetStage,
@@ -812,6 +813,25 @@ export function FilterOperationsPage() {
 
       // Stage interlock state (online responses only; offline state omits it).
       setInterlock(state.interlock ?? null);
+
+      // Leaving Dry In before its readings (2026-10-23): the tape offers no way
+      // out until they are in (guard #27), so the checks below would read that
+      // as a stale cache (offline: "re-sync") or a wrong stage. The shared rule
+      // says what is actually missing, online and offline alike.
+      if (state.currentCycle) {
+        const dryIn = leavingDryInRefusal({
+          currentLifecycle: state.currentState ?? null,
+          activeStageKey: activeStage.key,
+          dryerStartedAt: state.currentCycle.dryerStartedAt ?? null,
+          dryerDurationMinutes: state.currentCycle.dryerDurationMinutes ?? null,
+          dryerReadingsSubmitted: !!state.currentCycle.dryerReadingsSubmitted,
+        });
+        if (dryIn) {
+          setPopupError(`${first.filterName}: ${dryIn}`);
+          setLoading(false); setSubmitting(false);
+          return;
+        }
+      }
 
       // ─── STRICT OFFLINE GATE (parity with mobile) ─────────────────────────
       // Without cached pipeline data we cannot enforce stage ordering — refuse

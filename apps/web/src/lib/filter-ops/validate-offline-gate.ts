@@ -74,6 +74,39 @@ export function firstStagesFromGraph(
   return sharedFindReachable(startNode.id, graph.stages, graph.connections).reachableStages;
 }
 
+/**
+ * Leaving Dry In (2026-05-18): when the filter is at DRY_IN and the operator
+ * scans a non-DRY_IN stage, mirror the server's
+ * assertDryerHalfTimeBeforeLeavingDryIn + dryer-readings rules (guard #27)
+ * locally. Otherwise the offline queue accepts the advance, syncs Wash In/Out +
+ * Dry In, then the server rejects the replay because dryer half-time has not
+ * elapsed or the readings are missing, and the cycle stays stuck mid-pipeline.
+ *
+ * Asked BEFORE any stale-cache verdict (2026-10-23): since 3404627 the tape
+ * offers no way out of Dry In until the readings are in, so an empty tape there
+ * is the rule speaking, not a stale cache — the operator was told to re-sync.
+ * ONE rule for the tablet gate and the desktop page. Returns the reason, or null.
+ */
+export function leavingDryInRefusal(i: {
+  currentLifecycle: string | null;
+  activeStageKey: string;
+  dryerStartedAt?: string | Date | null;
+  dryerDurationMinutes?: number | null;
+  dryerReadingsSubmitted?: boolean;
+}): string | null {
+  if (i.currentLifecycle !== 'DRY_IN' || i.activeStageKey === 'DRY_IN') return null;
+  if (!i.dryerStartedAt || !i.dryerDurationMinutes) return 'set the dryer duration before leaving Dry In';
+  if (i.dryerReadingsSubmitted) return null;
+  const startedMs = new Date(i.dryerStartedAt).getTime();
+  const halfMs = (i.dryerDurationMinutes * 60_000) / 2;
+  const elapsedMs = Date.now() - startedMs;
+  if (elapsedMs < halfMs) {
+    const remainingMin = Math.max(1, Math.ceil((halfMs - elapsedMs) / 60_000));
+    return `dryer still running — wait ${remainingMin} more minute(s) before leaving Dry In`;
+  }
+  return 'submit dryer temperature before leaving Dry In';
+}
+
 export function validateOfflineGate(g: GateInput): GateResult {
   // Reachable advance/bypass targets, derived from the resolved tape. When
   // the tape is empty AND we have no pipeline data, we're working from a
@@ -111,6 +144,12 @@ export function validateOfflineGate(g: GateInput): GateResult {
       };
     }
   }
+  // Leaving Dry In: explained before the stage-order and stale-cache verdicts,
+  // which would otherwise read the rule's empty tape as a wrong stage / stale cache.
+  if (g.cycleInProgress) {
+    const dryIn = leavingDryInRefusal(g);
+    if (dryIn) return { ok: false, reason: dryIn };
+  }
   // In-cycle: activeStage must appear as an ADVANCE_TO_STAGE target on the
   // current tape (also covers SET_DRYER_DURATION, since DRY_IN is a valid
   // advance target with the dryer-duration sub-action).
@@ -139,29 +178,6 @@ export function validateOfflineGate(g: GateInput): GateResult {
   // DRY_IN guard
   if (g.activeStageKey === 'DRY_IN' && g.dryerReadingsSubmitted) {
     return { ok: false, reason: 'dry-in already recorded — scan on Dry Out' };
-  }
-  // Leaving-DRY_IN guard (2026-05-18): when the filter is at DRY_IN and the
-  // operator scans a non-DRY_IN stage, mirror the server's
-  // assertDryerHalfTimeBeforeLeavingDryIn + dryer-readings rules locally.
-  // Otherwise the offline queue accepts the advance, syncs Wash In/Out + Dry
-  // In, then the server rejects Storage In / Storage Out replay because
-  // dryer half-time hasn't elapsed (dryer_started_at gets stamped at sync
-  // moment). Operator sees "duration was still there" and the cycle stays
-  // stuck mid-pipeline.
-  if (g.currentLifecycle === 'DRY_IN' && g.activeStageKey !== 'DRY_IN') {
-    if (!g.dryerStartedAt || !g.dryerDurationMinutes) {
-      return { ok: false, reason: 'set the dryer duration before leaving Dry In' };
-    }
-    if (!g.dryerReadingsSubmitted) {
-      const startedMs = new Date(g.dryerStartedAt).getTime();
-      const halfMs = (g.dryerDurationMinutes * 60_000) / 2;
-      const elapsedMs = Date.now() - startedMs;
-      if (elapsedMs < halfMs) {
-        const remainingMin = Math.max(1, Math.ceil((halfMs - elapsedMs) / 60_000));
-        return { ok: false, reason: `dryer still running — wait ${remainingMin} more minute(s) before leaving Dry In` };
-      }
-      return { ok: false, reason: 'submit dryer temperature before leaving Dry In' };
-    }
   }
   return { ok: true };
 }

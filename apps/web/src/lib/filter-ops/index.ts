@@ -13,7 +13,7 @@
  * of these functions.
  */
 
-export { validateOfflineGate, firstStagesFromGraph } from './validate-offline-gate';
+export { validateOfflineGate, firstStagesFromGraph, leavingDryInRefusal } from './validate-offline-gate';
 
 export { resolvePendingChecklistDialog, resolveChecklistForTargetStage } from './resolve-pending-checklist';
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { validateOfflineGate, firstStagesFromGraph, type GateInput } from '../validate-offline-gate';
+import { validateOfflineGate, firstStagesFromGraph, leavingDryInRefusal, type GateInput } from '../validate-offline-gate';
 
 const base: GateInput = {
   activeStageKey: 'WASH_IN', activeStageLabel: 'Wash In', online: true,
@@ -199,5 +199,48 @@ describe('validateOfflineGate — Dry In guards', () => {
   it('with readings submitted the cycle may leave Dry In', () => {
     const r = validateOfflineGate({ ...atDryIn, dryerStartedAt: '2026-10-21T08:00:00.000Z', dryerDurationMinutes: 60, dryerReadingsSubmitted: true });
     expect(r).toEqual({ ok: true });
+  });
+});
+
+// 2026-10-23: since 3404627 the tape offers NO way out of Dry In before the
+// readings (guard #27). Offline, the "in-cycle but no next stage cached" check
+// read that empty tape as a stale cache and told the operator to re-sync. The
+// leaving-Dry-In rule now speaks first — ONE helper, shared with the desktop.
+describe('validateOfflineGate — leaving Dry In is explained before any stale-cache verdict', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const readingsTape = [
+    { type: 'SUBMIT_DRYER_READINGS', label: 'Submit dryer readings', params: { instrumentIds: ['t1'] } },
+    { type: 'TERMINATE_CYCLE', label: 'Terminate' },
+  ] as any[];
+  const offlineAtDryIn = {
+    ...base, online: false, hasGraph: true, cycleInProgress: true, currentLifecycle: 'DRY_IN',
+    activeStageKey: 'DRY_OUT', activeStageLabel: 'Dry Out', actions: readingsTape,
+  };
+
+  it('readings due: "submit the dryer temperature", not "re-sync"', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-21T08:45:00.000Z'));
+    const r = validateOfflineGate({ ...offlineAtDryIn, dryerStartedAt: '2026-10-21T08:00:00.000Z', dryerDurationMinutes: 60 });
+    expect(reasonOf(r)).toBe('submit dryer temperature before leaving Dry In');
+  });
+
+  it('before half-time (the tape offers nothing yet): the countdown, not "re-sync"', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-21T08:10:30.000Z'));
+    const r = validateOfflineGate({ ...offlineAtDryIn, actions: [{ type: 'TERMINATE_CYCLE', label: 'Terminate' }] as any, dryerStartedAt: '2026-10-21T08:00:00.000Z', dryerDurationMinutes: 60 });
+    expect(reasonOf(r)).toBe('dryer still running — wait 20 more minute(s) before leaving Dry In');
+  });
+
+  it('a genuinely stale cache (not at Dry In) still says re-sync', () => {
+    const r = validateOfflineGate({ ...offlineAtDryIn, currentLifecycle: 'WASH_IN', activeStageKey: 'WASH_OUT', activeStageLabel: 'Wash Out', actions: [] });
+    expect(reasonOf(r)).toBe('in-cycle but no next stage cached — re-sync');
+  });
+
+  it('the helper: null away from Dry In, scanning Dry In itself, or once the readings are in', () => {
+    const dry = { dryerStartedAt: '2026-10-21T08:00:00.000Z', dryerDurationMinutes: 60 };
+    expect(leavingDryInRefusal({ currentLifecycle: 'WASH_IN', activeStageKey: 'WASH_OUT', ...dry })).toBeNull();
+    expect(leavingDryInRefusal({ currentLifecycle: 'DRY_IN', activeStageKey: 'DRY_IN', ...dry })).toBeNull();
+    expect(leavingDryInRefusal({ currentLifecycle: 'DRY_IN', activeStageKey: 'DRY_OUT', ...dry, dryerReadingsSubmitted: true })).toBeNull();
+    expect(leavingDryInRefusal({ currentLifecycle: 'DRY_IN', activeStageKey: 'DRY_OUT', dryerStartedAt: null, dryerDurationMinutes: null })).toBe('set the dryer duration before leaving Dry In');
   });
 });
