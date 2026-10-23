@@ -29,6 +29,9 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}'],
       // src/test-utils/** = test infrastructure (page-harness), not application code.
       exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/**/*.d.ts', 'src/e2e/test-helper.ts', 'src/test-utils/**'],
+      // Coverage gate (operator, 2026-10-22): >= 90 % on every metric. Measured 2026-10-23:
+      // statements/lines 97.6, branches 94.4, functions 97.0. Never lower these to pass.
+      thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 },
     },
     globals: true,
     environment: 'jsdom',

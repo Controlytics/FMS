@@ -122,3 +122,6 @@ QA/results/
 
 # Runtime uploads (profile photos written by the API and its tests) - never committed
 apps/api/uploads/
+
+# Stryker mutation-testing sandboxes
+.stryker-tmp/
