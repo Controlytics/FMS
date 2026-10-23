@@ -187,6 +187,21 @@ describe('createReport — header identity', () => {
     expect(company.x).toBeCloseTo(14 + 36 + 4);
   });
 
+  // 2026-10-23: Branding keeps an uploaded logo as a data: URL (the install
+  // baseline ships one). It was fetch()ed like a file - blocked on an installed
+  // server by CSP connect-src 'self' - so every PDF printed without its logo.
+  it('a data: logo (an uploaded one) is used as is - no network fetch - and embedded as PNG', async () => {
+    const dataLogo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    installFetch([{ path: '/api/config/branding', body: { companyName: 'Acme Pharma', appName: 'FMS', logoUrl: dataLogo } }]);
+    const fetchSpy = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const { createReport } = await load();
+    await createReport({ title: 'T', formatDateTime: fmt });
+    expect(fetchSpy.mock.calls.some(([u]) => String(u).startsWith('data:'))).toBe(false);
+    const [data, kind] = lastDoc().images[0];
+    expect(data).toBe(dataLogo);
+    expect(kind).toBe('PNG');
+  });
+
   it('caches the logo: a second report does not fetch it again', async () => {
     logoMode = 'ok';
     installFetch();

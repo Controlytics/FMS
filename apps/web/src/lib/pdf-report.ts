@@ -39,16 +39,26 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
     // DB-stored '/uploads/...' logo would need the API base (getPhotoUrl
     // semantics), but that asset-base question spans sidebar.tsx +
     // report-page-wrapper.tsx too and wants one policy, not a local prefix here.
-    const logoUrl = branding?.logoUrl || '/logo.jpg';
-    const imgRes = await fetch(logoUrl);
-    if (!imgRes.ok) return null;
-    const blob = await imgRes.blob();
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject();
-      reader.readAsDataURL(blob);
-    });
+    const logoUrl: string = branding?.logoUrl || '/logo.jpg';
+    let dataUrl: string;
+    if (logoUrl.startsWith('data:')) {
+      // Already inline: Branding stores an uploaded logo as a data: URL (so does
+      // the install baseline). Fetching it is pointless and, on an installed
+      // server, BLOCKED - the API serves the app with CSP connect-src 'self',
+      // which does not cover data: URLs (img-src does). Every PDF from an
+      // installed server printed without its logo until 2026-10-23.
+      dataUrl = logoUrl;
+    } else {
+      const imgRes = await fetch(logoUrl);
+      if (!imgRes.ok) return null;
+      const blob = await imgRes.blob();
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => reject();
+        reader.readAsDataURL(blob);
+      });
+    }
     // Get natural dimensions to preserve aspect ratio
     const dims: { w: number; h: number } = await new Promise((resolve) => {
       const img = new Image();
@@ -58,7 +68,12 @@ async function loadLogo(): Promise<{ data: string; w: number; h: number } | null
     });
     cachedLogo = { data: dataUrl, w: dims.w, h: dims.h };
     return cachedLogo;
-  } catch { return null; }
+  } catch (e) {
+    // A report without its logo is still a valid report - but say so, rather
+    // than dropping it silently (that hid the CSP block above for months).
+    console.warn('PDF report: the logo could not be loaded; printing without it.', e);
+    return null;
+  }
 }
 
 async function loadBranding(): Promise<{ companyName: string; appName: string }> {
@@ -190,7 +205,8 @@ export async function createReport(config: ReportConfig): Promise<ReportDoc> {
       const aspect = logo.w / logo.h;
       const logoH = maxLogoH;
       const logoW = logoH * aspect;
-      doc.addImage(logo.data, 'JPEG', 14, y, logoW, logoH);
+      // Name the real format: an uploaded logo is usually a PNG.
+      doc.addImage(logo.data, /^data:image\/png/i.test(logo.data) ? 'PNG' : 'JPEG', 14, y, logoW, logoH);
       logoEndX = 14 + logoW + 4;
     } catch { /* skip */ }
   }
