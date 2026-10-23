@@ -15,7 +15,10 @@ import { getLogger } from '../../../lib/logger.js';
 /** Log type 6 — the raw SMTP / token-endpoint error lives here, never in a response. */
 const mailLog = getLogger('email-channel', 'services');
 
-let transporter: nodemailer.Transporter | null = null;
+// nodemailer 10 ships its own types and has no `Transporter` export; the
+// transporter is whatever createTransport returns (`Mail`).
+type Transporter = ReturnType<typeof nodemailer.createTransport>;
+let transporter: Transporter | null = null;
 let currentConfigHash = "";
 
 /*
@@ -238,7 +241,7 @@ async function getOAuth2Token(config: EmailConfig): Promise<string> {
   }
 }
 
-async function getTransporter(config: EmailConfig): Promise<nodemailer.Transporter> {
+async function getTransporter(config: EmailConfig): Promise<Transporter> {
   // Re-checked on every build AND on every reuse: the pinned address is part of
   // the cache key, so a DNS change for the mail server is picked up, and is
   // checked, rather than the old address being used forever.
