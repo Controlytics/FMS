@@ -125,6 +125,8 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
 
+> **Where a failure is recorded (FMS Setup 1.2.3 and later).** Every line the install / upgrade step prints is in `%ProgramData%\DigiLog\logs\install-<stamp>.log` (or `upgrade-<stamp>.log`). A failed step shows its `FATAL:` lines and that path, and Setup ends on "Setup did not finish" with exit code 10. Before 1.2.3 the step ran hidden and Setup showed its normal Finish page even when it failed.
+>
 > **Troubleshooting — install fails during *certificate* generation.** Two distinct causes, check in this order:
 > 1. **`FATAL: openssl.exe not found`** or `openssl.cnf not found` — the installer ships the OpenSSL CLI in `{app}\openssl` (PostgreSQL contains no `openssl.exe` of its own). If either file is absent the build was made without `-OpenSslZip`; rebuild.
 > 2. **VC++ runtime missing** — `HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64` should report `Installed=1`, `Major=14`, `Minor` ≥ 30. Its absence breaks the database steps (`initdb`, `pg_ctl`, `pg_dump`), not certificate generation.

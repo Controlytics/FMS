@@ -166,7 +166,9 @@ from `pgsql\bin` — where it has never existed. The PostgreSQL binaries distrib
 contains `libcrypto-3-x64.dll`, `libssl-3-x64.dll` and C headers, but **no OpenSSL
 CLI**. Every fresh install therefore exited 1 before writing `digilog.env`, before
 provisioning the DB and before registering any service; Inno ignores `[Run]` exit codes,
-so Setup still reported success. The installer now ships FireDaemon OpenSSL 3.5.7
+so Setup still reported success. (Fixed 2026-10-23: the scripts run from `[Code]`, a failure
+shows its FATAL lines, ends on "Setup did not finish" with exit code 10 and is logged to
+`%ProgramData%\DigiLog\logs\install-*.log`.) The installer now ships FireDaemon OpenSSL 3.5.7
 (EV-signed, vendor SHA-256 verified on download) in its **own** `{app}\openssl`
 directory — deliberately not `pgsql\bin`, because the CLI carries `libcrypto`/`libssl`
 under identical filenames at 3.5.7 vs PostgreSQL's 3.5.5 and must never overwrite the
@@ -274,7 +276,9 @@ orchestrator, and you cannot overwrite a running exe. Solution:
    (`ignoreversion`); **`pgsql\` is `onlyifdoesntexist`** so the running
    `postgres.exe` is never overwritten (no lock) and the DB stays up for the backup.
    `C:\ProgramData` is never touched.
-3. **`upgrade.ps1`** (the `[Run]` upgrade entry, `Check: IsUpgrade`):
+3. **`upgrade.ps1`** (run from `CurStepChanged(ssPostInstall)` when `IsUpgrade`; a `[Run]` entry
+   until 2026-10-23, when it moved to `[Code]` so its exit code is checked and its output logged,
+   `installer/run-setup-script.iss`):
    a. Validate a prior install (env file + initialised cluster) or abort.
    b. Ensure `DigiLogDB` is accepting connections (`pg_isready`, start if needed).
    c. **`pg_dump` → `C:\ProgramData\DigiLog\backups\pre-upgrade-v<ver>-<ts>.sql`.

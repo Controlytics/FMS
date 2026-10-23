@@ -26,7 +26,43 @@ clean-machine install, Super Admin probe session and the performance / endurance
   deferred (3 HIGH in its CLI).
 - **Test quality:** coverage gates at 90 % on API (97.5 / 95.0 / 99.5 / 97.5), Web (97.6 / 94.4 / 97.0 /
   97.6) and Shared; Stryker mutation 88.7 % (pipeline executor) and 96.6 % (API security libraries).
-- **Builds:** `DigiLog-FilterOps.apk` (`11e36da`) and `dist\FMS-Setup-1.2.3.exe` (unsigned).
+- **Builds:** `DigiLog-FilterOps.apk` (`11e36da`) and `dist\FMS-Setup-1.2.3.exe` (unsigned). The installer
+  was REBUILT the same day with the installer fixes below (`745980d`, sha256 `b409363a…`, 172,206,653
+  bytes); the first 1.2.3 build (sha256 `9280ee44…`) is superseded — see test-results/10 § 1.
+- **Installer: a failed install or upgrade is visible and logged (`745980d`, report 10 § 5).** Setup ran
+  `install.ps1` / `upgrade.ps1` as hidden `[Run]` entries. Inno never checks their exit code, so a failure
+  ended on the normal Finish page and every `FATAL:` line was lost. They now run from `[Code]`
+  (`installer/run-setup-script.iss`, `ExecAndLogOutput`):
+  - every line, stdout and stderr, goes to `C:\ProgramData\DigiLog\logs\install-<stamp>.log` /
+    `upgrade-<stamp>.log`;
+  - a non-zero exit shows the FATAL / FAILED lines, what to do next and the log path, and replaces the
+    Finish page with "Setup did not finish";
+  - Setup then exits with code 10, so a silent install fails too;
+  - an exit 0 that printed `WARN:` lines shows them.
+- **Installer: the superadmin password left Setup's log (`745980d`).** Inno writes every `[Run]` command
+  line into Setup's own log (`SetupLogging=yes`), and the fresh-install line carried
+  `-AdminPassword "<password>"`, both since the first installer (`52ff326`, 2026-06-30). **Every fresh
+  install made by an earlier Setup (DigiLog-Setup 1.0.0 up to the first FMS-Setup 1.2.3 build) left the
+  superadmin password in `%TEMP%\Setup Log <date> #NNN.txt` of the Windows account that ran it**
+  (confirmed with a control build 2026-10-23). On such a server, delete those files and change the superadmin password.
+  Setup now hands the password to `install.ps1` in the `FMS_SETUP_ADMIN_PASSWORD` environment variable,
+  which the script reads and removes. A password containing `"` no longer breaks the install either.
+- **Installer: no "upgrade" over an unfinished first install (`745980d`).** `digilog.env` is written before
+  the database, so after a first install that failed, the next Setup run took the UPGRADE path. It then
+  either stopped ("no initialised DB cluster") or seeded the half-built database with a random superadmin
+  password nobody knows. `install.ps1` now keeps `config\install-incomplete` from the start of a first install
+  (on an empty data root only) until the database is migrated and seeded. Setup refuses to run over it
+  and says what to do.
+- **Installer: login page "Version" = the installer's version on a fresh install (`745980d`).** It
+  is the `branding` setting created from `install-baseline.json`, edited by hand per release and wrong
+  twice: 1.2.0 / 1.2.1 shipped "1.1.0", and the first 1.2.3 build "1.2.2". `build-installer.ps1` now stamps
+  `-AppVersion` into the staged copy and reads it back (`scripts/stamp-install-version.mjs`).
+  `-AppVersion` is mandatory and must be `x.y.z`. **An upgrade still keeps the site's own value**, because
+  every seed write is create-only (operator decision 2026-10-14). Change it on Configuration → Branding.
+- **Installer test:** `installer/test/test-run-setup-script.ps1` compiles `DigiLog.iss` against a dummy
+  stage and runs a harness built on the same include in fail / warn / ok modes. It checks exit codes, the
+  log content (incl. a native program's stderr) and that the password reaches the script but appears in
+  neither log. No admin needed, nothing installed. 34 / 34 PASS.
 
 ## [Unreleased] - Tablet App Access, LDAP and the dynamic config pages are SUPER_ADMIN-only (D03-15, 2026-10-22)
 

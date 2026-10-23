@@ -20,12 +20,14 @@ proven at production load or on a clean machine, because those tests were stoppe
 | 07 | Performance | NOT re-run; 10-17/19 evidence + today's query-level fixes (batch-states 17,931 → 65 queries) |
 | 08 | Coverage + test quality | API 97.5 / 95.0 / 99.5 / 97.5 %, Web 97.6 / 94.4 / 97.0 / 97.6 %, gates on; mutation 88.7 % (pipeline) / 96.6 % (security libs) |
 | 09 | Reliability + recovery | partial: backup / restore fixes proven; restart / outage / one-year restore not re-run |
-| 10 | Deployment readiness | installer 1.2.3 + APK built, packed API smoke OK; clean-machine install NOT run |
+| 10 | Deployment readiness | installer 1.2.3 + APK built, packed API smoke OK; installer REBUILT 2026-10-23 with the § 5 fixes (failed install / upgrade now visible + logged, password out of Setup's log, login version stamped; sha256 `b409363a…`); clean-machine install NOT run |
 
 ## 2. Conditions for go-live
 
 1. **Install 1.2.3 on a clean Windows machine** (or the client server) and verify install, upgrade and the
-   nightly backup task — not done here (operator decision).
+   nightly backup task — not done here (operator decision). Use the REBUILT file (sha256 `b409363a…`, report
+   10 § 1). It also exercises the new failure handling through the real Setup, which so far has been
+   proven only by a harness and by running the staged scripts.
 2. **Performance on the client's hardware at 100 users**: at least a 2 h soak, 8 h before sign-off
    (`tests/performance/README.md`). The 100-user failure on 10-17 was the tablet batch-states poll; it is
    fixed at the query level but not re-measured under load.
@@ -33,6 +35,8 @@ proven at production load or on a clean machine, because those tests were stoppe
    here; covered only by automated tests).
 4. **Copy backups off the server** (same-disk backups are the biggest recovery risk).
 5. **Sign the installer** (`-Sign`) to avoid SmartScreen / AV warnings.
+6. **Servers already installed with an earlier Setup**: delete `%TEMP%\Setup Log *.txt` of the installing
+   account (it holds the superadmin password) and change that password (report 10 § 5).
 
 ## 3. Accepted / open (operator decisions recorded in test-results/README.md)
 
