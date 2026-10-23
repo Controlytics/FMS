@@ -91,12 +91,21 @@ describe('computeNextActions — filter AT DRY_IN with the dryer never started',
     expect(types).not.toContain('ADVANCE_TO_STAGE');
   });
 
-  it('is unchanged once the dryer HAS started: countdown gate, then advance', () => {
+  it('once the dryer HAS started: countdown gate, then readings, then advance', () => {
     // dryInActiveContext: started 30 min ago of 60 → half elapsed, readings pending.
-    const tape = computeNextActions(dryInActiveContext());
-    const types = tape.actions.map(a => a.type);
-    expect(types).not.toContain('SET_DRYER_DURATION');
-    expect(types).toContain('ADVANCE_TO_STAGE');
+    // The advance waits for the readings (guard #27, 2026-10-23) — this test used
+    // to expect it beside the readings step, pinning a move the server refused
+    // with DRYER_READINGS_REQUIRED.
+    const ctx = dryInActiveContext();
+    const pending = computeNextActions(ctx).actions.map(a => a.type);
+    expect(pending).not.toContain('SET_DRYER_DURATION');
+    expect(pending).toContain('SUBMIT_DRYER_READINGS');
+    expect(pending).not.toContain('ADVANCE_TO_STAGE');
+
+    const recorded = computeNextActions({ ...ctx, cycle: { ...ctx.cycle, dryerReadingsSubmitted: true } })
+      .actions.map(a => a.type);
+    expect(recorded).not.toContain('SUBMIT_DRYER_READINGS');
+    expect(recorded).toContain('ADVANCE_TO_STAGE');
   });
 
   it('a profile whose FIRST stage is DRY_IN asks for the duration on the way in (pre-existing rule)', () => {

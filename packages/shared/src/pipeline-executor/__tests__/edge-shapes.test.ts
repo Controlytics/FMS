@@ -287,7 +287,7 @@ describe('checklist branches that meet again', () => {
     });
     const ctx = atWashIn([entered, answered]);
     expect(targets(ctx, 'ADVANCE_TO_STAGE')).toEqual(['WASH_OUT']);
-    expect(new Set(getReachableStages(ctx))).toEqual(new Set(['WASH_OUT']));
+    expect(getReachableStages(ctx)).toEqual(['WASH_OUT']);
   });
 
   it('asks only the checklists it can resolve to questions; the advance waits', () => {
@@ -348,9 +348,9 @@ describe('dryer timing with string timestamps and offline instants', () => {
     return { ...base, cycle: { ...base.cycle, dryerStartedAt: asString ? started.toISOString() : started } };
   }
 
-  it('a cached ISO dryer start past half-time offers the readings and the onward stage', () => {
+  it('a cached ISO dryer start past half-time offers the readings (and nothing that leaves Dry In)', () => {
     const ctx = dryIn(30, true);
-    expect(types(ctx)).toEqual(['SUBMIT_DRYER_READINGS', 'ADVANCE_TO_STAGE', 'TERMINATE_CYCLE']);
+    expect(types(ctx)).toEqual(['SUBMIT_DRYER_READINGS', 'TERMINATE_CYCLE']);
     expect(assertDryerHalfTimeElapsed(ctx, ctx.cycle, 'SUBMIT_READINGS')).toEqual({ ok: true });
     expect(assertDryerHalfTimeBeforeLeavingDryIn(ctx, ctx.cycle, 'DRY_IN', 'DRY_OUT')).toEqual({ ok: true });
   });
@@ -404,6 +404,54 @@ describe('dryer timing with string timestamps and offline instants', () => {
 });
 
 // ── Instruments / bypass ordering ────────────────────────────────────────
+
+describe('leaving Dry In: the tape offers exactly what guard #27 allows', () => {
+  // ONE rule (2026-10-23): the readings must be in before the filter leaves Dry
+  // In — to the next stage or, out of a final Dry In, to END. The tape used to
+  // offer "Advance to Dry Out" as soon as half-time passed, and the server
+  // refused it with DRYER_READINGS_REQUIRED.
+  function finalDryIn(): LocalContext {
+    const base = dryInActiveContext();
+    return {
+      ...base,
+      profile: {
+        ...base.profile,
+        nodes: base.profile.nodes.filter(n => n.stateKey !== 'DRY_OUT'),
+        edges: [
+          ...base.profile.edges.filter(e => e.fromStageId !== 'n-dry-in' && e.toStageId !== 'n-dry-out'),
+          { fromStageId: 'n-dry-in', toStageId: 'n-end' },
+        ],
+      },
+    };
+  }
+  const shapes: Array<[string, () => LocalContext]> = [
+    ['mid-pipeline Dry In', () => dryInActiveContext()],
+    ['final Dry In', finalDryIn],
+  ];
+
+  for (const [shape, build] of shapes) {
+    for (const readingsSubmitted of [false, true]) {
+      it(`${shape}, readings ${readingsSubmitted ? 'submitted' : 'due'}`, () => {
+        const base = build();
+        const ctx: LocalContext = { ...base, cycle: { ...base.cycle, dryerReadingsSubmitted: readingsSubmitted } };
+        const tape = computeNextActions(ctx).actions;
+        const offered = new Set(
+          tape.flatMap(a =>
+            a.type === 'ADVANCE_TO_STAGE' ? [a.params.targetState] : a.type === 'COMPLETE_CYCLE' ? ['END'] : [],
+          ),
+        );
+        const leaves = [...getReachableStages(ctx), ...(leadsToEnd(ctx) ? ['END'] : [])];
+        expect(leaves.length).toBeGreaterThan(0);
+        for (const target of leaves) {
+          const allowed = assertDryerReadingsSubmittedBeforeLeavingDryIn(ctx.cycle, 'DRY_IN', target).ok;
+          expect(allowed).toBe(readingsSubmitted);
+          expect(offered.has(target)).toBe(allowed);
+        }
+        expect(tape.some(a => a.type === 'SUBMIT_DRYER_READINGS')).toBe(!readingsSubmitted);
+      });
+    }
+  }
+});
 
 describe('instrument order and messages', () => {
   it('an instrument without a sort order is read first (treated as 0)', () => {

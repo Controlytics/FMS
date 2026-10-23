@@ -27,45 +27,16 @@ import type {
   ChecklistProfileSlice,
   EquipmentGroupSlice,
   LocalContext,
-  ProfileEdge,
-  ProfileNode,
   TapeInstrument,
 } from './types.js';
-import { checklistAnsweredInCurrentEntry, collectChecklistsAfterStage, enabledChecklistNodes, prettyStageLabel } from './transitions.js';
-
-// ── Pipeline-graph helpers ────────────────────────────────────────────────
-
-function findReachable(
-  fromNodeId: string,
-  allStages: ProfileNode[],
-  connections: ProfileEdge[],
-): { reachableStages: { stateKey: string; stage: ProfileNode }[]; leadsToEnd: boolean } {
-  const reachable: { stateKey: string; stage: ProfileNode }[] = [];
-  let leadsToEnd = false;
-  const visited = new Set<string>();
-  const walk = (nodeId: string) => {
-    if (visited.has(nodeId)) return;
-    visited.add(nodeId);
-    for (const c of connections.filter(cn => cn.fromStageId === nodeId)) {
-      const next = allStages.find(s => s.id === c.toStageId);
-      if (!next) continue;
-      if (next.nodeType === 'STAGE' && next.stateKey) {
-        // Two checklist branches can lead to the same stage: offer it ONCE
-        // (2026-10-23), as buildStageLookup's nextStages already does — it
-        // used to appear as two identical "Advance to …" actions.
-        if (!reachable.some(r => r.stateKey === next.stateKey)) {
-          reachable.push({ stateKey: next.stateKey, stage: next });
-        }
-      } else if (next.nodeType === 'END') {
-        leadsToEnd = true;
-      } else if (next.nodeType === 'CHECKLIST') {
-        walk(next.id);
-      }
-    }
-  };
-  walk(fromNodeId);
-  return { reachableStages: reachable, leadsToEnd };
-}
+import { assertDryerReadingsSubmittedBeforeLeavingDryIn } from './dryer.js';
+import {
+  checklistAnsweredInCurrentEntry,
+  collectChecklistsAfterStage,
+  enabledChecklistNodes,
+  findReachable,
+  prettyStageLabel,
+} from './transitions.js';
 
 // ── Instrument helpers ────────────────────────────────────────────────────
 
@@ -183,8 +154,10 @@ export function computeNextActions(
     };
   }
 
-  // 2. (computed first) Reachable stages (skipping CHECKLIST nodes).
-  const { reachableStages, leadsToEnd } = findReachable(fromNode.id, stages, connections);
+  // 2. (computed first) Reachable stages (skipping CHECKLIST nodes). The same
+  // walker the server's advance() and stageLookup use (2026-10-23: this file
+  // had a private copy, which listed a stage twice when checklist branches met).
+  const { reachableStages, hasEndNext: leadsToEnd } = findReachable(fromNode.id, stages, connections);
 
   // 1. Pending-checklist gate.
   // A disabled checklist is skipped wherever it sits (2026-10-12). The position
@@ -301,8 +274,16 @@ export function computeNextActions(
     };
     actions.push(setDurInPlace);
   } else if (!blockedByDryerHalfTime) {
-    for (const r of reachableStages) {
-      if (r.stateKey === 'DRY_IN' && state !== 'DRY_IN' && !cycle.dryerStartedAt) {
+    // Leaving Dry In needs the readings (guard #27, DRYER_READINGS_REQUIRED) —
+    // the tape asks the guard itself, so it never offers a move the server
+    // refuses (2026-10-23: "Advance to Dry Out" appeared as soon as half-time
+    // passed, beside the readings step it could not skip). Out of a final Dry
+    // In the leave is to END: the readings complete the cycle, not COMPLETE_CYCLE.
+    const mayLeaveTo = (target: string) =>
+      assertDryerReadingsSubmittedBeforeLeavingDryIn(cycle, state, target).ok;
+    for (const stateKey of reachableStages) {
+      if (!mayLeaveTo(stateKey)) continue;
+      if (stateKey === 'DRY_IN' && state !== 'DRY_IN' && !cycle.dryerStartedAt) {
         const setDur: SetDryerDurationAction = {
           type: 'SET_DRYER_DURATION',
           label: 'Set Dryer Duration',
@@ -312,12 +293,12 @@ export function computeNextActions(
         continue;
       }
 
-      const stageInsts = instrumentsForStage(equipmentGroup, r.stateKey);
+      const stageInsts = instrumentsForStage(equipmentGroup, stateKey);
       const adv: AdvanceToStageAction = {
         type: 'ADVANCE_TO_STAGE',
-        label: `Advance to ${prettyStageLabel(r.stateKey)}`,
+        label: `Advance to ${prettyStageLabel(stateKey)}`,
         params: {
-          targetState: r.stateKey,
+          targetState: stateKey,
           ...(stageInsts.length > 0
             ? { requiresInstrumentReadings: stageInsts.map(i => i.id) }
             : {}),
@@ -329,7 +310,7 @@ export function computeNextActions(
       actions.push(adv);
     }
 
-    if (leadsToEnd && reachableStages.length === 0) {
+    if (leadsToEnd && reachableStages.length === 0 && mayLeaveTo('END')) {
       const complete: CompleteCycleAction = {
         type: 'COMPLETE_CYCLE',
         label: 'Complete Cycle',

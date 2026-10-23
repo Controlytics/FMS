@@ -448,7 +448,9 @@ export function findReachable(
       const next = allStages.find(s => s.id === c.toStageId);
       if (!next) continue;
       if (next.nodeType === 'STAGE' && next.stateKey) {
-        reachableStages.push(next.stateKey);
+        // Each stage ONCE (2026-10-23): two checklist branches can lead to the
+        // same stage, and every caller (tape, stageLookup, advance) wants the set.
+        if (!reachableStages.includes(next.stateKey)) reachableStages.push(next.stateKey);
       } else if (next.nodeType === 'END') {
         hasEndNext = true;
       } else if (next.nodeType === 'CHECKLIST') {
@@ -502,15 +504,8 @@ export function buildStageLookup(profile: ProfileSlice): Record<string, StageInf
     if (s.nodeType !== 'STAGE' || !s.stateKey) continue;
     const checklistNodes = collectChecklistsAfterStageInternal(s, profile.nodes, profile.edges);
     const { reachableStages, hasEndNext } = findReachable(s.id, profile.nodes, profile.edges);
-    const seen = new Set<string>();
-    const dedupedStages: string[] = [];
-    for (const k of reachableStages) {
-      if (seen.has(k)) continue;
-      seen.add(k);
-      dedupedStages.push(k);
-    }
     stageLookup[s.stateKey] = {
-      nextStages: dedupedStages,
+      nextStages: reachableStages,
       pendingChecklistProfileIds: checklistNodes
         .map(n => (n.configuration as { checklistProfileId?: string })?.checklistProfileId)
         .filter((v): v is string => typeof v === 'string'),
