@@ -19,6 +19,8 @@
     "check:cycles": "madge --circular apps/api/src apps/web/src packages/shared/src"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "madge": "^8.0.0",
     "turbo": "^2.4.0"
   },
