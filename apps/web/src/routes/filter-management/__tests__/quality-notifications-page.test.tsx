@@ -62,7 +62,7 @@ describe('Quality Notifications page', () => {
     expect(screen.queryByText(/Showing/)).toBeNull();
   });
 
-  it('date range is sent as from / end-of-day to; changing it resets to page 1', async () => {
+  it('date range is sent as bare from / to dates; changing it resets to page 1', async () => {
     const api = setup([], {}, resp(ROWS, 60));
     renderPage(<QualityNotificationsPage />, { user: SA, api });
     await screen.findByText('QN-2026-000131');
@@ -70,7 +70,9 @@ describe('Quality Notifications page', () => {
     await waitFor(() => expect(lastList(api).query.get('page')).toBe('2'));
     fireEvent.change(screen.getByLabelText('Quality notifications from date'), { target: { value: '2026-10-01' } });
     fireEvent.change(screen.getByLabelText('Quality notifications to date'), { target: { value: '2026-10-03' } });
-    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-03T23:59:59'));
+    // a bare date: the API reads it as the server's whole local day (d195f84); a
+    // client-made T23:59:59 dropped the last 999 ms of the end day
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-03'));
     expect(lastList(api).query.get('from')).toBe('2026-10-01');
     expect(lastList(api).query.get('page')).toBe('1');
   });
@@ -119,7 +121,7 @@ describe('Quality Notifications page', () => {
     expect(vi.mocked(createReport).mock.calls[1][0].subtitle).toMatch(/ to Now {2}\| {2}Total: 2/);
     fireEvent.change(screen.getByLabelText('Quality notifications from date'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Quality notifications to date'), { target: { value: '2026-10-04' } });
-    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-04T23:59:59'));
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-04'));
     fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
     fireEvent.click(screen.getByRole('button', { name: /Export as PDF/ }));
     await waitFor(() => expect(pdf.save).toHaveBeenCalledTimes(3));

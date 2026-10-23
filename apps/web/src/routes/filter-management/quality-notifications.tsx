@@ -66,7 +66,7 @@ export function QualityNotificationsPage() {
   const buildQs = (limit: number, pg: number) => {
     const qs = new URLSearchParams();
     if (from) qs.set('from', from);
-    if (to) qs.set('to', `${to}T23:59:59`);
+    if (to) qs.set('to', to); // bare: the API reads it as the whole local day (d195f84)
     qs.set('page', String(pg));
     qs.set('limit', String(limit));
     return qs.toString();

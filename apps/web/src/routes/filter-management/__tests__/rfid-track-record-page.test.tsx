@@ -88,9 +88,11 @@ describe('RFID Track Record page', () => {
     fireEvent.change(screen.getByPlaceholderText('User'), { target: { value: 'opr' } });
     fireEvent.change(screen.getByLabelText('RFID track record from date'), { target: { value: '2026-10-01' } });
     fireEvent.change(screen.getByLabelText('RFID track record to date'), { target: { value: '2026-10-05' } });
-    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-05T23:59:59'));
+    // a bare date: the API reads it as the server's whole local day (d195f84); a
+    // client-made T23:59:59 dropped the last 999 ms of the end day
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-05'));
     const q = lastList(api).query;
-    expect(Object.fromEntries(q)).toEqual({ from: '2026-10-01', to: '2026-10-05T23:59:59', rfid: 'E200', filterName: 'FLT', ahu: 'AHU-1', user: 'opr', page: '1', limit: '50' });
+    expect(Object.fromEntries(q)).toEqual({ from: '2026-10-01', to: '2026-10-05', rfid: 'E200', filterName: 'FLT', ahu: 'AHU-1', user: 'opr', page: '1', limit: '50' });
     // An inverted range is refused by the control and never sent.
     const before = api.calls('GET', '/api/assets/identifiers/track-record').length;
     fireEvent.change(screen.getByLabelText('RFID track record from date'), { target: { value: '2026-10-09' } });
@@ -166,7 +168,7 @@ describe('RFID Track Record page', () => {
     expect(api.calls('POST', '/api/audit/report-export-log')[0].json).toMatchObject({ format: 'PDF', recordCount: 2 });
 
     fireEvent.change(screen.getByLabelText('RFID track record to date'), { target: { value: '2026-10-05' } });
-    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-05T23:59:59'));
+    await waitFor(() => expect(lastList(api).query.get('to')).toBe('2026-10-05'));
     fireEvent.click(screen.getByRole('button', { name: /^Export$/ }));
     fireEvent.click(screen.getByRole('button', { name: /Export as PDF/ }));
     await waitFor(() => expect(pdf.save).toHaveBeenCalledTimes(2));
