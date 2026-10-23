@@ -1,5 +1,6 @@
 import { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { parseRangeStart, parseRangeEnd, toDateColumnDay } from '../../lib/date-range-guard.js';
 import { prisma } from '../../lib/prisma.js';
 import { enforceReauthAlways } from '../../lib/reauth-check.js';
 import { readSuperAdminApiEnabledUncached, setSuperAdminApiEnabled } from '../../lib/super-admin-lock.js';
@@ -852,27 +853,33 @@ export default async function superAdminRoutes(app: FastifyInstance) {
    * the filtering themselves.
    *
    * `dateField` differs per model (createdAt / plannedDate / …), so it is passed
-   * in rather than guessed. `to` is treated as INCLUSIVE of the whole day when a
-   * bare yyyy-mm-dd is given: an operator picking "to 5 Aug" means through the
-   * end of the 5th, not 00:00 on it.
+   * in rather than guessed. A bare yyyy-mm-dd covers the whole LOCAL day at both
+   * ends (lib/date-range-guard.ts): an operator picking "to 5 Aug" means through
+   * the end of the 5th, not 00:00 on it, and "from 5 Aug" from local midnight,
+   * not UTC midnight (05:30 in India). `dateColumn` marks a `@db.Date` field
+   * (plannedDate): each bound is then compared as the local day it falls on —
+   * compared as an instant, the console's local midnight of 1 Feb (31 Jan 18:30
+   * UTC in India) listed 31 Jan's visits.
    */
   const listWhere = (
     query: any,
     dateField: string,
     extra?: Record<string, unknown>,
+    dateColumn = false,
   ): Record<string, unknown> | undefined => {
     const clauses: Record<string, unknown> = {};
     const from = typeof query?.from === 'string' && query.from ? query.from : null;
     const to = typeof query?.to === 'string' && query.to ? query.to : null;
     if (from || to) {
-      const range: Record<string, Date> = {};
-      if (from) range.gte = new Date(from);
-      if (to) {
-        // Bare date (no time part) => include the whole of that day.
-        range.lte = /^\d{4}-\d{2}-\d{2}$/.test(to) ? new Date(`${to}T23:59:59.999`) : new Date(to);
+      const start = from ? parseRangeStart(from) : null;
+      const end = to ? parseRangeEnd(to) : null;
+      // An unparseable bound drops the date filter, as before.
+      if ((!from || start) && (!to || end)) {
+        const range: Record<string, Date> = {};
+        if (start) range.gte = dateColumn ? toDateColumnDay(start) : start;
+        if (end) range.lte = dateColumn ? toDateColumnDay(end) : end;
+        clauses[dateField] = range;
       }
-      const valid = Object.values(range).every((d) => !Number.isNaN(d.getTime()));
-      if (valid) clauses[dateField] = range;
     }
     for (const [k, v] of Object.entries(extra ?? {})) {
       if (v !== undefined && v !== null && v !== '' && v !== 'ALL' && v !== 'all') clauses[k] = v;
@@ -1510,7 +1517,7 @@ export default async function superAdminRoutes(app: FastifyInstance) {
       req.query,
       { plannedDate: 'desc' },
       { schedule: true },
-      listWhere(q, 'plannedDate', { approvalStatus: q.approvalStatus }),
+      listWhere(q, 'plannedDate', { approvalStatus: q.approvalStatus }, true),
     );
   });
 

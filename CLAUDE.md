@@ -583,10 +583,25 @@ registered in `app.ts` BEFORE the route plugins (a hook only covers routes
 registered after it). It 400s `INVALID_DATE_RANGE` on any inverted range in
 `from`/`to`, `startDate`/`endDate` or `dateFrom`/`dateTo`. It ignores values that
 don't parse as dates — it matches on parameter NAME, so it must never become a
-new way for a non-date `from`/`to` to break — and expands a bare end date to
-end-of-day so single-day filters pass. **Three places implement that same
-end-of-day rule** (this guard, `listWhere` in super-admin/routes.ts, and
-`asInstant`/`inDateRange` in the console); change one and change all three.
+new way for a non-date `from`/`to` to break.
+
+🔴 **A bare `yyyy-mm-dd` is the server's LOCAL day at BOTH ends (2026-10-23).**
+ONE pair in `lib/date-range-guard.ts`: `parseRangeStart` (local 00:00:00.000) and
+`parseRangeEnd` (local 23:59:59.999), plus `rangeStartOrThrow`/`rangeEndOrThrow`
+(400 `INVALID_DATE`) for query sites. Every site that reads a range uses them —
+the guard, audit list, debug traces, notifications, notification logs, QNN,
+RFID Track Record, stage approvals, PM due tasks and `listWhere` (super-admin);
+the four `/api/filters` lists accept only `date-time` instants (below). Never
+`new Date(start)` on a bare query bound: a bare date is UTC midnight, 05:30 in
+India, and night-shift records of the first day dropped out of lists, reports
+and exports; west of UTC the guard also passed a range inverted by one day. A
+**`@db.Date` column** (PM `plannedDate`) also needs `toDateColumnDay` on both
+ends: Prisma compares a DATE column with the UTC date of the value, so the local
+midnight the console sends (31 Jan 18:30 UTC in India for "1 Feb") listed 31
+Jan. The console's `asInstant`/`inDateRange` apply the same rule in the
+browser's zone; change one side and change the other. Tests that need a zone
+use `src/lib/__tests__/pin-time-zone.ts` (`delete process.env.TZ` does not reset
+Node's zone); `vitest.setup.ts` fails any file that leaves the zone changed.
 Note `/api/filters/{cycles,events}` require `format: date-time`, so a bare
 `yyyy-mm-dd` is rejected by schema validation before the guard ever runs — the
 console widens bare dates to instants for that reason.

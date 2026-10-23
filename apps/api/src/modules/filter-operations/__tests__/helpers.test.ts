@@ -1,10 +1,14 @@
-// Pin a TZ ahead of UTC BEFORE importing anything that touches Date, so the
-// discriminating "UTC off-by-one" case is meaningful. Guarded below in case a
-// platform doesn't honour a runtime TZ change.
-process.env.TZ = 'Asia/Kolkata'; // UTC+5:30
-
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { toLocalDateString } from '../helpers';
+import { pinTimeZone } from '../../../lib/__tests__/pin-time-zone.js';
+
+// A zone ahead of UTC, so the "UTC off-by-one" case is meaningful. Pinned for
+// this file only and put back after it: this used to set process.env.TZ at the
+// top of the module and never restore it, so every later file of the
+// single-fork run inherited the zone (2026-10-23).
+let restore: () => void;
+beforeAll(() => { restore = pinTimeZone('Asia/Kolkata'); }); // UTC+5:30
+afterAll(() => restore());
 
 /**
  * Regression tests for the lastCleaningDate UTC off-by-one fix (2026-07-09 QA).
@@ -21,10 +25,8 @@ describe('toLocalDateString', () => {
 
   it('uses the local day, not the UTC day, near local midnight (the bug it fixes)', () => {
     const d = new Date('2026-07-08T20:30:00Z'); // = 2026-07-09 02:00 IST
-    // Only assert the discriminating case if the IST pin actually took effect.
-    if (d.getDate() === 9) {
-      expect(toLocalDateString(d)).toBe('2026-07-09'); // local day (fixed)
-      expect(d.toISOString().slice(0, 10)).toBe('2026-07-08'); // the OLD buggy value
-    }
+    expect(d.getDate()).toBe(9); // the pin is in force (pinTimeZone throws if it cannot pin)
+    expect(toLocalDateString(d)).toBe('2026-07-09'); // local day (fixed)
+    expect(d.toISOString().slice(0, 10)).toBe('2026-07-08'); // the OLD buggy value
   });
 });

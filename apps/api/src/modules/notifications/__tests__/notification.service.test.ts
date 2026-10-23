@@ -158,7 +158,10 @@ describe('notificationService', () => {
      * everything that happened today and a same-day range returned nothing.
      * parseRangeEnd (lib/date-range-guard.ts) is the one shared rule.
      */
-    it('expands a bare end date to the end of that day', async () => {
+    // 2026-10-23: the bare START was `new Date('2026-09-01')` = UTC midnight
+    // (05:30 in India), so the first hours of the first day dropped out. Both
+    // ends are now the server's local day (parseRangeStart / parseRangeEnd).
+    it('reads a bare range as whole local days: local midnight to the end of the last day', async () => {
       mockNotifRepo.findMany.mockResolvedValue([]);
       mockNotifRepo.count.mockResolvedValue(0);
 
@@ -168,8 +171,8 @@ describe('notificationService', () => {
       );
       const { createdAt } = mockNotifRepo.findMany.mock.calls[0][0] as any;
 
-      expect(createdAt.gte).toEqual(new Date('2026-09-01'));
-      expect(createdAt.lte).toEqual(new Date('2026-09-03T23:59:59.999'));
+      expect(createdAt.gte).toEqual(new Date(2026, 8, 1, 0, 0, 0, 0));
+      expect(createdAt.lte).toEqual(new Date(2026, 8, 3, 23, 59, 59, 999));
     });
 
     it('leaves a full ISO end instant exactly as given', async () => {

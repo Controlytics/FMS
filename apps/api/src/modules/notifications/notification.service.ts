@@ -5,7 +5,7 @@ import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import { z } from 'zod';
 import type { NotificationType } from '@prisma/client';
-import { parseRangeEnd } from '../../lib/date-range-guard.js';
+import { parseRangeStart, parseRangeEnd } from '../../lib/date-range-guard.js';
 
 // The visibility rule lives ONCE in ./visibility.ts (M30, 2026-10-19).
 import { GATED_TYPES, GATED_TYPE_KEYS, visibilityWhere, isVisible } from './visibility.js';
@@ -96,7 +96,13 @@ function applyDateFilter(where: Record<string, unknown>, period?: string, startD
     where.createdAt = { gte: start };
   } else if (startDate || endDate) {
     where.createdAt = {};
-    if (startDate) (where.createdAt as Record<string, unknown>).gte = new Date(startDate);
+    // 2026-10-23: the start was `new Date(startDate)` — UTC midnight for a bare
+    // date, 05:30 in India — so the first hours of the day dropped out.
+    // parseRangeStart is the other half of the shared local-day rule.
+    if (startDate) {
+      const start = parseRangeStart(startDate);
+      if (start) (where.createdAt as Record<string, unknown>).gte = start;
+    }
     // 2026-09-03: was `new Date(endDate)`, which for a bare `yyyy-mm-dd` is
     // MIDNIGHT — so "to = today" excluded everything that happened today and a
     // same-day range returned nothing at all. parseRangeEnd is the shared rule

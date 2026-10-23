@@ -14,3 +14,19 @@ afterAll(async () => {
   const mod = await import('./src/lib/prisma.js');
   await (mod.prisma as { $disconnect?: () => Promise<void> })?.$disconnect?.();
 });
+
+// No test file may leave the process in another time zone (2026-10-23). The
+// suite runs single-fork, so a zone a file sets and does not put back changes
+// every later file's dates: helpers.test.ts set TZ at module top and never
+// restored it, and pm-import-guards.test.ts "restored" with `delete
+// process.env.TZ`, which does not reset Node's zone — date-range-guard.test.ts
+// then ran in New York. Pin with src/lib/__tests__/pin-time-zone.ts. The zone
+// in force when the run started is kept in the environment, which outlives the
+// per-file module isolation.
+process.env.VITEST_START_TIME_ZONE ??= Intl.DateTimeFormat().resolvedOptions().timeZone;
+afterAll(() => {
+  const now = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (now !== process.env.VITEST_START_TIME_ZONE) {
+    throw new Error(`This test file left the time zone at ${now} (the run started in ${process.env.VITEST_START_TIME_ZONE}). Use pinTimeZone() and its restore.`);
+  }
+});

@@ -12,6 +12,7 @@ import { invalidateNotificationConfigCache } from './config-loader.js';
 import { sendTestNotification, testChannel } from './delivery.service.js';
 import { auditLog } from '../../lib/audit.js';
 import { NotFoundError } from '../../lib/errors.js';
+import { rangeStartOrThrow, rangeEndOrThrow } from '../../lib/date-range-guard.js';
 import { maskSecrets } from '../../lib/mask-secrets.js';
 
 // HTML-escape any value reflected into the OAuth2 callback HTML responses
@@ -585,8 +586,9 @@ export default async function notificationDeliveryRoutes(app: FastifyInstance) {
     if (query.status) where.status = query.status;
     if (query.startDate || query.endDate) {
       where.createdAt = {};
-      if (query.startDate) (where.createdAt as any).gte = new Date(query.startDate);
-      if (query.endDate) (where.createdAt as any).lte = new Date(query.endDate);
+      // A bare date is the local day at both ends (lib/date-range-guard.ts).
+      if (query.startDate) (where.createdAt as any).gte = rangeStartOrThrow(query.startDate, 'startDate');
+      if (query.endDate) (where.createdAt as any).lte = rangeEndOrThrow(query.endDate, 'endDate');
     }
     if (query.search) {
       where.OR = [

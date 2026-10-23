@@ -35,6 +35,7 @@ vi.mock('../pm-workflow.js', () => ({
 import { importSchedules } from '../pm-import.js';
 import { prisma } from '../../../lib/prisma.js';
 import { getPmWorkflowConfig } from '../pm-workflow.js';
+import { pinTimeZone } from '../../../lib/__tests__/pin-time-zone.js';
 
 const P = prisma as any;
 const ctx = { userId: 'tester', userSub: 'user-1', userRole: 'ADMIN', ipAddress: '::1', userAgent: 'vitest' } as any;
@@ -226,9 +227,11 @@ describe('importSchedules — per-schedule atomicity', () => {
  * this pins the zone so the divergence is visible.
  */
 describe('importSchedules — year and month come from the UTC date, whatever the server zone', () => {
-  const savedTz = process.env.TZ;
-  beforeEach(() => { process.env.TZ = 'America/New_York'; });
-  afterEach(() => { if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz; });
+  // `delete process.env.TZ` does not reset Node's zone, so restoring by deleting
+  // left every later file of the single-fork run in New York (2026-10-23).
+  let restoreTz: () => void;
+  beforeEach(() => { restoreTz = pinTimeZone('America/New_York'); });
+  afterEach(() => restoreTz());
 
   it('a 1 January visit goes to the schedule of that year with month 1 (not 31 Dec of the year before)', async () => {
     expect(new Date('2027-01-01T00:00:00.000Z').getFullYear()).toBe(2026); // the zone really is west of UTC here

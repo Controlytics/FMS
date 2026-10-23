@@ -8,6 +8,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import { canonicalRfidValue, sameRfidValue } from '../../../lib/rfid-canonical.js';
 import { lockIdentifierScope } from './identifier-locks.js';
+import { rangeStartOrThrow, rangeEndOrThrow } from '../../../lib/date-range-guard.js';
 
 
 export const identifierService = {
@@ -223,14 +224,11 @@ export const identifierService = {
     page?: number; limit?: number;
   }) {
     // Audit 2026-09-24 (A-F1): an unparsable date became `Invalid Date` → Prisma
-    // validation error → 500 + a SYSTEM_ERROR notification, for every role.
-    const parse = (v: string, label: string) => {
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) throw new AppError(400, 'INVALID_DATE', `"${label}" is not a valid date.`);
-      return d;
-    };
-    const fromD = query.from ? parse(query.from, 'from') : undefined;
-    const toD = query.to ? parse(query.to, 'to') : undefined;
+    // validation error → 500 + a SYSTEM_ERROR notification, for every role. A
+    // bare date is the local day at both ends (lib/date-range-guard.ts); the page
+    // sends a bare `from`, which was UTC midnight (2026-10-23).
+    const fromD = query.from ? rangeStartOrThrow(query.from, 'from') : undefined;
+    const toD = query.to ? rangeEndOrThrow(query.to, 'to') : undefined;
 
     // M10 (QA 2026-10-19): this used to read EVERY assign/remove audit row (full
     // width, incl. before/after JSON) into memory on each request and filter /

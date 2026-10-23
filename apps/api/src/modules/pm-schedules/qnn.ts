@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma.js';
+import { rangeStartOrThrow, rangeEndOrThrow } from '../../lib/date-range-guard.js';
 
 /**
  * Quality Notification (QNN) report data + visibility. QNN rows are minted by
@@ -24,8 +25,10 @@ export async function listQnn(query: { page?: number; limit?: number; from?: str
   const where: { createdAt?: { gte?: Date; lte?: Date } } = {};
   if (query.from || query.to) {
     where.createdAt = {};
-    if (query.from) where.createdAt.gte = new Date(query.from);
-    if (query.to) where.createdAt.lte = new Date(query.to);
+    // A bare date is the local day at both ends (lib/date-range-guard.ts); the
+    // Quality Notifications page sends a bare `from`, which was UTC midnight.
+    if (query.from) where.createdAt.gte = rangeStartOrThrow(query.from, 'from');
+    if (query.to) where.createdAt.lte = rangeEndOrThrow(query.to, 'to');
   }
   const [data, total] = await Promise.all([
     prisma.qualityNotification.findMany({

@@ -27,6 +27,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
+import { parseRangeStart } from '../../lib/date-range-guard.js';
 import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import * as executor from '@digilog/shared';
 import { computeChecksum, activeChecklistIdsAfterStage } from '../filter-operations/helpers.js';
@@ -325,9 +326,9 @@ export const stageApprovalService = {
     // failure. `from` keeps every PENDING row (whatever its age) plus everything
     // requested on/after `from`; older decided rows stay reachable with a status
     // filter and no `from`.
-    const from = opts.from ? new Date(opts.from) : null;
+    const from = opts.from ? parseRangeStart(opts.from) : null; // a bare date = local midnight
     if (clauses.length) where.AND = clauses;
-    if (!from || Number.isNaN(from.getTime())) {
+    if (!from) {
       return withStageDetails(await withSelfFlag(ctx, await prisma.cleaningStageApproval.findMany({
         where,
         orderBy: { requestedAt: 'desc' },

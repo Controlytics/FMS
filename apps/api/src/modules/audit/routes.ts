@@ -33,6 +33,7 @@ function bulkRedactRefusal(rows: ReadonlyArray<{ action?: unknown; redacted_at?:
   return null;
 }
 import { AppError } from '../../lib/errors.js';
+import { rangeStartOrThrow, rangeEndOrThrow } from '../../lib/date-range-guard.js';
 import { cappedCount, cappedTotalPages, type CappedTotal } from '../../lib/capped-count.js';
 import { enforceReauth, enforceReauthAlways } from '../../lib/reauth-check.js';
 import { entryLabel as replacementEntryLabel } from '../replacement-schedule/workflow.js';
@@ -277,8 +278,11 @@ export default async function auditRoutes(app: FastifyInstance) {
       where.timestamp = { gte: startDate };
     } else if (query.startDate || query.endDate) {
       where.timestamp = {};
-      if (query.startDate) (where.timestamp as Record<string, unknown>).gte = new Date(query.startDate);
-      if (query.endDate) (where.timestamp as Record<string, unknown>).lte = new Date(query.endDate);
+      // A bare date is the local day at both ends (lib/date-range-guard.ts): a bare
+      // end used to be that day's midnight, so "to = today" listed nothing from
+      // today, and a bare start UTC midnight.
+      if (query.startDate) (where.timestamp as Record<string, unknown>).gte = rangeStartOrThrow(query.startDate, 'startDate');
+      if (query.endDate) (where.timestamp as Record<string, unknown>).lte = rangeEndOrThrow(query.endDate, 'endDate');
     }
     let valueSearch: 'applied' | 'skipped' | undefined;
     if (query.search) {

@@ -13,6 +13,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
+import { rangeStartOrThrow, rangeEndOrThrow, toDateColumnDay } from '../../lib/date-range-guard.js';
 import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
@@ -52,8 +53,12 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
   // operator can review past/future PM tasks. Each entry's status is still
   // computed relative to `now` (pending / complete / overdue). Without a period
   // we keep the default "due now + recently-overdue" window.
-  const fromDate = opts?.from ? new Date(opts.from) : null;
-  const toDate = opts?.to ? new Date(`${opts.to.slice(0, 10)}T23:59:59`) : null;
+  // planned_date is a DATE column: each bound is the server-local day it falls on
+  // (lib/date-range-guard.ts). `to` was local 23:59:59, which west of UTC is the
+  // NEXT UTC day, so "to 1 Feb" took in 2 Feb's visits; an unparseable bound was
+  // an Invalid Date into Prisma.
+  const fromDate = opts?.from ? toDateColumnDay(rangeStartOrThrow(opts.from, 'from')) : null;
+  const toDate = opts?.to ? toDateColumnDay(rangeEndOrThrow(opts.to, 'to')) : null;
   const hasPeriod = !!(fromDate || toDate);
   const windowFilter = hasPeriod
     ? { plannedDate: { ...(fromDate ? { gte: fromDate } : {}), ...(toDate ? { lte: toDate } : {}) } }
