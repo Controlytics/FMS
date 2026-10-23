@@ -13,7 +13,7 @@
   "reporters": ["clear-text", "progress", "json", "html"],
   "jsonReporter": { "fileName": "../../QA/coverage/final-2026-10-23/mutation/api.json" },
   "htmlReporter": { "fileName": "../../QA/coverage/final-2026-10-23/mutation/api.html" },
-  "concurrency": 4,
+  "concurrency": 3,
   "timeoutMS": 60000,
   "tempDirName": "../../.stryker-tmp/api"
 }
