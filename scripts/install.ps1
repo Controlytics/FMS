@@ -15,7 +15,10 @@
     DataRoot     C:\ProgramData\DigiLog     (data - survives upgrade/uninstall)
 
 .PARAMETER AdminPassword  INITIAL_ADMIN_PASSWORD for the seed (required on fresh
-                          install). The app forces a change on first login.
+                          install). Setup does NOT pass it here: it sets the
+                          FMS_SETUP_ADMIN_PASSWORD environment variable instead
+                          (installer\run-setup-script.iss), because a command line
+                          lands in Setup's log. Use this only when running by hand.
 .PARAMETER DryRun         Print the plan + commands without executing.
 #>
 [CmdletBinding()]
@@ -49,6 +52,16 @@ $uploadDir = Join-Path $DataRoot 'uploads'
 $logDir    = Join-Path $DataRoot 'logs'
 $configDir = Join-Path $DataRoot 'config'
 $envFile   = Join-Path $configDir 'digilog.env'
+# Present from the start of a first install on an EMPTY data root until its
+# database is migrated and seeded. Setup refuses to "upgrade" over it
+# (installer\DigiLog.iss PrepareToInstall): digilog.env is written before the
+# database, so a first install that stopped half-way looks like an install.
+$incompleteMarker = Join-Path $configDir 'install-incomplete'
+
+# Setup hands the password over in an environment variable (never a command line).
+# Read it, then drop it so no child process (node, pg tools) inherits it.
+if (-not $AdminPassword -and $env:FMS_SETUP_ADMIN_PASSWORD) { $AdminPassword = $env:FMS_SETUP_ADMIN_PASSWORD }
+Remove-Item Env:FMS_SETUP_ADMIN_PASSWORD -ErrorAction SilentlyContinue
 
 function NewSecret([int]$bytes) {
   $b = New-Object byte[] $bytes
@@ -74,6 +87,15 @@ if ($Upgrade) {
 # 1. Data directories (survive program upgrades)
 if ($DryRun) { Write-Host "[dry-run] create $dbDir, $uploadDir, $logDir, $configDir" -ForegroundColor Yellow }
 else { New-Item -ItemType Directory -Force -Path $dbDir, $uploadDir, $logDir, $configDir | Out-Null }
+
+# 1a. First install on an empty data root: mark it unfinished until the database
+#     is complete (removed after step 3). Never on a data root that already has an
+#     env file or a database - deleting such a folder could destroy records.
+if (-not $DryRun -and -not (Test-Path $envFile) -and -not (Test-Path (Join-Path $dbDir 'PG_VERSION'))) {
+  Set-Content -Path $incompleteMarker -Encoding ascii -Value @(
+    "First FMS install started $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'). This file is deleted when the database is set up.",
+    'While it is here, Setup will not run over this folder (an unfinished first install holds no records).')
+}
 
 # 1b. M8: HTTPS-on-LAN certs (so the Android tablet can connect over HTTPS)
 $certDir = Join-Path $DataRoot 'certs'
@@ -149,7 +171,7 @@ if (Test-Path $envFile) {
     Set-DigilogEnvKey $envFile 'ALLOWED_ORIGINS' $allowedOrigins
   }
 } else {
-  if (-not $AdminPassword) { Write-Host "FATAL: -AdminPassword required on fresh install." -ForegroundColor Red; exit 1 }
+  if (-not $AdminPassword) { Write-Host "FATAL: no superadmin password (FMS_SETUP_ADMIN_PASSWORD or -AdminPassword) on a fresh install." -ForegroundColor Red; exit 1 }
   $appDbPassword = NewSecret 18
   $jwt           = NewSecret 48
   $verify        = NewSecret 48
@@ -247,6 +269,12 @@ if ($dbAlreadyInit) {
         Write-Host "       The DigiLogDB service cannot start while it runs. Stop it and re-run Setup." -ForegroundColor Red
         exit 1
       }
+    }
+    # The database is migrated and seeded: from here on, running Setup again is a
+    # safe repair (the upgrade path re-registers services and keeps the data).
+    if (Test-Path $incompleteMarker) {
+      Remove-Item -Path $incompleteMarker -Force -ErrorAction SilentlyContinue
+      if (Test-Path $incompleteMarker) { Write-Host "WARN: could not delete $incompleteMarker - delete it by hand, or the next Setup run will refuse to start." -ForegroundColor Yellow }
     }
   }
 }

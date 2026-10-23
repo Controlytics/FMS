@@ -10,6 +10,7 @@
     1. build the app bundle (scripts/build-bundle.ps1)
     2. clean-room production deps (npm ci --omit=dev in an isolated checkout)
     3. stage runtime/ (scripts/stage-runtime.ps1)
+    3b. stamp -AppVersion into the staged install baseline (login page "Version")
     4. stage pgsql/  (portable PostgreSQL binaries)
     5. stage service/ (WinSW-x64.exe)
     6. stage scripts/ (provision/register/install/uninstall)
@@ -54,7 +55,10 @@ param(
   # the APK committed at the repo root - rebuild it first if the web UI changed.
   [string]$ApkPath,
   [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-  [string]$AppVersion = '0.1.0',
+  # x.y.z. MANDATORY (no default since 2026-10-23): it names Setup.exe AND is
+  # written into the login page's "Version" text (step 4b), so a forgotten
+  # parameter must stop the build, not ship "0.1.0".
+  [Parameter(Mandatory)] [string]$AppVersion,
   [string]$OutDir,
   # --- Code signing (M7). Optional: omit -Sign to build an UNSIGNED installer
   #     (SmartScreen/AV will warn on customer machines - see the acceptance
@@ -69,6 +73,9 @@ param(
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+if ($AppVersion -notmatch '^\d+\.\d+\.\d+$') {
+  Write-Host "FAILED: -AppVersion must look like 1.2.3 (got '$AppVersion')." -ForegroundColor Red; exit 1
+}
 if (-not $OutDir) { $OutDir = Join-Path $repoRoot 'dist' }
 if (-not $ApkPath) { $ApkPath = Join-Path $repoRoot 'DigiLog-FilterOps.apk' }
 $stage    = Join-Path $OutDir 'stage'
@@ -166,6 +173,15 @@ Step "Stage runtime" {
   & (Join-Path $PSScriptRoot 'stage-runtime.ps1') `
     -NodeExe $nodeExe -NodeModulesSrc (Join-Path $cleanDir 'node_modules') `
     -RepoRoot $repoRoot -OutDir (Join-Path $stage 'runtime')
+}
+
+# 4b. The login page's "Version" on a FRESH install comes from the `branding`
+#     setting in the install baseline (the seed creates it from that file). Stamp
+#     -AppVersion into the STAGED copy, never the tracked one - it was a by-hand
+#     edit per release and shipped wrong twice. An UPGRADE keeps the site's own
+#     Branding value (every seed write is create-only, operator 2026-10-14).
+Step "Stamp version $AppVersion into the install baseline" {
+  & $nodeExe (Join-Path $PSScriptRoot 'stamp-install-version.mjs') (Join-Path $stage 'runtime\api\prisma\install-baseline.json') $AppVersion
 }
 
 # 5. Stage pgsql/ - ONLY the three directories the server actually needs.

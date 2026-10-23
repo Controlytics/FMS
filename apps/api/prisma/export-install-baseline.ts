@@ -172,6 +172,9 @@ async function main() {
       roles, roleConfigs, settings,
     };
     const out = join(process.cwd(), 'prisma', 'install-baseline.json');
+    // branding.version is whatever the source DB holds; the installer build
+    // replaces it in its staged copy with -AppVersion (scripts/stamp-install-version.mjs).
+    // Keep this formatting: that script writes the same JSON.stringify(x, null, 2).
     writeFileSync(out, JSON.stringify(baseline, null, 2) + '\n', 'utf8');
 
     console.log(`Wrote ${out}`);

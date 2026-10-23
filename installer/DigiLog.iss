@@ -120,22 +120,9 @@ Name: "{group}\Restore database from backup"; Filename: "{app}\scripts\restore-d
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
-[Run]
-; -ExecutionPolicy Bypass is required because the bundled scripts are unsigned; the
-; installer already runs elevated and the scripts are shipped read-only under {app}.
-;
-; FRESH install: generate secrets, provision Postgres, register services, health check.
-Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install.ps1"" -InstallDir ""{app}"" -AdminPassword ""{code:GetAdminPassword}"""; \
-  StatusMsg: "Setting up the FMS database and services (this can take a minute)..."; \
-  Flags: runhidden waituntilterminated; Check: not IsUpgrade
-;
-; UPGRADE: pre-upgrade DB backup, forward-only migrate deploy, reseed, restart API.
-; Preserves all data + secrets in C:\ProgramData\DigiLog.
-Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\upgrade.ps1"" -InstallDir ""{app}"" -Version ""{#AppVersion}"""; \
-  StatusMsg: "Backing up and upgrading the FMS database (this can take a minute)..."; \
-  Flags: runhidden waituntilterminated; Check: IsUpgrade
+; No [Run] section. install.ps1 / upgrade.ps1 are run from CurStepChanged(ssPostInstall)
+; below, through run-setup-script.iss, because a [Run] entry's exit code is never
+; checked and its command line is written to Setup's log (it held the password).
 
 [UninstallRun]
 ; Pre-uninstall: stop + remove services. Data is preserved (see uninstall.ps1).
@@ -143,10 +130,20 @@ Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\uninstall.ps1"" -InstallDir ""{app}"""; \
   RunOnceId: "DigiLogServices"; Flags: runhidden waituntilterminated
 
+#include "run-setup-script.iss"
+
 [Code]
 var
   AdminPage: TInputQueryWizardPage;
   IsUpgradeFlag: Boolean;
+
+{ Written by install.ps1 when a first install starts on an EMPTY data root and
+  deleted once the database is migrated and seeded. Present next to digilog.env
+  = a first install stopped before its database was complete. }
+function IncompleteFirstInstallMarker: String;
+begin
+  Result := ExpandConstant('{commonappdata}\DigiLog\config\install-incomplete');
+end;
 
 { An install is an UPGRADE iff the data-root env file already exists. That file
   holds the generated secrets + DB connection and only ever exists after a prior
@@ -158,6 +155,7 @@ end;
 
 procedure InitializeWizard;
 begin
+  SetupDataRoot := ExpandConstant('{commonappdata}\DigiLog');
   IsUpgradeFlag := FileExists(ExpandConstant('{commonappdata}\DigiLog\config\digilog.env'));
   { The seed does NOT force a change at first login (forcePasswordChange=false):
     the person installing chose this password. The old text promised a forced
@@ -179,11 +177,6 @@ begin
   Result := False;
   if IsUpgradeFlag and (PageID = AdminPage.ID) then
     Result := True;
-end;
-
-function GetAdminPassword(Param: string): string;
-begin
-  Result := AdminPage.Values[0];
 end;
 
 { Same rules as the shipped password policy (8+ chars, upper, lower, number,
@@ -253,7 +246,8 @@ begin
     Result := False;
 end;
 
-{ Runs BEFORE the [Files] copy. Two jobs, in order:
+{ Runs BEFORE the [Files] copy. Three jobs, in order:
+  (0) refuse to "upgrade" a first install that never finished its database,
   (1) ensure the VC++ runtime the bundled PostgreSQL needs is present, and
   (2) on upgrade, stop the API service so its running
   node.exe + WinSW service exe are unlocked and can be overwritten. The DB service
@@ -265,6 +259,21 @@ var
   ResultCode: Integer;
 begin
   Result := '';
+
+  { 0. A first install that stopped before its database was complete leaves
+       digilog.env behind, so this run would be taken as an UPGRADE: upgrade.ps1
+       would either stop ("no initialised DB cluster") or seed the unfinished
+       database with a random superadmin password nobody knows. Refuse instead. }
+  if IsUpgradeFlag and FileExists(IncompleteFirstInstallMarker) then
+  begin
+    Result := 'An earlier FMS installation on this computer stopped before its database was set up, ' +
+              'so it cannot be upgraded or repaired.' + #13#10#13#10 +
+              'Its record is in ' + ExpandConstant('{commonappdata}\DigiLog\logs') + ' (install-*.log). ' +
+              'Copy that file somewhere safe. Then uninstall FMS, delete the folder ' +
+              ExpandConstant('{commonappdata}\DigiLog') + ' and run Setup again.' + #13#10#13#10 +
+              'If FMS has been used on this computer, delete nothing and contact Controlytics support.';
+    Exit;
+  end;
 
   { 1. VC++ runtime BEFORE anything else, on fresh install AND upgrade.
        Not gated on IsUpgrade: upgrade.ps1 step 4 shells out to pg_dump.exe, which
@@ -304,10 +313,14 @@ begin
   end;
 end;
 
-{ Write the browser shortcut target after install. }
+{ After the files are copied: write the browser shortcut target, then run the
+  install or upgrade orchestrator (run-setup-script.iss: logged, exit code checked).
+  -ExecutionPolicy Bypass (added there) is required because the bundled scripts are
+  unsigned; Setup already runs elevated and the scripts sit read-only in the
+  program folder. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  UrlPath: string;
+  UrlPath, Title: string;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -317,5 +330,48 @@ begin
       point it back at 3000 after the port was changed. }
     if not FileExists(UrlPath) then
       SaveStringToFile(UrlPath, '[InternetShortcut]' + #13#10 + 'URL=https://localhost:3000' + #13#10, False);
+
+    if IsUpgradeFlag then
+    begin
+      { UPGRADE: pre-upgrade DB backup, forward-only migrate deploy, reseed, restart
+        API. Preserves all data + secrets in C:\ProgramData\DigiLog. }
+      Title := 'The FMS {#AppVersion} upgrade';
+      if not RunSetupScript(Title, ExpandConstant('{app}\scripts\upgrade.ps1'),
+               '-InstallDir "' + ExpandConstant('{app}') + '" -Version "{#AppVersion}"', 'upgrade',
+               'Backing up and upgrading the FMS database (this can take a minute)...', '') then
+        ReportSetupScriptFailure(Title,
+          'The upgrade backs up the database (' + ExpandConstant('{commonappdata}\DigiLog\backups') +
+          '\pre-upgrade-*.sql) before it changes anything, and stops before any change if that backup ' +
+          'fails. A ROLLBACK line above names the backup to restore if the database was changed. ' +
+          'Send the log file below to Controlytics support before using FMS again.');
+    end
+    else
+    begin
+      { FRESH install: generate secrets, provision Postgres, register services,
+        health check. The password goes in an environment variable, never on the
+        command line (run-setup-script.iss). }
+      Title := 'The FMS {#AppVersion} installation';
+      if not RunSetupScript(Title, ExpandConstant('{app}\scripts\install.ps1'),
+               '-InstallDir "' + ExpandConstant('{app}') + '"', 'install',
+               'Setting up the FMS database and services (this can take a minute)...',
+               AdminPage.Values[0]) then
+      begin
+        if FileExists(IncompleteFirstInstallMarker) then
+          ReportSetupScriptFailure(Title,
+            'It stopped before the database was set up, so there is nothing to keep. Fix the cause ' +
+            'shown above, copy the log file below somewhere safe, then uninstall FMS, delete the folder ' +
+            ExpandConstant('{commonappdata}\DigiLog') + ' and run Setup again. Until that folder is ' +
+            'deleted Setup refuses to run, because it would take this computer for an upgrade.')
+        else if FileExists(ExpandConstant('{commonappdata}\DigiLog\config\digilog.env')) and
+                FileExists(ExpandConstant('{commonappdata}\DigiLog\db\PG_VERSION')) then
+          ReportSetupScriptFailure(Title,
+            'The database is set up; a later step stopped (see above). Fix the cause and run this Setup ' +
+            'again: it finishes the remaining steps (services, backup task, firewall, health check) ' +
+            'and keeps the database and the superadmin password.')
+        else
+          ReportSetupScriptFailure(Title,
+            'Nothing was set up yet. Fix the cause shown above and run Setup again.');
+      end;
+    end;
   end;
 end;
