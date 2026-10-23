@@ -7,10 +7,10 @@ rests on the build, the packed-API smoke test and the staged-payload checks belo
 
 | Artifact | Detail |
 |---|---|
-| `dist\FMS-Setup-1.2.3.exe` | **REBUILT 2026-10-23 14:00 from `745980d`** (the § 5 installer fixes; operator: rebuild under the same version), UNSIGNED (SmartScreen / AV will warn), 172,206,653 bytes, SHA256 `b409363a2ce97e42724de5a3d778180eccae644a91c462993e9879a2c7ca1b5f`; bundles `tablet\FMS.apk` = the APK below (sha256 matches). Application code identical to the first build (`745980d` changes only `installer/`, `scripts/` and a comment in `export-install-baseline.ts`). **Superseded:** the first 1.2.3 build from `11e36da`, 172,211,682 bytes, SHA256 `9280ee4448c4dedebb473ec6c827b741ad5c2fcb74cf8dd1a85d8c9fd932dee3` — overwritten in `dist\`; do not ship a copy of it |
+| `dist\FMS-Setup-1.2.3.exe` | **REBUILT 2026-10-23 14:38 from `97b6452`** (the § 5 installer fixes; operator: rebuild under the same version), UNSIGNED (SmartScreen / AV will warn), 172,205,406 bytes, SHA256 `fe5c6364872938155cd811044ad9da0608f79144a28f1acd51a7bf88d76b8599`; bundles `tablet\FMS.apk` = the APK below (sha256 matches). Application code identical to the first build (`745980d` + `97b6452` change only `installer/`, `scripts/` and a comment in `export-install-baseline.ts`). **Superseded, do not ship a copy of either** (both overwritten in `dist\`): the first 1.2.3 build from `11e36da` (172,211,682 bytes, SHA256 `9280ee4448c4dedebb473ec6c827b741ad5c2fcb74cf8dd1a85d8c9fd932dee3`), and the 14:00 rebuild from `745980d` (172,206,653 bytes, SHA256 `b409363a2ce97e42724de5a3d778180eccae644a91c462993e9879a2c7ca1b5f`), which still had the provisioning hang below |
 | `DigiLog-FilterOps.apk` (repo root, bundled as `tablet\FMS.apk`) | `11e36da`, SHA256 `33b8beb5bae4a7eaabff98fc1fe3cd7db88393c0a3d89d7c90333aff2756bfa3`; Capacitor 8.5.3; built with `VITE_API_URL` blank (a fresh install asks for the server; an update keeps the stored address); `res/raw/rootca.pem` is the inert PLACEHOLDER authority, so this general APK trusts no development CA (per-site APK: `scripts/build-site-apk.ps1`) |
 | Restore tool | `scripts/restore-database.ps1` (+ helper + `.cmd` launcher) in the installer with a Start-menu entry. The operator guide `docs/RESTORE-LARGE-DATABASE.md` is NOT installed (corrected 2026-10-23); its essentials are in the install guide § 10 |
-| Install guide | `FMS-Installation-Guide.docx` / `.pdf` 1.2.3 edition (12 pages, regenerated 2026-10-23 14:03 for the rebuilt installer: new SHA256 and size, the § 5 workarounds replaced by the new behaviour) next to the exe in `dist\` and in Downloads; the 1.2.0 edition kept as `FMS-Installation-Guide-1.2.0.*`. Generator outside git: `C:\Users\hello\fms-docs-source\install-guide\` |
+| Install guide | `FMS-Installation-Guide.docx` / `.pdf` 1.2.3 edition (12 pages, regenerated 2026-10-23 for the final rebuild: SHA256 `FE5C6364…`, 172,205,406 bytes, the § 5 workarounds replaced by the new behaviour) next to the exe in `dist\` and in Downloads; the 1.2.0 edition kept as `FMS-Installation-Guide-1.2.0.*`. Generator outside git: `C:\Users\hello\fms-docs-source\install-guide\` |
 
 ## 2. Executed
 
@@ -65,9 +65,22 @@ rests on the build, the packed-API smoke test and the staged-payload checks belo
   keeps `config\install-incomplete` from the start of a first install (on an empty data root only) until the
   database is migrated and seeded. Setup refuses to run over it and says what to do.
 
+- **Found by review of the fix — a failed database setup could hang Setup (`97b6452`).** Setup now reads
+  the script's output through a pipe and waits for every process holding it. The harness's `orphan` mode
+  measured 46 s for a leftover process of 45 s. The postmaster started by `provision-db.ps1` holds that
+  pipe, and its `pg_ctl start` was outside the try/finally that stops the cluster. **Fix:** the start
+  is inside the try. Fault injection (`installer/test/test-provision-db-pipe.ps1`, failure right after
+  the start, output piped):
+  - before: pipe still open after 30 s, cluster running;
+  - after: pipe closed in 7.1 s, nothing listening.
+
+  This made the 14:00 rebuild obsolete; the installer was rebuilt again (§ 1). The staged `install.ps1` of
+  the final build was re-run on a scratch data root: provisioned from the baseline, marker removed, nothing
+  left running, stopped at service registration (not admin).
+
 **Verification (2026-10-23, this PC, no admin, nothing installed):**
-- `installer/test/test-run-setup-script.ps1`: 34 / 34 PASS. It compiles `DigiLog.iss` against a dummy stage,
-  then runs a harness on the same include in fail / warn / ok modes. Checked:
+- `installer/test/test-run-setup-script.ps1`: 43 / 43 PASS. It compiles `DigiLog.iss` against a dummy stage,
+  then runs a harness on the same include in fail / warn / ok / orphan modes. Checked:
   - Setup exit codes 10 / 0 / 0;
   - the log holds Write-Host lines and a native program's stdout AND stderr;
   - the password reaches the script and is absent from both logs.

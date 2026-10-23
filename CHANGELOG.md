@@ -27,7 +27,7 @@ clean-machine install, Super Admin probe session and the performance / endurance
 - **Test quality:** coverage gates at 90 % on API (97.5 / 95.0 / 99.5 / 97.5), Web (97.6 / 94.4 / 97.0 /
   97.6) and Shared; Stryker mutation 88.7 % (pipeline executor) and 96.6 % (API security libraries).
 - **Builds:** `DigiLog-FilterOps.apk` (`11e36da`) and `dist\FMS-Setup-1.2.3.exe` (unsigned). The installer
-  was REBUILT the same day with the installer fixes below (`745980d`, sha256 `b409363a…`, 172,206,653
+  was REBUILT the same day with the installer fixes below (`745980d` + `97b6452`, sha256 `fe5c6364…`, 172,205,406
   bytes); the first 1.2.3 build (sha256 `9280ee44…`) is superseded — see test-results/10 § 1.
 - **Installer: a failed install or upgrade is visible and logged (`745980d`, report 10 § 5).** Setup ran
   `install.ps1` / `upgrade.ps1` as hidden `[Run]` entries. Inno never checks their exit code, so a failure
@@ -59,10 +59,19 @@ clean-machine install, Super Admin probe session and the performance / endurance
   `-AppVersion` into the staged copy and reads it back (`scripts/stamp-install-version.mjs`).
   `-AppVersion` is mandatory and must be `x.y.z`. **An upgrade still keeps the site's own value**, because
   every seed write is create-only (operator decision 2026-10-14). Change it on Configuration → Branding.
+- **Installer: a failed database setup can no longer leave Setup hanging (`97b6452`).** Setup now reads
+  the script's output through a pipe and waits until every process holding it has gone. The postmaster
+  started by `provision-db.ps1` inherits that pipe. Its `pg_ctl start` sat outside the try/finally that
+  stops the cluster, so a start that failed or timed out with the postmaster up would have left Setup on
+  "Setting up the FMS database…" for ever, with no message. The start is now inside the try.
+  `installer/test/test-provision-db-pipe.ps1` injects a failure right after the start: the pipe closes in
+  7 s and nothing is left running. The same injection into the previous script: the pipe was still open
+  after 30 s and the cluster was running.
 - **Installer test:** `installer/test/test-run-setup-script.ps1` compiles `DigiLog.iss` against a dummy
   stage and runs a harness built on the same include in fail / warn / ok modes. It checks exit codes, the
   log content (incl. a native program's stderr) and that the password reaches the script but appears in
-  neither log. No admin needed, nothing installed. 34 / 34 PASS.
+  neither log. Its fourth mode, `orphan`, records the constraint above. No admin needed, nothing
+  installed. 43 / 43 PASS.
 
 ## [Unreleased] - Tablet App Access, LDAP and the dynamic config pages are SUPER_ADMIN-only (D03-15, 2026-10-22)
 
