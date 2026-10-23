@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { NotFoundError, ValidationError } from '../../lib/errors.js';
@@ -9,7 +9,6 @@ import type { PasswordGeneratorPolicy } from '@digilog/shared';
 import { authRepository } from '../auth/auth.repository.js';
 import type { RequestContext } from '../../types/context.js';
 
-const prisma = new PrismaClient();
 
 /**
  * What the request is ABOUT — the subject — not who asked for it.

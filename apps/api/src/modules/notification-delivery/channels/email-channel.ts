@@ -11,6 +11,7 @@ import { getEmailConfig } from '../config-loader.js';
 import { hardenedFetch, checkOutboundHost } from '../../../lib/ssrf.js';  // SAST-01: admin-typed tokenUrl; SEC-08: SMTP host
 import { escapeHtml, unescapeHtml } from '../template-engine.js';
 import { getLogger } from '../../../lib/logger.js';
+import { prisma } from '../../../lib/prisma.js';
 
 /** Log type 6 — the raw SMTP / token-endpoint error lives here, never in a response. */
 const mailLog = getLogger('email-channel', 'services');
@@ -149,9 +150,10 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
 
     // Persist new tokens back to DB if we got a refresh token
     if (savedRefresh) {
+      // The app's ONE Prisma client (lib/prisma): a client per refresh opened a
+      // second connection pool each time (2026-10-23, found when the API suite
+      // exhausted Postgres's 100 connections).
       try {
-        const { PrismaClient } = await import('@prisma/client');
-        const prisma = new PrismaClient();
         const dbConfig = await prisma.systemConfig.findUnique({ where: { configKey: 'notification-email' } });
         if (dbConfig) {
           const val = (dbConfig.configValue ?? {}) as Record<string, unknown>;
@@ -160,8 +162,11 @@ async function fetchOAuth2Token(config: EmailConfig): Promise<string> {
           if (data.refresh_token) val.refreshToken = data.refresh_token;
           await prisma.systemConfig.update({ where: { configKey: 'notification-email' }, data: { configValue: val as any } });
         }
-        await prisma.$disconnect();
-      } catch { /* best effort */ }
+      } catch (err) {
+        // Not fatal: this send already holds a valid access token; the next one
+        // refreshes again. But never silent - the rotated refresh token is lost.
+        mailLog.error({ err }, 'Could not save the rotated OAuth2 tokens to notification-email');
+      }
     }
 
     return data.access_token;
