@@ -30,6 +30,7 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | D-DB-6 (2026-10-22) | Large-database recovery: ship a tested restore script + guide for the nightly pg_dump NOW, then rework in-app export/restore to stream with no row/size cap |
 | npm audit (2026-10-22) | Upgrade the vulnerable server packages now (full suites after); upgrade Capacitor in code now — reaches tablets only with the next APK build |
 | Long tests (2026-10-22, re-confirmed) | KEEP the full plan: 1 h, 4 h, 12 h and 24 h soaks back to back on an otherwise idle PC, plus mutation testing; the release decision comes after them |
+| Clean-machine install (2026-10-23) | NOT run now (operator: "vm or spare test i dont need now"). 10 is written from the installer build, the packed-API smoke test and the staged-payload checks, and states the gap |
 
 ## Evidence-loss note (2026-10-22, ~16:40 local)
 
@@ -60,5 +61,5 @@ operator-approved changes.
 | 06 | `06-security-assessment.md` | 2 | DONE 2026-10-22 — P0 0 · P1 2 · P2 5 · P3 13; fixes in progress; SA-session probes pending (`QA/tests/security/sa-session-probes.mjs`) |
 | 07 | `07-performance-testing.md` | 2 | not started (needs idle PC) |
 | 09 | `09-reliability-and-recovery.md` | 3 | not started |
-| 10 | `10-deployment-readiness.md` | 3 | waiting for operator VM |
+| 10 | `10-deployment-readiness.md` | 3 | clean-machine install NOT run (operator 2026-10-23); report from build + packed-API smoke + staged checks |
 | — | `FINAL-RELEASE-DECISION.md` | 3 | not started |
