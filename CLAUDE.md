@@ -201,6 +201,29 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   check blocking loopback/link-local/metadata, no redirect-follow, hard timeout.
   Private LAN is allowed on purpose (instruments + on-prem SMS gateways). Never
   add a bare `fetch()` on a configurable URL. (SAST-01, 2026-08-18.)
+- **Admin-typed non-HTTP sockets (LDAP, SMTP) use `checkOutboundHost` (`lib/ssrf.ts`) and connect to
+  the CHECKED address** (typed name kept as TLS servername): no DNS-rebinding window. Their test
+  endpoints never return raw socket / TLS / DNS errors (they were port-scan oracles, SEC-08); LDAP
+  failures below the protocol wait a 5 s floor. The HTTP guard (instruments, SMS, OAuth) does not pin
+  the address yet. `ldap://` connects then upgrades with **StartTLS** before any bind (`startTls`,
+  default on; a refused StartTLS refuses the bind, never cleartext); `ldaps://` = TLS. Every LDAP path
+  unbinds in `finally` (each failed bind used to leak a socket). (2026-10-22.)
+- **Validate before you sign (D03-09, 2026-10-22).** A gated handler runs its cheap checks (schema,
+  existence, format, remarks, state) BEFORE `enforceReauth` / `enforceReauthAlways`, calling the SAME
+  validator the write re-runs (no copy). An invalid request must cost no password and write no
+  `REAUTH_*` row. By design still after the gate: a backup's content checks (inside restore) and PM
+  upload row-level skips. Guards: `e2e/d0309-*.test.ts`.
+- **A page that is SUPER_ADMIN-only in the UI is SUPER_ADMIN-only on the API** (2026-10-22: tablet
+  access, LDAP, `/config/dynamic/*`, cleaning-profile assignment, role assignments, branding, dashboard
+  cards, report identity / labels / signatories, export options, schedule filters, audit templates,
+  access matrix). Reads the app needs for every role (`*/current`, `/branding`,
+  `/tablet-access/my-features`, `access-matrix/my-modules`) stay open. `field-ids` keeps its own
+  `FIELD_ID_UPDATE` gate (a permission-tree question).
+- **Big totals are capped (operator 2026-10-22).** `GET /api/audit` and `/api/filters/events` count to
+  10,000 and return `totalCapped: true` beyond it ("10,000+" in the UI); an export asks for
+  `exactTotal=true`. `ALL_ROWS` (`lib/page-size.ts`) is only for tables that stay small; page or
+  narrow anything that grows with use. The audit name search (values inside rows) runs only within a
+  date range of 31 days or less (37 s at one year without one).
 - **Rate limiters must use `rateLimitKeyGenerator`** (`apps/api/src/lib/rate-limit-key.ts`).
   Keying on `req.ip` alone lets an IPv6 attacker rotate the host portion of their
   /64 for an unlimited budget. (DEP-5, 2026-08-18.)
