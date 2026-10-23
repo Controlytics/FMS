@@ -145,6 +145,23 @@ describe('PermissionNode.gate (Phase 5A)', () => {
     expect(resolveNodeGateRoles('system_health.view')).toContain('ADMIN');
   });
 
+  it('resolveNodeGateRoles returns [] for a known node without a role bypass, and never the live array', () => {
+    expect(resolveNodeGateRoles('users.delete')).toEqual([]);
+    const roles = resolveNodeGateRoles('system_health.view');
+    roles.push('OPERATOR');
+    expect(resolveNodeGateRoles('system_health.view')).not.toContain('OPERATOR');
+  });
+
+  it('deriveFeaturePrivileges keeps a configurable node missing from CONFIGURABLE_PRIVILEGE_ORDER, listed last', () => {
+    // A new toggle added to the tree but not yet to the order list must still
+    // reach the role picker, not be dropped.
+    const [first, ...rest] = PERMISSION_TREE;
+    const added = { ...first.nodes[0], id: 'dashboard.brand_new', label: 'Brand New Toggle', configurable: true };
+    const derived = deriveFeaturePrivileges([{ ...first, nodes: [added, ...first.nodes] }, ...rest]);
+    expect(derived[derived.length - 1]).toMatchObject({ id: 'dashboard.brand_new', label: 'Brand New Toggle' });
+    expect(derived.slice(0, -1)).toEqual(deriveFeaturePrivileges());
+  });
+
   it('checklists.submit gate is FILTER_OPERATE (not the theater perm CHECKLIST_SUBMIT)', () => {
     // Route POST /api/filters/:id/submit-checklist enforces FILTER_OPERATE.
     // CHECKLIST_SUBMIT is a grant-only perm with no backend enforcement.

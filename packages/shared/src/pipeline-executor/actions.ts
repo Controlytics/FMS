@@ -50,7 +50,12 @@ function findReachable(
       const next = allStages.find(s => s.id === c.toStageId);
       if (!next) continue;
       if (next.nodeType === 'STAGE' && next.stateKey) {
-        reachable.push({ stateKey: next.stateKey, stage: next });
+        // Two checklist branches can lead to the same stage: offer it ONCE
+        // (2026-10-23), as buildStageLookup's nextStages already does — it
+        // used to appear as two identical "Advance to …" actions.
+        if (!reachable.some(r => r.stateKey === next.stateKey)) {
+          reachable.push({ stateKey: next.stateKey, stage: next });
+        }
       } else if (next.nodeType === 'END') {
         leadsToEnd = true;
       } else if (next.nodeType === 'CHECKLIST') {
