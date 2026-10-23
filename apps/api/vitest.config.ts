@@ -7,6 +7,10 @@ export default defineConfig({
       reporter: ['text', 'text-summary'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/**/*.d.ts', 'src/e2e/test-helper.ts'],
+      // Coverage gate (operator, 2026-10-22): >= 90 % on every metric. Measured 2026-10-23
+      // (full single-fork run): statements/lines 97.52, branches 94.95, functions 99.45.
+      // Never lower these to pass.
+      thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 },
     },
     globals: true,
     environment: 'node',
