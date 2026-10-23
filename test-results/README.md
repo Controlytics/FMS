@@ -31,6 +31,7 @@ since its date is re-run, not carried forward. Nothing estimated is presented as
 | npm audit (2026-10-22) | Upgrade the vulnerable server packages now (full suites after); upgrade Capacitor in code now — reaches tablets only with the next APK build |
 | Long tests (2026-10-22, re-confirmed) | KEEP the full plan: 1 h, 4 h, 12 h and 24 h soaks back to back on an otherwise idle PC, plus mutation testing; the release decision comes after them |
 | Clean-machine install (2026-10-23) | NOT run now (operator: "vm or spare test i dont need now"). 10 is written from the installer build, the packed-API smoke test and the staged-payload checks, and states the gap |
+| SUPER_ADMIN session (2026-10-23) | SKIPPED (operator: "skip superadmin"). The SA-only dynamic probes (`QA/tests/security/sa-session-probes.mjs`, `QA/tests/phase5/sa-meta-redact.mjs`) were NOT run; SA behaviour rests on the automated suites (od01-always-reauth e2e, audit-redaction-integrity, d0309-*, config-sa-only-pages) |
 
 ## Evidence-loss note (2026-10-22, ~16:40 local)
 
