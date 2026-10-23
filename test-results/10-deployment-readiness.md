@@ -9,7 +9,8 @@ rests on the build, the packed-API smoke test and the staged-payload checks belo
 |---|---|
 | `dist\FMS-Setup-1.2.3.exe` | built from HEAD `11e36da` (all fixes through the date-range fix), UNSIGNED (SmartScreen / AV will warn), 172,211,682 bytes, SHA256 `9280ee4448c4dedebb473ec6c827b741ad5c2fcb74cf8dd1a85d8c9fd932dee3`; bundles `tablet\FMS.apk` = the APK below (sha256 matches) |
 | `DigiLog-FilterOps.apk` (repo root, bundled as `tablet\FMS.apk`) | `11e36da`, SHA256 `33b8beb5bae4a7eaabff98fc1fe3cd7db88393c0a3d89d7c90333aff2756bfa3`; Capacitor 8.5.3; built with `VITE_API_URL` blank (a fresh install asks for the server; an update keeps the stored address); `res/raw/rootca.pem` is the inert PLACEHOLDER authority, so this general APK trusts no development CA (per-site APK: `scripts/build-site-apk.ps1`) |
-| Restore tool | `scripts/restore-database.ps1` + `docs/RESTORE-LARGE-DATABASE.md`, in the installer with a Start-menu entry |
+| Restore tool | `scripts/restore-database.ps1` (+ helper + `.cmd` launcher) in the installer with a Start-menu entry. The operator guide `docs/RESTORE-LARGE-DATABASE.md` is NOT installed (corrected 2026-10-23); its essentials are in the install guide § 10 |
+| Install guide | `FMS-Installation-Guide.docx` / `.pdf` 1.2.3 edition (11 pages) next to the exe in `dist\` and in Downloads; the 1.2.0 edition kept as `FMS-Installation-Guide-1.2.0.*`. Generator outside git: `C:\Users\hello\fms-docs-source\install-guide\` |
 
 ## 2. Executed
 
@@ -36,3 +37,15 @@ rests on the build, the packed-API smoke test and the staged-payload checks belo
   actions (OD-01); approval decisions require remarks; several SA-only settings pages are now SA-only on the
   server too; "10,000+" on very large lists; LDAP `ldap://` uses StartTLS.
 - Copy the backups folder off the server (single biggest recovery risk, 09).
+
+## 5. Found while writing the install guide (2026-10-23), NOT fixed
+
+- **Login page shows "Version 1.2.2" on a fresh 1.2.3 install.** The text comes from the `branding`
+  setting (`install-baseline.json` → `version: "1.2.2"`), not from the program; an upgrade keeps the
+  site's old value (create-only seed). The guide works around it (§ 4.2 / § 9: set Configuration →
+  Branding & Dashboard → Version). Fix = re-export the baseline or stamp the version at build, then rebuild.
+- **A failed install or upgrade is invisible.** `install.ps1` / `upgrade.ps1` run `runhidden` from
+  `DigiLog.iss` [Run], their exit code is not checked, and neither writes a log file, so the Finish page
+  appears and every `FATAL:` message (e.g. the one-tag-per-filter migration guard) is lost. The guide
+  says so (§ 3, § 9, § 12). Fix = transcript to `<DataRoot>\logs\install-*.log` + check the exit code in
+  the [Run] step, then rebuild.
