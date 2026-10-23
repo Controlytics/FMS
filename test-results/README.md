@@ -56,7 +56,7 @@ operator-approved changes.
 | 03 | `03-functional-testing.md` | 1 | DONE 2026-10-22 `78edee5` + `36720cb` — 34 scenarios via the real UI, 6 roles + tablet; D03-01..15 (fixed: 01-08, 10-12, 15; in progress: 09 sign-before-validate sweep, 13 decision remarks, 14 modals on logout); 6 SA items pending the operator session |
 | 04 | `04-api-testing.md` | 1 | DONE 2026-10-22 `8e686a2` + `44a52e3` — 2,574 role × route rows: 0 leaks, 0 wrong refusals (SA not covered); 1,120 fuzzed writes: 0 5xx; D04-01 / P5R-01 / P5R-02 fixed |
 | 05 | `05-database-testing.md` | 1 | DONE 2026-10-22 — 10 defects (D-DB-1..10) being fixed; BR-100/101 PASS (runtime) |
-| 08 | `08-coverage-and-test-quality.md` | 1 | IN PROGRESS — API wave 1 agents running |
+| 08 | `08-coverage-and-test-quality.md` | 1 | DONE 2026-10-23 — API 97.5/95.0/99.5/97.5, Web 97.6/94.4/97.0/97.6, Shared 93.3/97.8/93.1/93.3 (gates 90×4 on); mutation: pipeline executor 88.7 %, API security libs 96.6 % |
 | 06 | `06-security-assessment.md` | 2 | DONE 2026-10-22 — P0 0 · P1 2 · P2 5 · P3 13; fixes in progress; SA-session probes pending (`QA/tests/security/sa-session-probes.mjs`) |
 | 07 | `07-performance-testing.md` | 2 | not started (needs idle PC) |
 | 09 | `09-reliability-and-recovery.md` | 3 | not started |
