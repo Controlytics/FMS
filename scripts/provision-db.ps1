@@ -133,16 +133,24 @@ log_min_messages = warning
 "@
 Add-Content -Path $conf -Value $pgLogSettings
 
-# 3. Start the cluster
-Run $pgctl @('-D', $DataDir, '-l', $pgLog, '-w', 'start') "start cluster on :$Port"
-
 $env:PGPASSWORD = $SuperPassword
 function Psql($db, $sql) {
   & $psql -h localhost -p $Port -U postgres -d $db -v ON_ERROR_STOP=1 -qtAc $sql
   if ($LASTEXITCODE -ne 0) { Write-Host "psql failed: $sql" -ForegroundColor Red; & $pgctl -D $DataDir stop -m fast | Out-Null; exit 1 }
 }
 
+# From `pg_ctl start` on, EVERY way out of this script must pass the finally below
+# (an `exit` inside try runs it too). The postmaster inherits this process's
+# handles - Setup's output pipe included (installer/run-setup-script.iss) - and
+# Setup waits until every holder of that pipe has gone. A cluster left running
+# here = Setup stuck on "Setting up the FMS database..." with no error shown
+# (installer/test harness, mode 'orphan'). So the start is INSIDE the try: a start
+# that fails or times out while the postmaster is still coming up is stopped too.
+# install.ps1 always passes -StopWhenDone; without it (dev use) nothing is stopped.
 try {
+  # 3. Start the cluster
+  Run $pgctl @('-D', $DataDir, '-l', $pgLog, '-w', 'start') "start cluster on :$Port"
+
   # 4. App role + database (CREATE ROLE is idempotent-guarded)
   Write-Host "==> create role + database" -ForegroundColor Cyan
   Psql 'postgres' "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='$AppRole') THEN CREATE ROLE $AppRole LOGIN PASSWORD '$AppPassword'; END IF; END `$`$;"

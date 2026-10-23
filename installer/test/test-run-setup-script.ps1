@@ -13,7 +13,10 @@
          program's stdout and stderr, plus the exit code;
        - the password reached the script (environment variable) and appears in
          neither that log nor Setup's own log.
-  Exit 0 = all checks passed.
+     and a fourth time (-Mode orphan) to record a CONSTRAINT: Setup waits for every
+     process still holding its output pipe, so no script it runs may leave one
+     running (provision-db.ps1: test-provision-db-pipe.ps1).
+  Exit 0 = all checks passed. Takes about a minute (the orphan case waits 45 s).
 
 .PARAMETER Iscc  ISCC.exe (Inno Setup 6.3 or newer - ExecAndLogOutput).
 #>
@@ -56,15 +59,24 @@ if (-not (Test-Path $harness)) { Write-Host "FAILED: no harness exe" -Foreground
 foreach ($case in @(
     @{ Mode = 'fail'; Exit = 10; Lines = @('==> harness step one (fail)', 'harness-native-stdout', 'harness-native-stderr', 'FATAL: harness failure line', 'Exit code: 3', ' - FAILED') },
     @{ Mode = 'warn'; Exit = 0;  Lines = @('WARN: harness warning line', 'harness-native-stderr', 'Exit code: 0', ' - OK') },
-    @{ Mode = 'ok';   Exit = 0;  Lines = @('harness finished', 'harness-native-stdout', 'Exit code: 0', ' - OK') })) {
+    @{ Mode = 'ok';   Exit = 0;  Lines = @('harness finished', 'harness-native-stdout', 'Exit code: 0', ' - OK') },
+    # CONSTRAINT, not a feature: a process left running that holds Setup's output
+    # pipe (as the postmaster does after `pg_ctl start`) keeps Setup waiting until it
+    # exits - measured 46 s for a 45 s process on 2026-10-23. So no script Setup runs
+    # may leave one behind; test-provision-db-pipe.ps1 holds provision-db.ps1 to that.
+    # If this check ever fails, Inno stopped waiting - harmless, update the comment.
+    @{ Mode = 'orphan'; Exit = 10; MinSeconds = 40; Lines = @('FATAL: harness failure with a process left running', 'Exit code: 3') })) {
   $m = $case.Mode
   Write-Host "==> Run the harness, mode $m" -ForegroundColor Cyan
   $dir = Join-Path $WorkDir "run-$m"; $data = Join-Path $dir 'data'; $setupLog = Join-Path $dir 'setup.log'
   # Setup cannot create its /LOG file in a missing folder (it exits 1, "failed to initialize").
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $sw = [Diagnostics.Stopwatch]::StartNew()
   $p = Start-Process -FilePath $harness -Wait -PassThru -ArgumentList @(
          '/VERYSILENT', '/SUPPRESSMSGBOXES', "/LOG=`"$setupLog`"", "/DIR=`"$dir\app`"", "/DataRoot=`"$data`"", "/Mode=$m")
+  $sw.Stop()
   Check ($p.ExitCode -eq $case.Exit) "mode $m`: Setup exit code $($p.ExitCode) (expected $($case.Exit))"
+  if ($case.MinSeconds) { Check ($sw.Elapsed.TotalSeconds -ge $case.MinSeconds) ("mode $m`: Setup waited {0:N1} s for the process holding its pipe (constraint: >= $($case.MinSeconds) s)" -f $sw.Elapsed.TotalSeconds) }
   $log = Get-ChildItem (Join-Path $data 'logs') -Filter 'install-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
   Check ($null -ne $log) "mode $m`: an install-*.log was written in data\logs"
   if (-not $log) { continue }
