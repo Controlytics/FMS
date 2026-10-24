@@ -466,6 +466,12 @@ Existing visits are never changed — to move one, use
 `CREATED` audit row (`targetType: pm_schedule_entry`) in the transaction and mints
 one QNN (`UPLOAD`) for the entry, as the upload does per row.
 
+A **Super Admin's own** visit / upload / schedule / resubmit is `APPROVED` at once,
+and its `PUT /entries/:id/edit` goes live at once instead of being staged — the
+audit row records `superAdminExemptGates: ["PM_REVIEW"]` (operator decision
+2026-10-24, `lib/super-admin-own-work.ts`). Everyone else's goes through the
+workflow as above.
+
 **`POST /api/pm-schedules`** — create the year's schedule with its entries.
 409 `CONFLICT` when the AHU already has an ACTIVE schedule for the year (use
 `POST /visits` to add to it); 409 `PM_VISIT_OVERLAP` when two of the given

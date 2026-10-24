@@ -56,6 +56,7 @@ An annotated pointer to the files that a new contributor must know about. Everyt
 
 | File | Why it matters |
 |---|---|
+| `src/lib/filter-set.ts` | `formatFilterSet()`: `SET_A` / `SET_B` → "Set A" / "Set B" for display (2026-10-24). |
 | `src/lib/themes.ts` | 10 preset definitions (Ocean, Sapphire, Emerald, Amethyst, Sunset, Slate, Ruby, Forest, Midnight, Coral). |
 | `src/lib/theme-styles.ts` | Helpers that produce class strings based on the active theme. |
 | `src/hooks/use-branding.ts` | Applies theme CSS variables to `:root` on app boot. |
