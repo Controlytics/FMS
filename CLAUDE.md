@@ -717,13 +717,16 @@ the last) and, in a Prisma query on the DATE columns, `toDateColumnDay(now)`. Th
 copy is `apps/web/src/lib/pm-window.ts`; change one, change the other. The raw comparison
 made the last day Overdue from 05:30 and opened every deviation a day late.
 
-🔴 **A moved visit closes its deviation as RESCHEDULED (operator decision 2026-10-24).**
-When a visit's date goes live on a date whose window has not closed, its open deviation
-closes with `closureKind: RESCHEDULED` (never as completed; "Moved from … to … by …") —
-`closeDeviationIfRescheduled` (`pm-deviations.ts`), called after an approved date change,
-a Super Admin's edit, the console entry edit, and by the sweep's CLOSE half. One deviation
-per visit (UNIQUE): if the new date is missed too, the sweep raises `DEVIATION_OPEN_BLOCKED`
-instead of a second deviation (operator-accepted). Guard: `e2e/pm-deviation-rescheduled.test.ts`.
+🔴 **A visit's deviation follows its date (operator decisions 2026-10-24: "Close as Rescheduled",
+then "Update the same deviation").** One deviation per visit (UNIQUE `pm_schedule_entry_id`), kept
+in step by `syncDeviationWithVisit` (`pm-deviations.ts`): new window not closed → an open deviation
+closes `closureKind: RESCHEDULED` ("Moved from … to … by …"; a closed-rescheduled one gets its note
+moved to the latest date); new window closed → the deviation takes the new date, window and overdue
+count, and one closed as RESCHEDULED REOPENS (overdue roles notified). Each change writes
+`DEVIATION_UPDATED` (before/after) — the earlier dates live in the audit trail, not on the row. A
+deviation closed because the PM was done (or written off) is never reopened. Called after an approved
+date change, a Super Admin's edit, the console entry edit, and in both halves of the sweep.
+Guard: `e2e/pm-deviation-rescheduled.test.ts`.
 
 🔴 **Replacement schedule: ONE credit rule (2026-10-24).** Which filters a schedule row has replaced
 comes only from `creditedFiltersByEntry` (`replacement-schedule/service.ts`): each execution's new

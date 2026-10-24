@@ -603,6 +603,14 @@ export const AUDIT_TEMPLATE_DEFAULTS: Record<string, AuditTemplateDefinition> = 
     template: 'Overdue-PM deviation closed for AHU "{targetName}" by {actor}',
     placeholders: ['actor', 'targetName'],
   },
+  // 2026-10-24: a deviation follows its visit's date ("Update the same
+  // deviation"); before/after on the row carries the old and new date.
+  DEVIATION_UPDATED: {
+    label: 'PM Deviation Updated',
+    category: 'PM Schedules',
+    template: 'Overdue-PM deviation for AHU "{targetName}" moved to the visit\'s new date by {actor}',
+    placeholders: ['actor', 'targetName'],
+  },
   DEVIATION_OPEN_BLOCKED: {
     label: 'PM Deviation Could Not Be Opened',
     category: 'PM Schedules',

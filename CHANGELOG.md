@@ -135,6 +135,16 @@ clean-machine install, Super Admin probe session and the performance / endurance
   selection with one signature. It used to replace the scanned filter at once. A scan names the reason when it
   cannot select: unknown tag, not a filter, another AHU, already replaced for this task, not approved, or the
   remaining count reached.
+- **A deviation follows its visit's date (operator: "deviations are not updating as per PM schedule date
+  change"; decision "Update the same deviation").** CWH/RDU was moved 8 Oct → 21 Oct (deviation closed
+  RESCHEDULED) → 2 Oct, already past: the visit was overdue again but its one deviation stayed closed, and the
+  sweep could only raise `DEVIATION_OPEN_BLOCKED` daily. `syncDeviationWithVisit` (replaces
+  `closeDeviationIfRescheduled`): new window still ahead → close RESCHEDULED / move the note to the latest
+  date; new window closed → the same deviation takes the new date, window and overdue count, reopening (and
+  re-notifying) when it was closed as rescheduled. New audit template `DEVIATION_UPDATED` (before/after; also
+  a system action for the cron). A deviation closed because the PM was done or written off is never touched.
+  Runs on the write paths and in both sweep halves. DEV-000143 was reopened on 2 Oct by one sweep run. Tests:
+  `pm-deviation-rescheduled.test.ts` 12 → 15 (4 fail without the change).
 - **A filter the row already counts cannot be replaced again for it.** `executeReplacement` refused only a fully
   done row (`ALREADY_COMPLETE`); on a part-done row the filter its own replacement had just put in could be
   replaced again, using a new filter for no count. Now 409 `ALREADY_REPLACED_FOR_TASK` ("… was already replaced

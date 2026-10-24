@@ -6,10 +6,12 @@
  * Two causes, both covered here:
  *
  *  1. A date change never touched the open deviation, and My Tasks shows
- *     "Overdue" while one is open. Operator decision: "Close as Rescheduled" —
+ *     "Overdue" while one is open. Operator decisions: "Close as Rescheduled" —
  *     a visit moved to a window that has not closed closes its deviation with
- *     closureKind RESCHEDULED (never as completed), on the write that puts the
- *     date live and, as a backstop, in the sweep.
+ *     closureKind RESCHEDULED (never as completed) — and then "Update the same
+ *     deviation": moved to a window that HAS closed, the one deviation takes the
+ *     new date (reopening when it was closed as rescheduled). On the write that
+ *     puts the date live and, as a backstop, in the sweep.
  *  2. Window edges were compared with the raw DATE values (UTC midnight = 05:30
  *     in India): the last day read as Overdue from 05:30, a cleaning before
  *     05:30 on the first day was not credited, and the 03:00 sweep opened every
@@ -106,7 +108,7 @@ beforeAll(async () => {
     tok[k] = await fx.login(app, u[k].username);
   }
   // Every visit below is overdue: window T-18..T-12, nothing cleaned.
-  for (const key of ['SA', 'STAGED', 'PAST', 'SWEEP', 'SAME']) await scenario(key, day(-15), 3);
+  for (const key of ['SA', 'STAGED', 'PAST', 'SWEEP', 'SAME', 'DONE']) await scenario(key, day(-15), 3);
   await sweep();
 }, 60_000);
 
@@ -116,9 +118,9 @@ afterAll(async () => {
   restoreZone?.();
 });
 
-describe('a moved visit closes its deviation as RESCHEDULED', () => {
+describe("a visit's deviation follows its date", () => {
   it('the sweep opened a deviation for every overdue visit (precondition)', async () => {
-    for (const key of ['SA', 'STAGED', 'PAST', 'SWEEP', 'SAME']) {
+    for (const key of ['SA', 'STAGED', 'PAST', 'SWEEP', 'SAME', 'DONE']) {
       expect((await deviationOf(key))?.status, key).toBe('OPEN');
     }
   });
@@ -159,10 +161,61 @@ describe('a moved visit closes its deviation as RESCHEDULED', () => {
     expect(dev!.closureReason).toMatch(new RegExp(`by ${u.apr.username}$`));
   });
 
-  it('moved to another date whose window has also closed: still overdue, stays OPEN', async () => {
+  it('moved to another date whose window has also closed: stays OPEN, on the new date, overdue recounted, audited', async () => {
     const res = await call('PUT', `/entries/${entryOf.PAST}/edit`, 'sa', { plannedDate: iso(day(-8)) }); // window T-11..T-5
     expect(res.statusCode, res.body).toBe(200);
-    expect((await deviationOf('PAST'))?.status).toBe('OPEN');
+    const dev = await deviationOf('PAST');
+    expect(dev).toMatchObject({ status: 'OPEN', overdueDaysAtOpen: 8 });
+    expect([iso(dev!.scheduledDate), iso(dev!.windowStart!), iso(dev!.windowEnd)]).toEqual([iso(day(-8)), iso(day(-11)), iso(day(-5))]);
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'DEVIATION_UPDATED', targetId: dev!.id } });
+    expect(audit?.userId).toBe(u.sa.username);
+    expect(audit?.beforeValue).toMatchObject({ scheduledDate: iso(day(-15)), status: 'OPEN' });
+    expect(audit?.afterValue).toMatchObject({ scheduledDate: iso(day(-8)), status: 'OPEN', overdueDaysAtOpen: 8, movedBy: u.sa.username });
+  });
+
+  // The operator's case (CWH/RDU, 2026-10-24): 8 Oct → 21 Oct (closed as
+  // rescheduled) → 2 Oct, already past. The second miss could not be recorded:
+  // the sweep raised DEVIATION_OPEN_BLOCKED every day.
+  it('a rescheduled visit moved back to a date already past REOPENS the same deviation at once, on that date', async () => {
+    const before = await deviationOf('SA'); // closed as rescheduled by the first test
+    expect(before).toMatchObject({ status: 'CLOSED', closureKind: 'RESCHEDULED' });
+    const res = await call('PUT', `/entries/${entryOf.SA}/edit`, 'sa', { plannedDate: iso(day(-6)) }); // window T-9..T-3
+    expect(res.statusCode, res.body).toBe(200);
+    const dev = await deviationOf('SA');
+    expect(dev).toMatchObject({ id: before!.id, deviationNumber: before!.deviationNumber, status: 'OPEN', closureKind: null, closureReason: null, closedAt: null, overdueDaysAtOpen: 6 });
+    expect(iso(dev!.scheduledDate)).toBe(iso(day(-6)));
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'DEVIATION_UPDATED', targetId: dev!.id }, orderBy: { chainPosition: 'desc' } });
+    expect(audit?.beforeValue).toMatchObject({ status: 'CLOSED', closureKind: 'RESCHEDULED', scheduledDate: iso(day(-15)) });
+    expect(audit?.afterValue).toMatchObject({ status: 'OPEN', scheduledDate: iso(day(-6)) });
+    // The overdue roles are told again, and My Tasks shows it overdue.
+    expect(await prisma.notification.count({ where: { type: 'PM_OVERDUE', metadata: { path: ['deviationId'], equals: dev!.id } } })).toBe(2);
+    const due = await getDueTasks(ctxOf('sa'));
+    expect(due.overdue.find((r: any) => r.ahuId === ahu.SA)?.deviation).toMatchObject({ status: 'OPEN', overdueDays: 6 });
+  });
+
+  it('a rescheduled deviation moved again to a date still ahead keeps its one note, on the latest date', async () => {
+    const res = await call('PUT', `/entries/${entryOf.STAGED}/edit`, 'sa', { plannedDate: iso(day(14)) });
+    expect(res.statusCode, res.body).toBe(200);
+    const dev = await deviationOf('STAGED');
+    expect(dev).toMatchObject({ status: 'CLOSED', closureKind: 'RESCHEDULED' });
+    expect(dev!.closureReason).toMatch(new RegExp(` by ${u.sa.username}$`));
+    expect(iso(dev!.scheduledDate)).toBe(iso(day(-15))); // still the date that was missed
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'DEVIATION_UPDATED', targetId: dev!.id } });
+    expect(audit?.afterValue).toMatchObject({ rescheduledTo: iso(day(14)) });
+  });
+
+  it('a deviation closed because the PM was DONE is never reopened by a date change', async () => {
+    const filterId = (await prisma.assetInstance.findFirst({ where: { parentId: ahu.DONE } }))!.id;
+    await fx.cycle(filterId, u.sa.id, { status: 'COMPLETED', startedAt: new Date(Date.now() - 3_600_000), completedAt: new Date(Date.now() - 1_800_000) });
+    await sweep();
+    const done = await deviationOf('DONE');
+    expect(done).toMatchObject({ status: 'CLOSED', closureKind: null });
+    expect(done!.completedAt).not.toBeNull();
+    const res = await call('PUT', `/entries/${entryOf.DONE}/edit`, 'sa', { plannedDate: iso(day(-7)) });
+    expect(res.statusCode, res.body).toBe(200);
+    const after = await deviationOf('DONE');
+    expect(after).toMatchObject({ status: 'CLOSED', closureKind: null, scheduledDate: done!.scheduledDate });
+    expect(await prisma.auditTrail.count({ where: { action: 'DEVIATION_UPDATED', targetId: done!.id } })).toBe(0);
   });
 
   it('the sweep closes one whose date was changed by another door, and leaves an unchanged one open', async () => {
@@ -179,18 +232,23 @@ describe('a moved visit closes its deviation as RESCHEDULED', () => {
     expect((await deviationOf('PAST'))?.status).toBe('OPEN');
   });
 
-  it('when the NEW date is missed too, the one-deviation-per-visit limit raises the blocked alarm (known limit)', async () => {
-    // The rescheduled visit's new window has now closed as well.
+  it('when the NEW date is missed too, the sweep reopens the same deviation on that date — no blocked alarm', async () => {
+    // The rescheduled visit's new window has now closed as well (changed by
+    // another door, so only the sweep sees it).
     await prisma.pmScheduleEntry.update({
       where: { id: entryOf.SWEEP },
       data: { plannedDate: day(-4), windowStart: day(-7), windowEnd: day(-1) },
     });
     const r = await sweep();
-    expect(r.blocked).toBeGreaterThanOrEqual(1);
+    expect(r.opened).toBeGreaterThanOrEqual(1);
     const dev = await deviationOf('SWEEP');
-    expect(dev?.closureKind).toBe('RESCHEDULED'); // the first record is never overwritten
-    const blocked = await prisma.auditTrail.findFirst({ where: { action: 'DEVIATION_OPEN_BLOCKED', targetId: dev!.id } });
-    expect(blocked).not.toBeNull();
+    expect(dev).toMatchObject({ status: 'OPEN', closureKind: null, overdueDaysAtOpen: 4 });
+    expect(iso(dev!.scheduledDate)).toBe(iso(day(-4)));
+    expect(await prisma.auditTrail.count({ where: { action: 'DEVIATION_OPEN_BLOCKED', targetId: dev!.id } })).toBe(0);
+    expect(await prisma.auditTrail.findFirst({ where: { action: 'DEVIATION_UPDATED', targetId: dev!.id } })).toMatchObject({ userRole: 'SUPER_ADMIN' });
+    // Idempotent: a second sweep changes nothing.
+    await sweep();
+    expect(await prisma.auditTrail.count({ where: { action: 'DEVIATION_UPDATED', targetId: dev!.id } })).toBe(1);
   });
 });
 

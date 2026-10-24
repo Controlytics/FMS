@@ -263,7 +263,14 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     } catch (e: any) {
       if (e?.code === 'P2002') {
         // A deviation row already exists for this entry. Idempotent when it's
-        // still open; a silently-unrecordable §11 record when it's closed.
+        // still open; one closed as RESCHEDULED follows the visit to its new
+        // date and reopens (syncDeviationWithVisit); any other closed one is a
+        // silently-unrecordable §11 record, made loud (recordBlockedDeviation).
+        const existing = await prisma.deviation.findUnique({ where: { pmScheduleEntryId: entry.id } });
+        if (existing?.status === 'CLOSED' && existing.closureKind === 'RESCHEDULED') {
+          if (await syncDeviationWithVisit(entry, ctx, { now, known: existing, roles }) === 'reopened') opened++;
+          continue;
+        }
         if (await recordBlockedDeviation(entry, ahu, roles, now, ctx)) blocked++;
         continue;
       }
@@ -286,7 +293,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
   const writtenOff = new Map(
     [...openEntries.values()].filter((e) => e.skippedAt != null).map((e) => [e.id, e.skipReason]),
   );
-  for (const dev of open) {
+  for (let dev of open) {
     if (writtenOff.has(dev.pmScheduleEntryId)) {
       const closureReason = writtenOff.get(dev.pmScheduleEntryId) ?? null;
       await prisma.deviation.update({
@@ -305,13 +312,19 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
       });
       continue;
     }
-    // Moved to a date whose window has not closed: no longer overdue. Checked
+    // A visit whose date changed: the deviation follows it (closed RESCHEDULED
+    // when no longer overdue, moved to the new date when still overdue). Checked
     // before the completion test so a visit moved past a cleaning is not also
-    // recorded as completed late (the write paths normally close it themselves).
+    // recorded as completed late (the write paths normally do this themselves).
     const movedEntry = openEntries.get(dev.pmScheduleEntryId);
-    if (movedEntry && await closeDeviationIfRescheduled(movedEntry, ctx, { now, known: dev })) {
-      closed++;
-      continue;
+    if (movedEntry) {
+      const sync = await syncDeviationWithVisit(movedEntry, ctx, { now, known: dev, roles });
+      if (sync === 'closed') { closed++; continue; }
+      if (sync === 'updated') {
+        const fresh = await prisma.deviation.findUnique({ where: { id: dev.id } });
+        if (!fresh || fresh.status === 'CLOSED') continue;
+        dev = fresh; // the completion test below reads the new window
+      }
     }
     const filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
     if (!filterIds.length) continue;
@@ -350,64 +363,138 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
   return { opened, closed, blocked };
 }
 
+export type DeviationSync = 'none' | 'closed' | 'reopened' | 'updated';
+
+type DeviationRow = Awaited<ReturnType<typeof prisma.deviation.findUnique>>;
+
+const isoDay = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
+
 /**
- * Close the open deviation of a visit that has been MOVED to a new date
- * (operator decision 2026-10-24, "Close as Rescheduled"). Until then a date
- * change never touched the deviation, so a visit moved into the future stayed
- * "Overdue" on My Tasks for good. Closed as RESCHEDULED, never as completed —
- * no PM was performed; the row keeps the old date, and the closure records the
- * new one, who moved it and when.
+ * Keep a visit's deviation in step with the visit's date (operator decisions
+ * 2026-10-24: "Close as Rescheduled", then "Update the same deviation"). One
+ * deviation per visit (UNIQUE pm_schedule_entry_id), and it follows the visit:
  *
- * Nothing happens while the date is unchanged or the NEW window has closed too
- * (the visit is still overdue). One deviation per visit (UNIQUE): if the new
- * date is also missed, the sweep cannot open a second one and raises
- * DEVIATION_OPEN_BLOCKED (recordBlockedDeviation) every day instead.
+ *  - moved to a date whose window has NOT closed → no longer overdue: an open
+ *    deviation closes RESCHEDULED ("Moved from <its date> to <new> by <who>");
+ *    one already closed that way gets its note moved to the latest date;
+ *  - moved to a date whose window HAS closed (still, or again, overdue) → the
+ *    deviation takes the new date, window and overdue count; one closed as
+ *    RESCHEDULED REOPENS (the visit is owed again) and the overdue roles are
+ *    told. Before this, the second miss could not be recorded at all: the sweep
+ *    raised DEVIATION_OPEN_BLOCKED every day (CWH/RDU, moved 8 Oct → 21 Oct →
+ *    2 Oct). The earlier dates stay in the audit trail (DEVIATION_UPDATED rows,
+ *    before/after), never on the row.
  *
- * Called after each write that puts a new date live (approveEntries, a Super
- * Admin's editApprovedEntry, the Super Admin console) and by the sweep's CLOSE
- * half, which catches any change those did not reach. Returns true when it
- * closed one.
+ * A deviation closed because the PM was done late, or written off as not
+ * performed, is never touched: those are records of what happened.
+ *
+ * Called after each write that puts a new date or tolerance live
+ * (approveEntries, a Super Admin's editApprovedEntry, the Super Admin console)
+ * and by both halves of the sweep, which catch any change those did not reach.
  */
-export async function closeDeviationIfRescheduled(
+export async function syncDeviationWithVisit(
   entry: { id: string; plannedDate: Date; windowStart: Date; windowEnd: Date },
   ctx?: RequestContext,
   opts: {
     /** Who put the new date live, named in the closure note. The sweep does not know, so it passes none. */
     movedBy?: string;
     now?: Date;
-    known?: { id: string; status: string; scheduledDate: Date; deviationNumber: string; ahuName: string };
+    known?: NonNullable<DeviationRow>;
+    roles?: string[];
   } = {},
-): Promise<boolean> {
+): Promise<DeviationSync> {
   const now = opts.now ?? new Date();
   const dev = opts.known ?? await prisma.deviation.findUnique({ where: { pmScheduleEntryId: entry.id } });
-  if (!dev || dev.status === 'CLOSED') return false;
-  if (dev.scheduledDate.getTime() === entry.plannedDate.getTime()) return false;
-  if (pmWindowPhase(entry, now) === 'closed') return false;
-  const from = await formatConfiguredDate(dev.scheduledDate);
+  if (!dev) return 'none';
+  const isOpen = dev.status !== 'CLOSED';
+  const wasRescheduled = dev.status === 'CLOSED' && dev.closureKind === 'RESCHEDULED';
+  if (!isOpen && !wasRescheduled) return 'none'; // done late / written off: a record, never reopened
+  const sameVisit = dev.scheduledDate.getTime() === entry.plannedDate.getTime()
+    && (dev.windowStart?.getTime() ?? null) === entry.windowStart.getTime()
+    && dev.windowEnd.getTime() === entry.windowEnd.getTime();
+  const overdue = pmWindowPhase(entry, now) === 'closed';
+  const actor = {
+    userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
+    ipAddress: ctx?.ipAddress ?? '127.0.0.1', userAgent: ctx?.userAgent, sessionId: ctx?.sessionId,
+  };
+  const before = {
+    status: dev.status, scheduledDate: isoDay(dev.scheduledDate), windowStart: isoDay(dev.windowStart),
+    windowEnd: isoDay(dev.windowEnd), overdueDaysAtOpen: dev.overdueDaysAtOpen,
+    closureKind: dev.closureKind, closureReason: dev.closureReason,
+  };
   const to = await formatConfiguredDate(entry.plannedDate);
+
+  if (overdue) {
+    if (isOpen && sameVisit) return 'none';
+    const overdueDaysAtOpen = dayDiff(now, entry.plannedDate);
+    // Conditional on the state read: a date change and the sweep must not both write it.
+    const res = await prisma.deviation.updateMany({
+      where: { id: dev.id, status: dev.status, scheduledDate: dev.scheduledDate },
+      data: {
+        scheduledDate: entry.plannedDate, windowStart: entry.windowStart, windowEnd: entry.windowEnd, overdueDaysAtOpen,
+        ...(wasRescheduled ? { status: 'OPEN' as const, closedAt: null, closureKind: null, closureReason: null } : {}),
+      },
+    });
+    if (res.count === 0) return 'none';
+    const after = { status: wasRescheduled ? 'OPEN' : dev.status, scheduledDate: isoDay(entry.plannedDate), windowStart: isoDay(entry.windowStart), windowEnd: isoDay(entry.windowEnd), overdueDaysAtOpen };
+    const what = wasRescheduled ? 'reopened' : 'moved';
+    await auditLog({
+      ...actor, action: 'DEVIATION_UPDATED', targetType: 'deviation', targetId: dev.id,
+      beforeValue: before,
+      afterValue: { deviationNumber: dev.deviationNumber, ahuName: dev.ahuName, ...after, ...(opts.movedBy ? { movedBy: opts.movedBy } : {}) },
+      reason: `PM task for ${dev.ahuName} now scheduled ${to} and overdue by ${overdueDaysAtOpen} day(s) — deviation ${dev.deviationNumber} ${what} to that date`,
+      signatureMeaning: `Deviation ${dev.deviationNumber} ${what}: the scheduled PM for AHU "${dev.ahuName}" was moved to ${to}, whose window has closed`,
+    });
+    if (wasRescheduled) {
+      const filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
+      const roles = opts.roles ?? await readNotifyRoles();
+      await notifyOverdue(
+        { ...dev, scheduledDate: entry.plannedDate },
+        { ahuId: dev.ahuId, ahuName: dev.ahuName, filters: filterIds.map((id) => ({ id })) } as unknown as CountedAhu,
+        roles, now,
+      );
+      await prisma.deviation.update({ where: { id: dev.id }, data: { notifiedAt: new Date() } });
+    }
+    return wasRescheduled ? 'reopened' : 'updated';
+  }
+
+  // Not overdue on the new date.
+  const from = await formatConfiguredDate(dev.scheduledDate);
   const by = opts.movedBy ? ` by ${opts.movedBy}` : '';
   // "Moved", not "Rescheduled": the Deviations PDF wraps this at 15mm and
   // "Rescheduled" (15.3mm at 7.5pt) would split mid-word.
   const closureReason = `Moved from ${from} to ${to}${by}`;
-  // Conditional: a date change and the sweep must not both close it.
+  if (isOpen) {
+    const res = await prisma.deviation.updateMany({
+      where: { id: dev.id, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
+      data: { status: 'CLOSED', closedAt: now, closureKind: 'RESCHEDULED', closureReason },
+    });
+    if (res.count === 0) return 'none';
+    await auditLog({
+      ...actor, action: 'DEVIATION_CLOSED', targetType: 'deviation', targetId: dev.id,
+      beforeValue: { status: dev.status, scheduledDate: isoDay(dev.scheduledDate) },
+      afterValue: { deviationNumber: dev.deviationNumber, closureKind: 'RESCHEDULED', closureReason, rescheduledTo: isoDay(entry.plannedDate) },
+      reason: `PM task for ${dev.ahuName} was rescheduled from ${from} to ${to} — deviation ${dev.deviationNumber} closed as RESCHEDULED`,
+      signatureMeaning: `Deviation ${dev.deviationNumber} closed: the scheduled PM for AHU "${dev.ahuName}" was moved to ${to}; no PM was performed for ${from}`,
+    });
+    return 'closed';
+  }
+  // Already closed as rescheduled and moved again to a date still ahead: the
+  // note follows the latest date.
+  if (closureReason === dev.closureReason) return 'none';
   const res = await prisma.deviation.updateMany({
-    where: { id: dev.id, status: { in: ['OPEN', 'ACKNOWLEDGED'] } },
-    data: { status: 'CLOSED', closedAt: now, closureKind: 'RESCHEDULED', closureReason },
+    where: { id: dev.id, status: 'CLOSED', closureKind: 'RESCHEDULED' },
+    data: { closureReason },
   });
-  if (res.count === 0) return false;
+  if (res.count === 0) return 'none';
   await auditLog({
-    userId: ctx?.userId, userRole: ctx?.userRole ?? 'SYSTEM', // username, not uuid (compliance F3)
-    action: 'DEVIATION_CLOSED', targetType: 'deviation', targetId: dev.id,
-    beforeValue: { status: dev.status, scheduledDate: dev.scheduledDate.toISOString().slice(0, 10) },
-    afterValue: {
-      deviationNumber: dev.deviationNumber, closureKind: 'RESCHEDULED', closureReason,
-      rescheduledTo: entry.plannedDate.toISOString().slice(0, 10),
-    },
-    reason: `PM task for ${dev.ahuName} was rescheduled from ${from} to ${to} — deviation ${dev.deviationNumber} closed as RESCHEDULED`,
-    signatureMeaning: `Deviation ${dev.deviationNumber} closed: the scheduled PM for AHU "${dev.ahuName}" was moved to ${to}; no PM was performed for ${from}`,
-    ipAddress: ctx?.ipAddress ?? '127.0.0.1', userAgent: ctx?.userAgent, sessionId: ctx?.sessionId,
+    ...actor, action: 'DEVIATION_UPDATED', targetType: 'deviation', targetId: dev.id,
+    beforeValue: { closureReason: dev.closureReason },
+    afterValue: { deviationNumber: dev.deviationNumber, ahuName: dev.ahuName, closureReason, rescheduledTo: isoDay(entry.plannedDate) },
+    reason: `PM task for ${dev.ahuName} rescheduled again to ${to} — deviation ${dev.deviationNumber} note updated`,
+    signatureMeaning: `Deviation ${dev.deviationNumber} (closed, rescheduled): the PM for AHU "${dev.ahuName}" is now scheduled ${to}`,
   });
-  return true;
+  return 'updated';
 }
 
 /** Operator confirms (with password, enforced at the route) an overdue task before cleaning. */

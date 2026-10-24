@@ -9,7 +9,7 @@ import { requireDataEditReauth, reasonSchemaProps, readChangeReason, auditManual
 import recordEditRoutes from './record-edit-routes.js';
 import { computeChecksum } from '../filter-operations/helpers.js';
 import { assertSeparation } from '../pm-schedules/pm-separation-guard.js';
-import { closeDeviationIfRescheduled } from '../pm-schedules/pm-deviations.js';
+import { syncDeviationWithVisit } from '../pm-schedules/pm-deviations.js';
 import { buildContext } from '../../lib/build-context.js';
 import { NotificationType, PmEntryApprovalStatus, CleaningCycleStatus, FilterEventType, BlockChangeStatus, DeviationStatus, DeviationClosureKind } from '@prisma/client';
 
@@ -1549,11 +1549,11 @@ export default async function superAdminRoutes(app: FastifyInstance) {
     }
     const updated = await prisma.pmScheduleEntry.update({ where: { id }, data });
     await auditManualChange(req, { verb: 'UPDATED', targetType: 'pm_schedule_entry', targetId: id, label: 'PM entry', reason, before: existing, after: updated });
-    // Same rule as the PM pages: a visit moved to a window still ahead is no
-    // longer overdue, so its open deviation closes RESCHEDULED (2026-10-24).
-    if (data.plannedDate !== undefined) {
+    // Same rule as the PM pages: the visit's deviation follows its new date or
+    // window (syncDeviationWithVisit, 2026-10-24).
+    if (['plannedDate', 'windowStart', 'windowEnd', 'toleranceDays'].some((f) => data[f] !== undefined)) {
       const ctx = buildContext(req);
-      await closeDeviationIfRescheduled(updated, ctx, { movedBy: ctx.userId });
+      await syncDeviationWithVisit(updated, ctx, { movedBy: ctx.userId });
     }
     return updated;
   });

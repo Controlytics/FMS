@@ -67,6 +67,7 @@ const SYSTEM_AUDIT_ACTIONS = new Set<string>([
   'DEVIATION_OPENED',           // PM overdue sweep — auto-opens a deviation (no user when cron-fired)
   'DEVIATION_CLOSED',           // PM overdue sweep — auto-closes when filters cleaned (no user when cron-fired)
   'DEVIATION_OPEN_BLOCKED',     // PM overdue sweep — re-overdue task whose deviation row is already CLOSED (no user when cron-fired)
+  'DEVIATION_UPDATED',          // PM overdue sweep — a deviation follows its visit's new date (no user when cron-fired)
 ]);
 
 /**
