@@ -226,3 +226,103 @@ describe('workflow on — a Super Admin\'s own filter is approved at once, recor
     expect(a.afterValue).toMatchObject({ superAdminExemptGates: ['FILTER_REVIEW'] });
   });
 });
+
+// 2026-10-24 (operator: "for filters upload, review and approve qnn is there or
+// not — add for this also"): one QNN per filter per step, tagged for the next
+// step's role from the FILTER workflow settings (assets/filter-qnn.ts).
+describe('QNNs for the filter workflow', () => {
+  const minted: string[] = [];
+  const qnnOf = async (filterId: string, action: string) => {
+    const row = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: filterId, action }, orderBy: { createdAt: 'desc' } });
+    const note = row ? await prisma.notification.findFirst({ where: { type: 'PM_SCHEDULE_QNN', metadata: { path: ['qnn'], equals: row.qnn } } }) : null;
+    return { row, note };
+  };
+  let ahuName = '';
+  beforeAll(async () => {
+    wf.current = { workflowEnabled: true, uploadRole: [up.role], reviewRole: rv.role, approvalRole: ap.role };
+    ahuName = (await prisma.assetInstance.findUniqueOrThrow({ where: { id: ahuId } })).name;
+  });
+  afterAll(async () => {
+    const rows = await prisma.qualityNotification.findMany({ where: { pmScheduleEntryId: { in: minted } }, select: { qnn: true } });
+    for (const r of rows) await prisma.notification.deleteMany({ where: { type: 'PM_SCHEDULE_QNN', metadata: { path: ['qnn'], equals: r.qnn } } });
+    await prisma.qualityNotification.deleteMany({ where: { pmScheduleEntryId: { in: minted } } });
+  });
+
+  it('create → review → approve: a QNN at each step, with the AHU, the filter name and the next role', async () => {
+    const created = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('Q-1'), ahuId } });
+    const id = created.body.data.id as string;
+    minted.push(id);
+    const c = await qnnOf(id, 'UPLOAD');
+    expect(c.row).toMatchObject({ ahuName, message: `Filter created (pending review) — ${own.n('Q-1')}`, performedBy: up.id });
+    expect(c.row!.qnn).toMatch(/^QN-\d{4}-\d{6}$/);
+    expect(c.note).toMatchObject({ forRole: rv.role });
+    expect(c.note!.metadata).toMatchObject({ filterId: id, subject: 'Filter', action: 'UPLOAD' });
+
+    const reviewed = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [id], remarks: 'checked' } });
+    expect(reviewed.body.qnns).toHaveLength(1);
+    const r = await qnnOf(id, 'REVIEW');
+    expect(r.row).toMatchObject({ qnn: reviewed.body.qnns[0], message: `Filter reviewed (pending approval) — ${own.n('Q-1')}` });
+    expect(r.note).toMatchObject({ forRole: ap.role });
+
+    const approved = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [id], remarks: 'released' } });
+    const a = await qnnOf(id, 'APPROVE');
+    expect(a.row).toMatchObject({ qnn: approved.body.qnns[0], message: `Filter approved (can now be cleaned) — ${own.n('Q-1')}` });
+    expect(a.note!.forRole).toBeNull();
+  });
+
+  it('reject names the step; resubmit goes back to review with its own QNN', async () => {
+    const created = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('Q-RJ'), ahuId } });
+    const id = created.body.data.id as string;
+    minted.push(id);
+    const rejected = await rv.call('POST', '/api/assets/instances/reject', { body: { filterIds: [id], remarks: 'wrong size' } });
+    expect(rejected.status).toBe(200);
+    expect((await qnnOf(id, 'REJECT')).row).toMatchObject({ qnn: rejected.body.qnns[0], message: `Filter rejected at review — ${own.n('Q-RJ')}` });
+    const res = await up.call('POST', `/api/assets/instances/${id}/resubmit`);
+    const s = await qnnOf(id, 'RESUBMIT');
+    expect(s.row).toMatchObject({ qnn: res.body.qnn, message: `Filter resubmitted (pending review) — ${own.n('Q-RJ')}` });
+    expect(s.note).toMatchObject({ forRole: rv.role });
+  });
+
+  it('a bulk upload mints one QNN per filter, batch-tagged', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Filters');
+    ws.addRow(['name', 'filterSet']);
+    for (const name of [own.n('QB-1'), own.n('QB-2')]) ws.addRow([name, 'A']);
+    const file = Buffer.from(await wb.xlsx.writeBuffer());
+    const boundary = `----qnn${Date.now()}`;
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="ahuId"\r\n\r\n${ahuId}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="u.xlsx"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      file, Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await up.call('POST', '/api/assets/instances/bulk-upload-filters', { body, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } });
+    expect(res.body).toMatchObject({ created: 2, failed: 0 });
+    const rows = await prisma.assetInstance.findMany({ where: { name: { in: [own.n('QB-1'), own.n('QB-2')] } }, orderBy: { name: 'asc' } });
+    minted.push(...rows.map((x) => x.id));
+    const q = await Promise.all(rows.map((x) => qnnOf(x.id, 'UPLOAD')));
+    // Both filters sit under one AHU, so the tag counts filters and does not list AHUs (as for PM).
+    expect(q[0].row!.message.startsWith(`Filter uploaded (pending review) — ${own.n('QB-1')} [batch B-`)).toBe(true);
+    expect(q[0].row!.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2\]$/);
+    expect(q[1].row!.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2\]$/);
+    expect(q[0].row!.message.match(/B-[0-9A-F]{6}/)![0]).toBe(q[1].row!.message.match(/B-[0-9A-F]{6}/)![0]);
+  });
+
+  it('a Super Admin\'s own filter (approved at once) is not described as pending review', async () => {
+    const created = await sa.call('POST', '/api/hierarchy/filters', { body: { name: own.n('Q-SA'), ahuId } });
+    const id = created.body.data.id as string;
+    minted.push(id);
+    expect((await qnnOf(id, 'UPLOAD')).row!.message).toBe(`Filter created (approved at once, Super Admin) — ${own.n('Q-SA')}`);
+  });
+
+  it('with the workflow OFF a new filter mints no QNN', async () => {
+    wf.current = { ...wf.current, workflowEnabled: false };
+    try {
+      const created = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('Q-OFF'), ahuId } });
+      const id = created.body.data.id as string;
+      minted.push(id);
+      expect(await prisma.qualityNotification.count({ where: { pmScheduleEntryId: id } })).toBe(0);
+    } finally {
+      wf.current = { ...wf.current, workflowEnabled: true };
+    }
+  });
+});

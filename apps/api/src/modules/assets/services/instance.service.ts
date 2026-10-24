@@ -19,6 +19,7 @@ import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
 import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable, filterReviewSkippedBySuperAdmin } from '../filter-workflow.js';
 import { superAdminExemptionFields } from '../../../lib/super-admin-own-work.js';
+import { mintFilterQnns, filterSubmissionNote } from '../filter-qnn.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
 import { filterInstanceWhere } from '../../filter-operations/filter-resolver.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
@@ -286,6 +287,12 @@ export const instanceService = {
     });
 
     // (Auto-provision connectivity block removed with data-ingestion removal.)
+
+    // A filter created here while the filter workflow is on gets its QNN, like the
+    // typed path (2026-10-24, filter-qnn.ts). Block / Area / AHU never do (wf null).
+    if (wf?.workflowEnabled) {
+      await mintFilterQnns('UPLOAD', [{ id: instance.id, name: instance.name }], ctx, filterSubmissionNote('created', approvalStatus));
+    }
 
     return instance;
   },

@@ -18,6 +18,8 @@ import { filterService } from './filter.service.js';
 import { instanceService } from './instance.service.js';
 import { relationshipRepository } from '../repositories/relationship.repository.js';
 import { validateAndBuildFilterAttributes } from './filter-fields.service.js';
+import { getFilterWorkflowConfig, initialApprovalStatus } from '../filter-workflow.js';
+import { mintFilterQnns, filterSubmissionNote } from '../filter-qnn.js';
 
 export interface BulkResult {
   row: number;
@@ -472,6 +474,7 @@ export async function bulkUploadFilters(
   // 9. Create the clean rows via the standalone typed filter service (A-01 T2.1).
   // RFID tags are NOT assigned at bulk upload (2026-06-12).
   const createdNames: string[] = [];
+  const createdFilters: Array<{ id: string; name: string }> = [];
   for (const p of clean) {
     const ahuId = p.ahuId ?? (p.newAhuKey ? createdAhuId.get(p.newAhuKey) : undefined);
     if (!ahuId) {
@@ -484,9 +487,10 @@ export async function bulkUploadFilters(
         ahuId,
         ...(p.filterSet ? { filterSet: p.filterSet } : {}),
         ahuType: p.r.ahuType, filterType: p.r.filterType, micronSize: p.r.micronSize, filterSize: p.r.filterSize, lastCleaningDate: p.r.lastCleaningDate,
-      }, ctx);
+      }, ctx, { mintQnn: false }); // QNNs are minted once for the batch, after the loop
       results.push({ row: p.r.rowNumber, name: p.name, status: 'success', id: f.id });
       createdNames.push(p.name);
+      createdFilters.push({ id: f.id, name: p.name });
     } catch (err: any) {
       // Audit 2026-09-24 (A-F2): only AppError text may reach the client.
       results.push({ row: p.r.rowNumber, name: p.name, status: 'error', error: err instanceof AppError ? err.message : 'Create failed' });
@@ -513,6 +517,15 @@ export async function bulkUploadFilters(
         + (createdAreas.length ? `; created area(s) ${createdAreas.join(', ')}` : ''),
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
+  }
+
+  // 11. One QNN per created filter, batch-tagged, while the filter workflow is on
+  // (2026-10-24, filter-qnn.ts). After the loop, never inside its try/catch: a QNN
+  // failure there would report a filter that WAS created as failed, and a re-upload
+  // would then trip the duplicate-name check.
+  const wf = await getFilterWorkflowConfig();
+  if (wf.workflowEnabled && createdFilters.length > 0) {
+    await mintFilterQnns('UPLOAD', createdFilters, ctx, filterSubmissionNote('uploaded', initialApprovalStatus(wf, ctx)));
   }
 
   results.sort((a, b) => a.row - b.row);

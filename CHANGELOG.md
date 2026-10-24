@@ -34,6 +34,20 @@ clean-machine install, Super Admin probe session and the performance / endurance
   allowed list, before the password is asked (D03-09); an edit that leaves the types out keeps them. Their
   labels stay, so an existing rule still renders, and the editor marks such a type "(never sent - remove it)".
   The Prisma enum is unchanged (no migration).
+- **Filters get QNNs like PM and replacement schedules (operator request; `assets/filter-qnn.ts`).** Until now a
+  filter's create / upload / review / approve / reject / resubmit wrote audit rows only. While the filter workflow is
+  ON, each step now mints ONE QNN per filter (a bulk upload / bulk decision adds PM's batch tag), shown on Quality
+  Notifications (AHU = the filter's AHU, message "Filter created (pending review) — F-001" …) and in the
+  Notifications center, tagged for the next step's role from the FILTER workflow settings. Workflow OFF: no QNN (a
+  filter is then an ordinary record with no review step; PM mints on every upload — a deliberate difference). No
+  migration: the filter id goes in the soft `pm_schedule_entry_id` column (no FK, nothing dereferences it), as
+  replacement QNNs already do; the notification metadata carries `filterId`. The review / approve / reject
+  responses now return `qnns`, resubmit `qnn`. The bulk upload mints after its loop, never inside a row's
+  try/catch (a QNN failure must not report a created filter as failed).
+- **Replacement-schedule QNNs were tagged for PM's roles.** `generateQnn` always read the PM workflow's review /
+  approval roles, so with a replacement workflow naming its own approver the QNN went to PM's. It now takes an
+  optional `route`; replacement and filters pass their own roles, PM is unchanged. Guard:
+  `workflow-tasks.coverage.test.ts` "QNN routing follows the replacement workflow" (fails on the old code).
 - **A Super Admin's own work is not held (operator decision; `lib/super-admin-own-work.ts`).** The operator
   asked to "remove all interlocks or anything to super admin" and chose, of four options, only "own work not
   held" (not: approving its own work, not: no passwords). One rule, `isSuperAdminOwnWork(ctx)` (SUPER_ADMIN,

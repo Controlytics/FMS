@@ -3,7 +3,10 @@ import { rangeStartOrThrow, rangeEndOrThrow } from '../../lib/date-range-guard.j
 
 /**
  * Quality Notification (QNN) report data + visibility. QNN rows are minted by
- * the PM approval workflow (pm-workflow.generateQnn). The report is visible to
+ * pm-workflow.generateQnn for three workflows: PM schedules, replacement
+ * schedules and — since 2026-10-24 — the filter creation workflow
+ * (assets/filter-qnn.ts; its rows hold the filter id in pm_schedule_entry_id and
+ * their message starts "Filter …"). The report is visible to
  * the same roles as QNN notifications — config `qnn-notifications.visibleRoles`
  * (default ['ADMIN']) plus SUPER_ADMIN.
  */

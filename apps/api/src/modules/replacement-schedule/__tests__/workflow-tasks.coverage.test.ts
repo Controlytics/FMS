@@ -542,3 +542,23 @@ describe('POST /entries/:id/execute', () => {
     expect((await prisma.replacementExecution.findFirst({ where: { entryId: id } }))!.isWithinWindow).toBe(false);
   });
 });
+
+// 2026-10-24: a replacement QNN is tagged for the REPLACEMENT workflow's next role.
+// generateQnn used to read PM's roles for every QNN, so a replacement workflow
+// naming its own approver tagged its QNNs for PM's approver instead.
+describe('QNN routing follows the replacement workflow, not PM', () => {
+  it('a review QNN is tagged for the replacement approval role', async () => {
+    const ownApprover = `RS_APR_${S}`.slice(0, 20);
+    await setApproval({ ...WF_ON, approvalRole: ownApprover });
+    try {
+      const id = await entry(hier!.ahuId);
+      const res = await authPost(app, `${R}/entries/review`, tok.rev, { entryIds: [id], action: 'approve', remarks: 'checked' }, PW);
+      expect(res.statusCode).toBe(200);
+      const [qnn] = res.json().qnns;
+      const note = await prisma.notification.findFirst({ where: { type: 'PM_SCHEDULE_QNN', metadata: { path: ['qnn'], equals: qnn } } });
+      expect(note).toMatchObject({ forRole: ownApprover });
+    } finally {
+      await setApproval(WF_ON);
+    }
+  });
+});

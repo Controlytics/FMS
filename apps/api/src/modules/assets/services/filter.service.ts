@@ -12,6 +12,7 @@ import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterF
 import { identifierService } from './identifier.service.js';
 import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, filterReviewSkippedBySuperAdmin } from '../filter-workflow.js';
 import { superAdminExemptionFields } from '../../../lib/super-admin-own-work.js';
+import { mintFilterQnns, filterSubmissionNote } from '../filter-qnn.js';
 
 export interface CreateFilterTypedInput extends FilterFieldInput {
   name: string;
@@ -53,7 +54,8 @@ export const filterService = {
     return { name, attributes, wf };
   },
 
-  async create(input: CreateFilterTypedInput, ctx: RequestContext) {
+  /** `mintQnn: false` — the bulk upload mints its own, batch-tagged QNNs after its loop. */
+  async create(input: CreateFilterTypedInput, ctx: RequestContext, opts: { mintQnn?: boolean } = {}) {
     const { name, attributes, wf } = await filterService.assertCanCreate(input, ctx);
 
     const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
@@ -120,6 +122,11 @@ export const filterService = {
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
+
+    // A QNN while the filter workflow is on (2026-10-24, filter-qnn.ts).
+    if (wf.workflowEnabled && opts.mintQnn !== false) {
+      await mintFilterQnns('UPLOAD', [{ id: filter.id, name }], ctx, filterSubmissionNote('created', approvalStatus));
+    }
 
     return filter;
   },

@@ -334,6 +334,7 @@ export async function processUpload(
   await generateQnn('UPLOAD', {
     scheduleId: schedule.id,
     subject: 'Replacement Schedule',
+    route: { reviewRole: wf.reviewRole, approvalRole: wf.approvalRole }, // the replacement workflow's roles, not PM's (2026-10-24)
     message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${approvalStatus === 'PENDING_REVIEW' ? ' — pending review' : ''}`, // the real status: a Super Admin's own upload is approved at once (2026-10-24)
   }, ctx);
 

@@ -42,11 +42,14 @@ const entryDetail = (e: any) => ({
 });
 
 async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note: string, batchTag = '') {
+  // Tagged for the REPLACEMENT workflow's roles, not PM's (2026-10-24).
+  const cfg = await getReplacementWorkflowConfig();
   return generateQnn(action, {
     pmScheduleEntryId: entry.id, // soft uuid column; holds the replacement entry id
     scheduleId: entry.scheduleId,
     ahuName: entry.ahuName,
     subject: 'Replacement Schedule',
+    route: { reviewRole: cfg.reviewRole, approvalRole: cfg.approvalRole },
     message: `${note} — ${entry.ahuName}${entry.filterSize ? ` · ${entry.filterSize}` : ''}${entry.filterMicron ? ` · ${entry.filterMicron}µ` : ''} · qty ${entry.qty}${batchTag}`,
   }, ctx);
 }

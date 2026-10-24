@@ -20,6 +20,7 @@ import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
 import { getFilterWorkflowConfig, assertPmRole, initialApprovalStatus, filterReviewSkippedBySuperAdmin } from './filter-workflow.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
+import { mintFilterQnns, filterSubmissionNote } from './filter-qnn.js';
 
 /** Filters in the workflow, for the Filters page's review actions. */
 export async function listPendingFilters(_ctx: RequestContext, status?: string) {
@@ -153,7 +154,9 @@ export async function reviewFilters(ctx: RequestContext, filterIds: string[], re
     },
   });
   await auditEach(rows, ctx, 'FILTER_REVIEWED', { reviewRemarks: why }, why);
-  return { reviewed: rows.length, filters: rows.map(r => r.name) };
+  // One QNN per filter, tagged for the approval role (2026-10-24, filter-qnn.ts).
+  const qnns = await mintFilterQnns('REVIEW', rows, ctx, 'Filter reviewed (pending approval)');
+  return { reviewed: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
 export async function assertCanApprove(ctx: RequestContext, filterIds: string[], remarks?: string) {
@@ -184,7 +187,8 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
     },
   });
   await auditEach(rows, ctx, 'FILTER_APPROVED', { approvalRemarks: why }, why);
-  return { approved: rows.length, filters: rows.map(r => r.name) };
+  const qnns = await mintFilterQnns('APPROVE', rows, ctx, 'Filter approved (can now be cleaned)');
+  return { approved: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
 /**
@@ -226,7 +230,10 @@ export async function rejectFilters(ctx: RequestContext, filterIds: string[], re
     },
   });
   await auditEach(rows, ctx, 'FILTER_REJECTED', { rejectionRemarks: remarks.trim() }, remarks.trim());
-  return { rejected: rows.length, filters: rows.map(r => r.name) };
+  // The step each filter was rejected at, from the status it had (rows were read before the update).
+  const stepOf = new Map(rows.map((r) => [r.id, r.approvalStatus === 'PENDING_REVIEW' ? 'review' : 'approval']));
+  const qnns = await mintFilterQnns('REJECT', rows, ctx, (f) => `Filter rejected at ${stepOf.get(f.id)}`);
+  return { rejected: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
 /**
@@ -263,7 +270,8 @@ export async function resubmitFilter(ctx: RequestContext, filterId: string) {
     },
   });
   await auditEach(rows, ctx, 'FILTER_RESUBMITTED', superAdminExemptionFields(reviewSkipped ? ['FILTER_REVIEW'] : []));
-  return { resubmitted: rows[0].name, approvalStatus: nextStatus };
+  const [qnn] = await mintFilterQnns('RESUBMIT', rows, ctx, filterSubmissionNote('resubmitted', nextStatus));
+  return { resubmitted: rows[0].name, approvalStatus: nextStatus, qnn };
 }
 
 /** Counts for the Filters page badges. */

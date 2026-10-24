@@ -93,7 +93,7 @@ export function assertPmRole(userRole: string | undefined, configuredRole: strin
   }
 }
 
-/** PM workflow actions that generate a QNN. */
+/** Workflow actions that generate a QNN (PM, replacement schedules, filters). */
 export type QnnAction = 'UPLOAD' | 'REVIEW' | 'APPROVE' | 'REJECT' | 'RESUBMIT' | 'EDIT';
 
 /**
@@ -160,7 +160,18 @@ export function qnnBatchTag(ref: string | null, index: number, total: number, ah
 
 export async function generateQnn(
   action: QnnAction,
-  opts: { pmScheduleEntryId?: string | null; scheduleId?: string | null; ahuName?: string | null; message?: string | null; subject?: string },
+  opts: {
+    pmScheduleEntryId?: string | null; scheduleId?: string | null; ahuName?: string | null; message?: string | null; subject?: string;
+    /** The filter a filter-workflow QNN is about (assets/filter-qnn.ts); carried in the notification metadata. */
+    filterId?: string | null;
+    /**
+     * Whose review / approval roles the notification is tagged for. Absent = the PM
+     * workflow (unchanged). Replacement schedules and filters pass their OWN
+     * workflow's roles (2026-10-24): replacement QNNs used to be tagged with PM's
+     * roles even when the replacement workflow names different ones.
+     */
+    route?: { reviewRole?: string | null; approvalRole?: string | null };
+  },
   ctx: RequestContext,
 ): Promise<string> {
   const rows = await prisma.$queryRaw<{ seq: bigint }[]>`SELECT nextval('qnn_seq') AS seq`;
@@ -189,7 +200,7 @@ export async function generateQnn(
 
   // Surface the QNN in the Notifications center with the FULL detail line:
   // QNN · subject · action · target · who (user id + role) · when.
-  const cfg = await getPmWorkflowConfig();
+  const cfg = opts.route ?? await getPmWorkflowConfig();
   let forRole: string | null = null;
   // Actions that (re-)enter the workflow at the review step route to the
   // reviewer (or the approver when there is no review step). EDIT covers an
@@ -212,7 +223,7 @@ export async function generateQnn(
       title: `${qnn} · ${subject} ${ACTION_LABEL[action] ?? action} · by ${who}`,
       message: detail.slice(0, 1000),
       forRole: forRole || undefined,
-      metadata: { qnn, action, subject, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ahuName: opts.ahuName ?? null, performedBy: ctx.userSub ?? null, performedByName: ctx.userId ?? null, performedByRole: ctx.userRole ?? null, at: whenIso },
+      metadata: { qnn, action, subject, pmScheduleEntryId: opts.pmScheduleEntryId ?? null, scheduleId: opts.scheduleId ?? null, ...(opts.filterId ? { filterId: opts.filterId } : {}), ahuName: opts.ahuName ?? null, performedBy: ctx.userSub ?? null, performedByName: ctx.userId ?? null, performedByRole: ctx.userRole ?? null, at: whenIso },
       createdBy: ctx.userId ?? undefined,
     });
   } catch { /* QNN is recorded even if the notification emit fails */ }
