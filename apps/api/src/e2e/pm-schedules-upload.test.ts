@@ -287,7 +287,7 @@ describe('separation against existing visits and within the file', () => {
     const r = res.json();
     expect(r.imported).toBe(0);
     const reasons = Object.fromEntries(r.details.skipped.map((s: any) => [s.row, s.reason]));
-    expect(reasons[2]).toMatch(new RegExp(`^AHU "${A}": ${YEAR}-01-12 \\(tolerance 2d\\) starts on ${YEAR}-01-10`));
+    expect(reasons[2]).toMatch(new RegExp(`^AHU "${A}": The visit on ${YEAR}-01-12 \\(± 2 days: ${YEAR}-01-10 to ${YEAR}-01-14\\) overlaps the visit on ${YEAR}-01-10`));
     expect(reasons[3]).toBe(`AHU "${A}": not added — another new visit for this AHU overlaps, and an AHU's rows are added together. Fix the flagged row(s) and re-upload.`);
     expect(await entriesOf(aId)).toHaveLength(2);
   });
@@ -297,14 +297,14 @@ describe('separation against existing visits and within the file', () => {
     const res = await upload('sa', csv(`ahu_name,scheduled_date,tolerance_days\n${B},${YEAR}-06-07,2\n`));
     const [s] = res.json().details.skipped;
     expect(s.row).toBe(2);
-    expect(s.reason).toContain(`AHU "${B}": ${YEAR}-06-10 (tolerance 2d) starts on ${YEAR}-06-08`);
+    expect(s.reason).toContain(`AHU "${B}": The visit on ${YEAR}-06-10 (± 2 days: ${YEAR}-06-08 to ${YEAR}-06-12) overlaps the visit on ${YEAR}-06-07`);
     expect(await entriesOf(bId)).toHaveLength(2);
   });
 
   it('two new rows that overlap each other: the later row is blamed, nothing is written for the AHU', async () => {
     const res = await upload('sa', csv(`ahu_name,scheduled_date,tolerance_days\n${C},${YEAR}-02-01,5\n${C},${YEAR}-02-05,5\n`));
     const reasons = Object.fromEntries(res.json().details.skipped.map((s: any) => [s.row, s.reason]));
-    expect(reasons[3]).toContain(`${YEAR}-02-05 (tolerance 5d)`);
+    expect(reasons[3]).toContain(`The visit on ${YEAR}-02-05 (± 5 days:`);
     expect(reasons[2]).toMatch(/not added — another new visit/);
     expect(await entriesOf(cId)).toHaveLength(0);
     expect(await prisma.pmSchedule.count({ where: { entityId: cId } })).toBe(0);

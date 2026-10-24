@@ -226,7 +226,10 @@ export async function startCycleImpl(
 
   const prevCycleCount = await prisma.cleaningCycle.count({ where: { filterId } });
   const seq = prevCycleCount + 1;
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  // The server-local day (a cycle started at 02:00 in India was coded with
+  // yesterday's UTC date until 2026-10-24).
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
   // 2026-05-21: don't slice the filter name. Pre-fix truncated to 10 chars,
   // which collided across filters whose names share a 10-char prefix
   // (e.g. `L1/AHu-01/00` and `L1/AHu-01/02` both truncated to `L1/AHu-01/`),

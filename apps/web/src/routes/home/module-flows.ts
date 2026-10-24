@@ -218,7 +218,7 @@ export const MODULE_FLOWS: ModuleFlow[] = [
     summary: 'Read-only audit trail of overdue AHU preventive-maintenance cleaning tasks; deviation records open and close automatically.',
     steps: [
       { label: 'Deviation opens / closes automatically', kind: 'system', gate: [], access: 'automatic',
-        description: 'The idempotent sweep runs on a daily cron (08:30): opens a deviation once a scheduled AHU cleaning task passes its PM tolerance window, and closes it once the filters are cleaned. A manual-trigger endpoint (POST /api/pm-schedules/deviations/sweep, gate PM_UPDATE) exists but is not wired to any current UI.' },
+        description: 'The idempotent sweep runs on a daily cron (03:00): opens a deviation once a scheduled AHU cleaning task passes its PM tolerance window (the day after its last day), and closes it once the filters are cleaned, or as Rescheduled when the visit is moved to a date whose window has not closed. A manual-trigger endpoint (POST /api/pm-schedules/deviations/sweep, gate PM_UPDATE) exists but is not wired to any current UI.' },
       { label: 'View Deviations', kind: 'system', gate: ['PM_READ'] },
       { label: 'Export report (PDF / Excel)', kind: 'action', gate: ['PM_READ'],
         description: 'Frontend-only export of the currently loaded/filtered list — no dedicated backend export route, so it is gated on the same PM_READ as the view.' },

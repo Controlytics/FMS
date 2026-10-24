@@ -14,7 +14,7 @@ import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
 import { rangeStartOrThrow, rangeEndOrThrow, toDateColumnDay } from '../../lib/date-range-guard.js';
-import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE, pmWindowBounds, pmWindowPhase } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -38,9 +38,14 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
   }
 
   const now = new Date();
+  // The window columns are DATE columns, so the default view compares them with
+  // TODAY's calendar day (toDateColumnDay), never with `now`: Prisma compares a
+  // DATE column with the UTC date of the value, which before 05:30 in India is
+  // still yesterday (2026-10-24).
+  const today = toDateColumnDay(now);
   // Overdue horizon: don't return entries whose window closed more than
   // 30 days ago — avoids serving years of stale history on every request.
-  const overdueHorizon = new Date(now.getTime() - 30 * 86400000);
+  const overdueHorizon = toDateColumnDay(new Date(now.getTime() - 30 * 86400000));
 
   // A PM task is only satisfied by a cleaning performed with the PM reason.
   // A clean done with any OTHER reason leaves the task PENDING (it was not the
@@ -64,8 +69,8 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     ? { plannedDate: { ...(fromDate ? { gte: fromDate } : {}), ...(toDate ? { lte: toDate } : {}) } }
     : {
         OR: [
-          { AND: [{ windowStart: { lte: now } }, { windowEnd: { gte: now } }] },
-          { AND: [{ windowEnd: { lt: now } }, { windowEnd: { gte: overdueHorizon } }] },
+          { AND: [{ windowStart: { lte: today } }, { windowEnd: { gte: today } }] },
+          { AND: [{ windowEnd: { lt: today } }, { windowEnd: { gte: overdueHorizon } }] },
         ],
       };
 
@@ -170,10 +175,10 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
   // volume (~3,700 cycles per AHU) the result exceeded V8's max string length
   // and the endpoint failed outright (2026-10-17 load test, 400 DATA_CONSTRAINT).
   const filterIds = allChildFilters.map(f => f.id);
-  const earliestWindowStart = entries.reduce(
-    (min, e) => (e.windowStart < min ? e.windowStart : min),
-    entries[0].windowStart,
-  );
+  const earliestWindowStart = pmWindowBounds(entries.reduce(
+    (min, e) => (e.windowStart < min.windowStart ? e : min),
+    entries[0],
+  )).opensAt;
   const recentCycles = filterIds.length
     ? await prisma.cleaningCycle.findMany({
         where: {
@@ -230,20 +235,26 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       childFilters = childFilters.filter(f => f.filterSet === 'SET_B');
     }
 
-    const inWindow = now >= entry.windowStart && now <= entry.windowEnd;
+    // The window runs from local midnight of its first day to the end of its
+    // last day (pmWindowBounds). Comparing with the raw DATE values put both
+    // edges at 05:30 in India: the last day read as Overdue from 05:30, and a
+    // cleaning before 05:30 on the first day was not credited (2026-10-24).
+    const { opensAt, closesAt } = pmWindowBounds(entry);
+    const phase = pmWindowPhase(entry, now);
+    const inWindow = phase === 'open';
     // An overdue entry's window has already closed, so a clean performed NOW
     // lands AFTER windowEnd. The strict in-window predicate below would miss it
     // and the task could never clear ("Perform (overdue)" stuck at 0/N). For
     // overdue entries we therefore also credit a LATE clean — matching the
     // deviation predicate in pm-deviations.ts (completedAt >= windowStart, which
     // covers in-window AND late cleaning). In-window behaviour is unchanged.
-    const windowClosed = now > entry.windowEnd;
+    const windowClosed = phase === 'closed';
     // A visit whose window has not opened yet (a My Tasks period reaching into
     // the future) is upcoming. Nothing done today can be credited to it - the
     // `cleaned` predicate needs completedAt >= windowStart - so it is pending,
     // never overdue. Before 2026-10-23 it fell into the "window closed" branch
     // below and every future visit in the period was listed as Overdue.
-    const notYetOpen = now < entry.windowStart;
+    const notYetOpen = phase === 'upcoming';
 
     const filterStatuses: DueFilterRow[] = childFilters.map(f => {
       const cycles = cyclesByFilter.get(f.id) ?? [];
@@ -253,7 +264,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       const inProgress = !notYetOpen && cycles.find(c =>
         c.status === 'IN_PROGRESS'
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
-        && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
+        && (windowClosed ? c.startedAt >= opensAt : c.startedAt < closesAt),
       );
       // COMPLETED cycle that counts toward this entry: completed on/after the
       // window opened, and — unless the task is already overdue — on/before it
@@ -263,8 +274,8 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       const cleaned = cycles.find(c =>
         c.completedAt != null
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
-        && c.completedAt >= entry.windowStart
-        && (windowClosed || c.completedAt <= entry.windowEnd),
+        && c.completedAt >= opensAt
+        && (windowClosed || c.completedAt < closesAt),
       );
 
       // A written-off entry is terminal and OUTRANKS the cleaned computation.

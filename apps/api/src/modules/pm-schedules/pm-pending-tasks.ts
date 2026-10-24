@@ -1,7 +1,8 @@
 import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { auditLog } from '../../lib/audit.js';
-import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE } from './pm-shared.js';
+import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE, pmWindowBounds } from './pm-shared.js';
+import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
 
 /**
@@ -74,7 +75,8 @@ export async function getPendingEarlierPmTasks(
   const entries = await prisma.pmScheduleEntry.findMany({
     where: {
       schedule: { entityId: ahuId, status: 'ACTIVE' },
-      windowEnd: { lt: now },
+      // A DATE column: closed = its last day is before TODAY (pmWindowBounds).
+      windowEnd: { lt: toDateColumnDay(now) },
       skippedAt: null,
       // An entry still awaiting review/approval is not yet an obligation; an
       // approved visit whose date change awaits sign-off still is (D2).
@@ -98,7 +100,7 @@ export async function getPendingEarlierPmTasks(
   if (siblingIds.length === 0) return [];
 
   const pmReasonKeys = await resolvePmReasonKeys();
-  const earliestWindow = entries[0].windowStart;
+  const earliestWindow = pmWindowBounds(entries[0]).opensAt;
 
   const cycles = await prisma.cleaningCycle.findMany({
     where: { filterId: { in: siblingIds }, status: 'COMPLETED', completedAt: { gte: earliestWindow } },
@@ -121,7 +123,7 @@ export async function getPendingEarlierPmTasks(
     // an entry is genuinely satisfied by real cleanings we must not ask.
     const satisfied = siblingIds.every((id) => {
       const at = latestPm.get(id);
-      return at != null && at >= e.windowStart;
+      return at != null && at >= pmWindowBounds(e).opensAt;
     });
     if (satisfied) continue;
     pending.push({
@@ -132,7 +134,8 @@ export async function getPendingEarlierPmTasks(
       plannedDate: e.plannedDate,
       windowStart: e.windowStart,
       windowEnd: e.windowEnd,
-      overdueDays: Math.max(0, Math.floor((now.getTime() - e.windowEnd.getTime()) / DAY)),
+      // Calendar days since the window's last day (1 on the day after it).
+      overdueDays: Math.max(0, Math.round((toDateColumnDay(now).getTime() - e.windowEnd.getTime()) / DAY)),
     });
   }
   return pending;
@@ -229,7 +232,7 @@ export async function getPendingPmTasksMap(
     where: {
       schedule: { status: 'ACTIVE' },
       AND: [PM_ENTRY_IN_FORCE],
-      windowEnd: { lt: now },
+      windowEnd: { lt: toDateColumnDay(now) },
       skippedAt: null,
     },
     select: { schedule: { select: { entityId: true } } },

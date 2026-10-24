@@ -14,6 +14,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import * as executor from '@digilog/shared';
 import { PM_ENTRY_IN_FORCE } from '../pm-schedules/pm-shared.js';
+import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import { generateTape } from './tape/tape-generator.js';
 import type { TapeChecklistProfile } from './tape/types.js';
 import {
@@ -333,8 +334,9 @@ export async function getCurrentStateImpl(
           schedule: { entityId: ahuId, status: 'ACTIVE' },
           // Only a visit in force is due — not one awaiting approval or rejected.
           AND: [PM_ENTRY_IN_FORCE],
-          windowStart: { lte: now },
-          windowEnd: { gte: now },
+          // DATE columns: today's calendar day, not the instant (batch-preload.ts).
+          windowStart: { lte: toDateColumnDay(now) },
+          windowEnd: { gte: toDateColumnDay(now) },
         },
         orderBy: { plannedDate: 'asc' },
         select: { id: true },

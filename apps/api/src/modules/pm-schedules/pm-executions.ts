@@ -18,7 +18,7 @@ import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
-import { checkPmEnabled } from './pm-shared.js';
+import { checkPmEnabled, pmWindowPhase } from './pm-shared.js';
 
 // D03-09 / F-42 (2026-10-22): the route runs this BEFORE the re-auth gate (a
 // refused request costs no password and leaves no REAUTH_* row); the write
@@ -63,7 +63,7 @@ export async function createExecution(ctx: RequestContext, data: any) {
     if (existing) throw new AppError(409, 'CONFLICT', 'An execution is already in progress for this entry');
 
     const now = new Date();
-    const isWithinWindow = now >= entry.windowStart && now <= entry.windowEnd;
+    const isWithinWindow = pmWindowPhase(entry, now) === 'open';
 
     const execution = await tx.pmExecution.create({
       data: {

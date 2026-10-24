@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { pinTimeZone } from '../../../lib/__tests__/pin-time-zone.js';
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
 vi.mock('../../../lib/prisma.js', () => ({
@@ -9,7 +10,7 @@ vi.mock('../../../lib/prisma.js', () => ({
     cleaningCycle: { groupBy: vi.fn() },
     filterEvent: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
-    deviation: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    deviation: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   },
 }));
 // resolvePmReasonKeys is stubbed per-test via P.pmReasonKeys (see beforeEach):
@@ -72,12 +73,23 @@ beforeEach(() => {
 });
 
 describe('dayDiff', () => {
-  it('counts whole days (to − from), floored at 0', () => {
-    const d = (s: string) => new Date(s);
-    expect(dayDiff(d('2026-06-03T00:00:00Z'), d('2026-06-03T00:00:00Z'))).toBe(0);
-    expect(dayDiff(d('2026-06-08T00:00:00Z'), d('2026-06-03T00:00:00Z'))).toBe(5);
-    expect(dayDiff(d('2026-06-03T23:59:00Z'), d('2026-06-03T00:00:00Z'))).toBe(0); // partial day floors
-    expect(dayDiff(d('2026-06-01T00:00:00Z'), d('2026-06-03T00:00:00Z'))).toBe(0); // future → 0
+  // Calendar days from a DATE value to the LOCAL day of an instant (2026-10-24).
+  let restore: () => void;
+  beforeAll(() => { restore = pinTimeZone('Asia/Kolkata'); });
+  afterAll(() => restore());
+  const d = (s: string) => new Date(s);
+
+  it('counts whole calendar days, floored at 0', () => {
+    expect(dayDiff(d('2026-06-03T06:00:00Z'), d('2026-06-03'))).toBe(0);
+    expect(dayDiff(d('2026-06-08T06:00:00Z'), d('2026-06-03'))).toBe(5);
+    expect(dayDiff(d('2026-06-01T06:00:00Z'), d('2026-06-03'))).toBe(0); // future → 0
+  });
+
+  it('counts the local day, not the UTC one', () => {
+    // 03:00 on 4 June in India is still 3 June in UTC: one day, not zero.
+    expect(dayDiff(d('2026-06-03T21:30:00Z'), d('2026-06-03'))).toBe(1);
+    // 23:30 on 3 June in India: still the same day.
+    expect(dayDiff(d('2026-06-03T18:00:00Z'), d('2026-06-03'))).toBe(0);
   });
 });
 

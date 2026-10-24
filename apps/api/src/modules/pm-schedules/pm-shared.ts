@@ -4,6 +4,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
+import { dateColumnDayStart, dateColumnDayEnd } from '../../lib/date-range-guard.js';
 
 /**
  * The `pm-schedule-settings` value, unwrapped. Every site stores it flat
@@ -90,6 +91,24 @@ export const PM_ENTRY_IN_FORCE = {
 export function isPmEntryInForce(e: { approvalStatus: string; pendingPlannedDate: Date | null }): boolean {
   return e.approvalStatus === 'APPROVED'
     || (e.pendingPlannedDate != null && ['PENDING', 'PENDING_REVIEW', 'PENDING_APPROVAL'].includes(e.approvalStatus));
+}
+
+/**
+ * A visit's tolerance window as instants. windowStart / windowEnd are DATE
+ * columns (whole calendar days): the window OPENS at local midnight of its first
+ * day and CLOSES at local midnight after its last day, so the last day counts in
+ * full. Compare with `>= opensAt` and `< closesAt`. In a Prisma query on the
+ * DATE columns themselves use `toDateColumnDay(now)` instead (today's day).
+ */
+export function pmWindowBounds(e: { windowStart: Date; windowEnd: Date }): { opensAt: Date; closesAt: Date } {
+  return { opensAt: dateColumnDayStart(e.windowStart), closesAt: dateColumnDayEnd(e.windowEnd) };
+}
+
+/** Where `now` stands against a visit's window: one rule for My Tasks, executions and the gates. */
+export function pmWindowPhase(e: { windowStart: Date; windowEnd: Date }, now: Date): 'upcoming' | 'open' | 'closed' {
+  const { opensAt, closesAt } = pmWindowBounds(e);
+  if (now < opensAt) return 'upcoming';
+  return now < closesAt ? 'open' : 'closed';
 }
 
 export interface CountedAhu {

@@ -53,6 +53,7 @@ export interface SeparationViolation {
 
 const DAY_MS = 86_400_000;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const days = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
 
 /** `plannedDate ± toleranceDays`, matching how entries are stored. */
 export function windowOf(entry: SeparationInput): { start: Date; end: Date } {
@@ -108,11 +109,14 @@ export function checkSeparation(entries: SeparationInput[]): SeparationViolation
         later: next,
         overlapStart: nextWindow.start,
         overlapEnd: prevWindow.end,
+        // Plain wording (2026-10-24): an operator moving a visit could not tell
+        // from the old sentence which dates were the problem. Both windows are
+        // named in full, then what to do.
         message:
-          `${iso(next.plannedDate)} (tolerance ${next.toleranceDays}d) starts on ${iso(nextWindow.start)}, ` +
-          `which is on or before ${iso(prevWindow.end)} — the end of the ${iso(prev.plannedDate)} ` +
-          `(tolerance ${prev.toleranceDays}d) window. One cleaning between ${iso(nextWindow.start)} and ` +
-          `${iso(prevWindow.end)} would satisfy both visits.`,
+          `The visit on ${iso(next.plannedDate)} (± ${days(next.toleranceDays)}: ${iso(nextWindow.start)} to ${iso(nextWindow.end)}) ` +
+          `overlaps the visit on ${iso(prev.plannedDate)} (± ${days(prev.toleranceDays)}: ${iso(prevWindow.start)} to ${iso(prevWindow.end)}). ` +
+          `One cleaning between ${iso(nextWindow.start)} and ${iso(prevWindow.end)} would satisfy both visits. ` +
+          `Choose a date whose window does not touch another visit's window.`,
       });
     }
   }

@@ -1400,12 +1400,16 @@ enum DeviationStatus {
 //                    with a recorded lateness reason. The PM happened.
 //   SKIPPED        — the operator performed a LATER scheduled PM instead and
 //                    justified skipping this one. The PM did NOT happen.
+//   RESCHEDULED    — the visit was moved to a new date whose window had not
+//                    closed (2026-10-24). The PM did NOT happen on the old date;
+//                    closureReason names the new date and who moved it.
 // The distinction is not cosmetic: recording a skip as a completion would assert
 // in the audit trail that a preventive maintenance was carried out when it was
 // not (21 CFR §11).
 enum DeviationClosureKind {
   COMPLETED_LATE
   SKIPPED
+  RESCHEDULED
 
   @@map("deviation_closure_kind")
 }

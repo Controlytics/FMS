@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   findInvertedRange, DATE_RANGE_PARAM_PAIRS, parseRangeStart, parseRangeEnd, toDateColumnDay,
+  dateColumnDayStart, dateColumnDayEnd,
 } from '../date-range-guard.js';
+import { pmWindowPhase } from '../../modules/pm-schedules/pm-shared.js';
 import { pinTimeZone } from './pin-time-zone.js';
 
 /**
@@ -159,6 +161,34 @@ describe.each(['Asia/Kolkata', 'America/New_York'])('in %s', (tz) => {
     it('maps what the web sends (the instant of local midnight) to the local day, not its UTC day', () => {
       const localMidnight = new Date(2026, 1, 1); // 31 Jan 18:30 UTC in India, 1 Feb 05:00 UTC in New York
       expect(toDateColumnDay(localMidnight)).toEqual(new Date(Date.UTC(2026, 1, 1)));
+    });
+  });
+
+  /** The reverse: a DATE value read back → the local day it names, as instants (2026-10-24). */
+  describe('dateColumnDayStart / dateColumnDayEnd', () => {
+    const day = new Date(Date.UTC(2026, 1, 1)); // how Prisma returns 1 Feb from a DATE column
+    it('start is local midnight of that day, end the next local midnight', () => {
+      expect(dateColumnDayStart(day)).toEqual(new Date(2026, 1, 1));
+      expect(dateColumnDayEnd(day)).toEqual(new Date(2026, 1, 2));
+    });
+    it('round-trips through toDateColumnDay', () => {
+      expect(toDateColumnDay(dateColumnDayStart(day))).toEqual(day);
+      expect(toDateColumnDay(new Date(dateColumnDayEnd(day).getTime() - 1))).toEqual(day);
+    });
+  });
+
+  /** A PM window holds its first and last day in full, in the local zone. */
+  describe('pmWindowPhase', () => {
+    const w = { windowStart: new Date(Date.UTC(2026, 9, 18)), windowEnd: new Date(Date.UTC(2026, 9, 24)) };
+    it('is upcoming until local midnight of the first day', () => {
+      expect(pmWindowPhase(w, new Date(2026, 9, 17, 23, 59))).toBe('upcoming');
+      expect(pmWindowPhase(w, new Date(2026, 9, 18, 0, 0))).toBe('open');
+      expect(pmWindowPhase(w, new Date(2026, 9, 18, 2, 0))).toBe('open');
+    });
+    it('stays open all of the last day and closes at the next local midnight', () => {
+      expect(pmWindowPhase(w, new Date(2026, 9, 24, 15, 0))).toBe('open');
+      expect(pmWindowPhase(w, new Date(2026, 9, 24, 23, 59, 59))).toBe('open');
+      expect(pmWindowPhase(w, new Date(2026, 9, 25, 0, 0))).toBe('closed');
     });
   });
 });

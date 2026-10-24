@@ -34,6 +34,7 @@
  */
 import { prisma } from '../../lib/prisma.js';
 import { PM_ENTRY_IN_FORCE } from '../pm-schedules/pm-shared.js';
+import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import type { BatchReadCache } from './batch-cache.js';
 import { getInterlockConfig, isInterlockStage } from './stage-interlock.js';
 
@@ -170,13 +171,15 @@ async function preloadCycleReads(filterRows: FilterRow[], cache: BatchReadCache)
 async function preloadPmDue(parentIds: Array<string | null>, cache: BatchReadCache): Promise<void> {
   const ahuIds = [...new Set(parentIds.filter((id): id is string => !!id))];
   if (ahuIds.length === 0) return;
-  const now = new Date();
+  // DATE columns: compare with today's calendar day, not the instant (before
+  // 05:30 in India the instant's UTC date is still yesterday).
+  const today = toDateColumnDay(new Date());
   const due = await prisma.pmScheduleEntry.findMany({
     where: {
       schedule: { entityId: { in: ahuIds }, status: 'ACTIVE' },
       AND: [PM_ENTRY_IN_FORCE],
-      windowStart: { lte: now },
-      windowEnd: { gte: now },
+      windowStart: { lte: today },
+      windowEnd: { gte: today },
     },
     orderBy: { plannedDate: 'asc' },
     select: { id: true, schedule: { select: { entityId: true } } },

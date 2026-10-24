@@ -392,7 +392,9 @@ export class FilterOperationsService {
     // Each query is independent — no shared state, no ordering dependency.
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-    const startOfToday = new Date(new Date().toISOString().slice(0, 10));
+    // Local midnight. It was UTC midnight (05:30 in India), so cycles completed
+    // between 00:00 and 05:30 were left out of "completed today" (2026-10-24).
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
     const [
       stageCountsRaw, statusCountsRaw, dailyRaw, monthlyRaw, totalFilters, activeCycles, completedToday,

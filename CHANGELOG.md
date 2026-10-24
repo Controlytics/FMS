@@ -79,6 +79,47 @@ clean-machine install, Super Admin probe session and the performance / endurance
   whenever they ran after it (order-dependent, green alone). Restored in place now (both sites).
 - Test fix: `offline-store.idb.test.ts` (from `671788a`) queued ops without an owner and failed `tsc`
   (vitest does not type-check); the ops now carry `userId` / `userName`.
+- **A PM visit moved to a new date stops being Overdue (operator report + decision "Close as Rescheduled").**
+  The operator moved an overdue visit (CWH/RDU, 8 Oct) to 21 Oct and My Tasks still said "Overdue by N days":
+  a date change never touched the open deviation, and the badge shows for any deviation that is not CLOSED.
+  Now a visit moved to a date whose window has not closed closes its deviation with the new closure kind
+  **RESCHEDULED** (`closeDeviationIfRescheduled`, `pm-deviations.ts`): never as completed, no completer, the
+  missed date kept on the row, `closureReason` "Moved from <old> to <new> by <user>", a `DEVIATION_CLOSED`
+  audit row. It runs right after each write that puts a date live (an approved date change, a Super Admin's
+  edit, the Super Admin console's entry edit) and in the sweep's CLOSE half as a backstop (no "by" there: the
+  sweep does not know who moved it). Moved to a date whose window has ALSO closed: stays open. **Known limit,
+  operator-accepted:** one deviation per visit (UNIQUE), so if the new date is missed too the sweep raises
+  `DEVIATION_OPEN_BLOCKED` daily instead of opening a second one. Migration
+  `20261024100000_deviation_closure_rescheduled` (`ALTER TYPE deviation_closure_kind ADD VALUE`; enums stay 24);
+  drift guard PASS. The live DEV-000143 was closed by one run of the sweep (system actor, as the cron).
+  The Deviations page now says how a deviation closed ("Rescheduled" / "Not performed" + the note; "N days
+  overdue", never "delay", when no PM was done); the PDF puts it in the empty Completed By / Completed cells
+  ("Date moved": "Rescheduled" measures 15.3 mm at 7.5 pt against the column's 15 mm).
+- **PM windows are whole LOCAL days.** Windows are DATE columns (UTC midnight in JS = 05:30 in India) and
+  were compared with `now` raw: the last day of a window turned Overdue at 05:30 that morning, a cleaning
+  finished before 05:30 on the first day was not credited, the first day's visit was hidden until 05:30, and
+  every Prisma `lt/gte: now` on a DATE column compared with the UTC date, so the 03:00 sweep opened each
+  deviation a day late and counted "overdue by" one day short. One rule now: `pmWindowBounds` /
+  `pmWindowPhase` (`pm-shared.ts`, on `dateColumnDayStart` / `dateColumnDayEnd` in `lib/date-range-guard.ts`)
+  and `toDateColumnDay(now)` in DATE-column queries, at every site: My Tasks (`pm-due-tasks.ts`), PM execution
+  start, the missed-PM gate + its offline map (`pm-pending-tasks.ts`), the sweep + `dayDiff`, the "PM due"
+  lookups in `batch-preload.ts` / `current-state.ts`, and the browser (`lib/pm-window.ts`: PM schedule detail,
+  Filter Data Management). The replacement schedule's "today" was the UTC date (`todayLocalDateOnly`), so its
+  DUE / MISSED (and the cleaning block on MISSED) also turned at 05:30. **Visible effect:** deviations now open
+  at the first 03:00 after the window's last day, one day earlier than before (correct).
+- Same class, found on the way: the dashboard's "completed today" started at 05:30 (UTC midnight), and a
+  cycle code's date was the UTC date (a 02:00 start was coded with yesterday). Both use the local day now.
+- The PM overlap refusal (409 `PM_VISIT_OVERLAP`) names both windows in full and says what to do: "The visit
+  on 2026-11-03 (± 3 days: 2026-10-31 to 2026-11-06) overlaps the visit on 2026-10-31 (± 3 days: 2026-10-28 to
+  2026-11-03)" (the later visit is named first). The
+  operator read the old sentence as "only this month's dates can be chosen" (4 refused tries of 31 Oct).
+- Docs: the Module Guide said the overdue sweep runs at 08:30 (it is 03:00); BACKEND_GUIDE still described the
+  deleted graphile-worker queue and a 500/min global rate limit.
+- Tests: `e2e/pm-deviation-rescheduled.test.ts` (12: the operator's case end to end, staged + approved, still
+  overdue, sweep backstop, the blocked limit, and India-time edges at 02:00 / 15:00 / 00:30 / 03:00 with only
+  `Date` faked; 8 fail without the fix), `pmWindowPhase` / `dateColumnDay*` in `date-range-guard.test.ts`,
+  `dayDiff` by local day, `lib/__tests__/pm-window.test.ts`, two Deviations page tests; three upload tests
+  and one guard test updated to the new overlap wording.
 
 ### After the 1.2.3 build (found while writing the user manuals, 2026-10-23) - NOT in Setup 1.2.3 (`fe5c6364…`) or its APK
 

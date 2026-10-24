@@ -19,6 +19,7 @@ import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatc
 import { assertSeparation, assertBatchSeparation } from './pm-separation-guard.js';
 import { pmReviewSkippedBySuperAdmin } from './pm-submission.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
+import { closeDeviationIfRescheduled } from './pm-deviations.js';
 
 const MS_DAY = 86400000;
 function windowsFor(planned: Date, tol: number) {
@@ -316,6 +317,11 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
     qnns.push(await mintQnn('APPROVE', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Approved',
       qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { comment, hasPendingEdit, ahuName: ahuNames.get(entry.id) ?? '?' }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+    // The approved date change is live: an overdue visit moved to a window still
+    // ahead is no longer overdue (closed RESCHEDULED, 2026-10-24).
+    if (hasPendingEdit) {
+      await closeDeviationIfRescheduled({ id: entry.id, plannedDate: newPlannedDate, windowStart, windowEnd }, ctx, { movedBy: ctx.userId });
+    }
     results.push(`${entry.id}: approved`);
   }
   return { processed: results.length, results, qnns };
@@ -474,6 +480,8 @@ export async function editApprovedEntry(
     const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
     const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Edited (applied at once, Super Admin)');
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_EDIT_REQUESTED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol, appliedAtOnce: true, ...superAdminExemptionFields(['PM_REVIEW']) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+    // Live at once, so an overdue visit moved ahead closes its deviation now.
+    await closeDeviationIfRescheduled(applied, ctx, { movedBy: ctx.userId });
     return { ...applied, qnn };
   }
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';

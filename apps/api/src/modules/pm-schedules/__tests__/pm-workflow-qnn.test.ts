@@ -192,7 +192,7 @@ describe('assertSeparation — single-entry guard', () => {
 
   it('checks a brand-new candidate (no entry id) against every sibling', async () => {
     await expect(assertSeparation(sid, { plannedDate: d('2096-03-13'), toleranceDays: 1 }, 'New visit'))
-      .rejects.toMatchObject({ statusCode: 409, code: 'PM_VISIT_OVERLAP', message: expect.stringMatching(/^New visit cannot be scheduled here\. 2096-03-13 \(tolerance 1d\) starts on 2096-03-12/) });
+      .rejects.toMatchObject({ statusCode: 409, code: 'PM_VISIT_OVERLAP', message: expect.stringMatching(/^New visit cannot be scheduled here\. The visit on 2096-03-13 \(± 1 day: 2096-03-12 to 2096-03-14\) overlaps the visit on /) });
     await expect(assertSeparation(sid, { plannedDate: d('2096-06-01'), toleranceDays: 3 })).resolves.toBeUndefined();
   });
 

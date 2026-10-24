@@ -150,6 +150,35 @@ describe('Deviations — the list', () => {
     expect(screen.getByText('8 days delay')).toHaveClass('bg-orange-100');
   });
 
+  // 2026-10-24: a visit moved to a new date (RESCHEDULED) or written off
+  // (SKIPPED) closes without the PM being done; "N days delay" said it was late.
+  it('a deviation closed without the PM says how it closed, never "delay"', async () => {
+    open(undefined, [], {}, deviationsRoute([
+      dev('51', { status: 'CLOSED', overdueDaysAtOpen: 16, closureKind: 'RESCHEDULED', closureReason: 'Moved from 2026-10-08 to 2026-10-21 by superadmin' }),
+      dev('52', { status: 'CLOSED', overdueDaysAtOpen: 4, closureKind: 'SKIPPED', closureReason: 'AHU shut down' }),
+    ], undefined, 0));
+    await screen.findByText('DEV-51');
+    const moved = rowOf('DEV-51');
+    expect(within(moved).getByText('16 days overdue')).toBeInTheDocument();
+    expect(within(moved).queryByText(/delay/)).toBeNull();
+    expect(within(moved).getByText('Rescheduled')).toBeInTheDocument();
+    expect(within(moved).getByText(/Moved from 2026-10-08 to 2026-10-21 by superadmin/)).toBeInTheDocument();
+    const skipped = rowOf('DEV-52');
+    expect(within(skipped).getByText('Not performed')).toBeInTheDocument();
+    expect(within(skipped).getByText('4 days overdue')).toBeInTheDocument();
+  });
+
+  it('the export puts how it closed in the empty Completed By / Completed cells', async () => {
+    open(undefined, [], {}, deviationsRoute([
+      dev('51', { status: 'CLOSED', overdueDaysAtOpen: 16, closureKind: 'RESCHEDULED', closureReason: 'Moved from 2026-10-08 to 2026-10-21 by superadmin' }),
+    ], undefined, 0));
+    await screen.findByText('DEV-51');
+    await exportAs('PDF');
+    await waitFor(() => expect(report.save).toHaveBeenCalled());
+    const row = report.tables()[0].body[0];
+    expect(row.slice(4)).toEqual(['16 days overdue', 'Closed', '-', 'Date moved', 'Moved from 2026-10-08 to 2026-10-21 by superadmin', '-']);
+  });
+
   it('no deviations says so and offers no pager', async () => {
     open(undefined, [], {}, deviationsRoute([], undefined, 0));
     expect(await screen.findByText('No deviations')).toBeInTheDocument();

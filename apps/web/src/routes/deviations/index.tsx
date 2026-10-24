@@ -89,6 +89,24 @@ function daysLabel(n: number | null | undefined): string {
   return `${v} day${v === 1 ? '' : 's'}`;
 }
 
+// HOW a closed deviation closed, when it was not by the PM being done. The page
+// showed every closed row as "N days delay", which for a visit moved to a new
+// date (RESCHEDULED, 2026-10-24) or written off (SKIPPED) reads as a late PM
+// that never happened.
+const CLOSURE_LABEL: Record<string, string> = {
+  RESCHEDULED: 'Rescheduled',
+  SKIPPED: 'Not performed',
+  COMPLETED_LATE: 'Completed late',
+};
+function closedWithoutPm(d: Pick<DeviationRow, 'status' | 'closureKind'>): boolean {
+  return d.status === 'CLOSED' && (d.closureKind === 'RESCHEDULED' || d.closureKind === 'SKIPPED');
+}
+/** The Overdue cell's text for a row: a delay only when the PM was done. */
+function overdueText(d: DeviationRow): string {
+  if (closedWithoutPm(d)) return `${daysLabel(d.overdueDaysAtOpen)} overdue`;
+  return d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays);
+}
+
 export function DeviationsPage() {
   const can = useCan();
   const { toast } = useToast();
@@ -136,7 +154,7 @@ export function DeviationsPage() {
     { key: 'completedAt', label: 'Completed at', type: 'datetime' },
     { key: 'delayDays', label: 'Delay (days)', type: 'number' },
     { key: 'closedAt', label: 'Closed at', type: 'datetime' },
-    { key: 'closureKind', label: 'Closure kind', type: 'select', options: [{ value: 'COMPLETED_LATE', label: 'Completed late' }, { value: 'SKIPPED', label: 'Skipped (written off)' }], emptyOption: '-- none --' },
+    { key: 'closureKind', label: 'Closure kind', type: 'select', options: [{ value: 'COMPLETED_LATE', label: 'Completed late' }, { value: 'SKIPPED', label: 'Skipped (written off)' }, { value: 'RESCHEDULED', label: 'Rescheduled' }], emptyOption: '-- none --' },
     { key: 'closureReason', label: 'Closure reason', type: 'textarea' },
   ];
   const saveDeviation = async (changed: Record<string, any>, reason: string, password?: string) => {
@@ -226,9 +244,14 @@ export function DeviationsPage() {
       // Three deliberate lines. One combined string needs ~27mm and the column
       // holds ~20mm, so autoTable would break it wherever it ran out.
       `${formatDate(d.scheduledDate)}\n${toleranceLabel(d)}\n${windowRange(d)}`,
-      d.status === 'CLOSED' ? `${daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay` : daysLabel(d.liveOverdueDays),
-      STATUS_META[d.status].label, d.acknowledgedByName ?? '-', d.completedByName ?? '-',
-      d.completedAt ? formatDateTime(d.completedAt) : '-', d.delayDays != null ? daysLabel(d.delayDays) : '-',
+      overdueText(d),
+      STATUS_META[d.status].label, d.acknowledgedByName ?? '-',
+      // A visit moved or written off has no completer: those two cells carry how
+      // it closed instead. Words chosen to fit at 7.5pt without splitting one
+      // ("Rescheduled" measures 15.3mm against the column's 15mm of text).
+      closedWithoutPm(d) ? (d.closureKind === 'RESCHEDULED' ? 'Date moved' : 'Not performed') : (d.completedByName ?? '-'),
+      closedWithoutPm(d) ? (d.closureReason ?? '-') : (d.completedAt ? formatDateTime(d.completedAt) : '-'),
+      d.delayDays != null ? daysLabel(d.delayDays) : '-',
     ]);
     return { body, period, total: filtered.length };
   };
@@ -426,7 +449,7 @@ export function DeviationsPage() {
                       <td className="px-4 py-2.5 text-[13px] whitespace-nowrap">
                         {d.status === 'CLOSED' ? (
                           <span className={`${severityPill} ${severityCls(d.delayDays ?? d.overdueDaysAtOpen)}`}>
-                            {daysLabel(d.delayDays ?? d.overdueDaysAtOpen)} delay
+                            {overdueText(d)}
                           </span>
                         ) : (
                           <span className={`${severityPill} ${severityCls(d.liveOverdueDays)}`}>
@@ -438,6 +461,12 @@ export function DeviationsPage() {
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full border ${sm.cls}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${sm.dot}`} />{sm.label}
                         </span>
+                        {d.status === 'CLOSED' && d.closureKind && (
+                          <div className="mt-1 text-[11px] text-slate-500 max-w-[220px]">
+                            <span className="font-semibold text-slate-600">{CLOSURE_LABEL[d.closureKind] ?? d.closureKind}</span>
+                            {d.closureReason && <span> - {d.closureReason}</span>}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">
                         {d.acknowledgedByName ?? '—'}

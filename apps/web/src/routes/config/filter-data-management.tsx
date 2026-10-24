@@ -53,6 +53,7 @@ import { ReauthDialog } from '@/components/reauth-dialog';
 // and redone showed the rejected attempt here as well.
 import { transitionEndpoints, phaseSuffix, getStageInfo } from '@/lib/cleaning-cycle-report';
 import { ReasonBox, reasonOk } from '@/components/ui/reason-box';
+import { pmWindowPhase } from '@/lib/pm-window';
 
 /**
  * Lifecycle states offered by the From/To dropdowns.
@@ -166,13 +167,12 @@ const BLOCK_CHANGE_STATUS: Record<string, { label: string; bg: string; text: str
 
 function getPmEntryStatus(entry: any): { label: string; bg: string; text: string; border: string; cardBorder: string } {
   const exec = entry.execution;
-  const now = new Date();
-  const windowStart = entry.windowStart ? new Date(entry.windowStart) : null;
-  const windowEnd = entry.windowEnd ? new Date(entry.windowEnd) : null;
+  // Whole calendar days, the last one included (lib/pm-window.ts).
+  const phase = entry.windowStart && entry.windowEnd ? pmWindowPhase(entry.windowStart, entry.windowEnd) : null;
   if (exec?.status === 'COMPLETED') return { label: 'Completed', bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', cardBorder: 'border-green-600' };
   if (exec?.status === 'IN_PROGRESS') return { label: 'In Progress', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', cardBorder: 'border-blue-600' };
-  if (!exec && windowEnd && now > windowEnd) return { label: 'Overdue', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', cardBorder: 'border-red-600' };
-  if (!exec && windowStart && windowEnd && now >= windowStart && now <= windowEnd) return { label: 'Due', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', cardBorder: 'border-amber-600' };
+  if (!exec && phase === 'closed') return { label: 'Overdue', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', cardBorder: 'border-red-600' };
+  if (!exec && phase === 'open') return { label: 'Due', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', cardBorder: 'border-amber-600' };
   return { label: 'Scheduled', bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', cardBorder: 'border-slate-200' };
 }
 

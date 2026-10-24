@@ -11,6 +11,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
+import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn } from '../pm-schedules/pm-workflow.js';
 import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
@@ -91,8 +92,14 @@ async function parseWorkbook(buffer: Buffer): Promise<{ rows: ParsedRow[]; error
   }).catch(() => ({ rows: [] as ParsedRow[], error: 'Invalid .xlsx file' }));
 }
 
-function todayUtcDateOnly(): string {
-  return new Date().toISOString().slice(0, 10);
+/**
+ * TODAY as yyyy-mm-dd: the server-local calendar day, compared with the window's
+ * DATE columns. It was the UTC date, which in India is still yesterday until
+ * 05:30 — a window's last day stayed DUE and the next day's MISSED (and the
+ * cleaning block that follows it) began only at 05:30 (2026-10-24).
+ */
+function todayLocalDateOnly(): string {
+  return toDateColumnDay(new Date()).toISOString().slice(0, 10);
 }
 
 function addDays(isoDate: string, days: number): string {
@@ -176,7 +183,7 @@ export async function processUpload(
 
   const ahuMap = await buildAhuNameMap();
   const ahuFilterIdx = await buildAhuFilterIndex();
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
 
   const results: UploadOutcome['results'] = [];
   const toCreate: Array<{
@@ -355,7 +362,7 @@ function deriveStatus(e: { qty: number; qtyReplaced: number; windowStart: Date; 
 }
 
 export async function listSchedules() {
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const schedules = await prisma.replacementSchedule.findMany({
     orderBy: { createdAt: 'desc' },
     include: { entries: { orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }] } },
@@ -403,7 +410,7 @@ export async function executeReplacement(entryId: string, oldFilterId: string, r
   // The actual retire-old + create-new (RFID carries over) — existing, unchanged action.
   const result = await filterOps.replace(ctx, oldFilterId, remarks);
 
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const ws = entry.windowStart.toISOString().slice(0, 10);
   const we = entry.windowEnd.toISOString().slice(0, 10);
   const isWithinWindow = today >= ws && today <= we;
@@ -443,7 +450,7 @@ async function activeAhuIds(): Promise<string[]> {
 }
 
 export async function listDueEntries() {
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const todayDate = new Date(`${today}T00:00:00Z`);
   const entries = await prisma.replacementScheduleEntry.findMany({
     // Only APPROVED entries become due tasks (workflow ON gates this; when OFF,
@@ -548,7 +555,7 @@ function blockedEntryFilterIds(
  * replaced. Union across all overdue entries.
  */
 export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const entries = await prisma.replacementScheduleEntry.findMany({
     where: { approvalStatus: 'APPROVED' },
   });
@@ -582,7 +589,7 @@ export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
 export async function isFilterBlockedForCleaning(filterId: string): Promise<boolean> {
   const filter = await prisma.assetInstance.findUnique({ where: { id: filterId }, select: { parentId: true } });
   if (!filter?.parentId) return false;
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const entries = await prisma.replacementScheduleEntry.findMany({
     where: { approvalStatus: 'APPROVED', ahuId: filter.parentId },
   });
@@ -614,7 +621,7 @@ export async function isFilterBlockedForCleaning(filterId: string): Promise<bool
  * `qty`/`qtyRemaining` are aliased to total/remaining for the existing FE fields.
  */
 export async function listTaskEntries() {
-  const today = todayUtcDateOnly();
+  const today = todayLocalDateOnly();
   const entries = await prisma.replacementScheduleEntry.findMany({
     // A-F7 (2026-09-25): see listDueEntries — no task for a soft-deleted AHU.
     where: { approvalStatus: 'APPROVED', ahuId: { in: await activeAhuIds() } },

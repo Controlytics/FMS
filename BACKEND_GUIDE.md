@@ -23,16 +23,16 @@ The main application file registers everything in this order:
 1. **Fastify instance** — body limit 10MB, logger (pino)
 2. **Helmet** — security headers (HSTS, no CSP)
 3. **CORS** — configured origins from .env
-4. **Rate limiter** — 500 requests/minute global
+4. **Rate limiter** — `global: false`: only `POST /api/auth/login` (100/min), `/verify` and `/change-password` (50/min) are limited (operator decision 2026-10-10; `lib/__tests__/rate-limit-policy.test.ts`)
 5. **Swagger** — OpenAPI docs at `/docs`
 6. **Auth plugin** — JWT verification, user lookup, session validation
 7. **RBAC plugin** — `requirePermission()` decorator
 8. **Audit logger plugin** — SHA-256 hash-chain logging
 9. **33 route modules** — registered under `/api/` prefix
-10. **Job runner** — one graphile-worker Runner registers the task handlers
-   (`notification`, `pm_overdue_check`, `session_sweep`) + the maintenance
-   crontab (Phase 2 swapped from BullMQ). *The MQTT client, `/ws` handler, and
-   the ingestion/maintenance workers were removed in the Phase 7 tear-out.*
+10. **Scheduler** — in-process `node-cron` (see "Scheduled jobs" below). The
+   graphile-worker job queue and `packages/queue` were deleted 2026-08-26. *The
+   MQTT client, `/ws` handler, and the ingestion/maintenance workers were removed
+   in the Phase 7 tear-out.*
 11. **Config discovery** — auto-registers 35 config definitions
 12. **Static uploads** — serves `/uploads/` directory
 13. **Health check** — `GET /api/health`
@@ -153,15 +153,18 @@ The main application file registers everything in this order:
 | `rbac.ts` | `requirePermission(perm)` — single perm check; `requireAnyPermission(...perms)` — accepts any of the listed perms (used for granular toggle fallbacks like `FCP_* OR CHECKLIST_*`); `enforceReauth(action, req, reply)` accepts `string \| string[]` and reauths if any configured for role. |
 | `audit-logger.ts` | Auto-log mutations with before/after values; SHA-256 hash-chained per-org. |
 
-## Workers
+## Scheduled jobs
 
-Three graphile-worker task handlers (the `transport/` layer + the ingestion/maintenance workers were all removed in the Phase 7 tear-out):
+In-process `node-cron` in `apps/api/src/app.ts` (there is no `workers/` folder and
+no job queue since 2026-08-26). They run only while the API process is up.
 
-| Worker | Task | Schedule |
+| Job | Schedule | What it does |
 |---|---|---|
-| `notification.worker.ts` | `notification` | On-demand (enqueued by app events) |
-| `pm-overdue.worker.ts` | `pm_overdue_check` | Daily cron (~08:30) — flags overdue PM deviations |
-| `session-sweep.worker.ts` | `session_sweep` | Cron — expires stale sessions |
+| `session_sweep` | every 5 min | Ends sessions idle past the Password Policy's idle time |
+| `password_expiry_check` | 00:00 | Password-expiry notifications |
+| `log_retention` | 00:05 (+ once at boot) | Keeps the newest 7 dates of log files per channel |
+| `photo_orphan_sweep` | 00:10 | Deletes unreferenced profile photos older than 24 h |
+| `pm_overdue_check` | 03:00 | `sweepOverdueDeviations`: opens a deviation for a PM visit the day after its window's last day; closes one when the filters are PM-cleaned, as SKIPPED when written off, or as RESCHEDULED when the visit was moved to a window that has not closed (2026-10-24) |
 
 ## Assets module (`apps/api/src/modules/assets/`)
 

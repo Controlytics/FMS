@@ -8,6 +8,7 @@ import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { useCan } from '@/hooks/use-can';
 import { RejectionDetails } from './index';
 import { PageHeader } from '@/components/ui/page-header';
+import { pmWindowPhase } from '@/lib/pm-window';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -146,11 +147,10 @@ export function PmScheduleDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {(schedule.entries ?? []).map((entry: any) => {
               const exec = entry.execution;
-              const now = new Date();
-              const windowEnd = new Date(entry.windowEnd);
-              const windowStart = new Date(entry.windowStart);
-              const isOverdue = !exec && now > windowEnd;
-              const isDue = !exec && now >= windowStart && now <= windowEnd;
+              // Whole calendar days, the last one included (lib/pm-window.ts).
+              const phase = pmWindowPhase(entry.windowStart, entry.windowEnd);
+              const isOverdue = !exec && phase === 'closed';
+              const isDue = !exec && phase === 'open';
               const isCompleted = exec?.status === 'COMPLETED';
               const isInProgress = exec?.status === 'IN_PROGRESS';
 

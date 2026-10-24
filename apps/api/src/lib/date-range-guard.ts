@@ -75,6 +75,26 @@ export function toDateColumnDay(instant: Date): Date {
 }
 
 /**
+ * The reverse of toDateColumnDay: a `@db.Date` value read back from Prisma (UTC
+ * midnight standing for a calendar day) → the server-local midnight that day
+ * STARTS at. dateColumnDayEnd is the local midnight it ENDS at (the next day's
+ * start; compare with `<`). Use them wherever a timestamp is compared with a
+ * DATE column in JS.
+ *
+ * 2026-10-24: PM windows compared `now` with the raw value, i.e. with UTC
+ * midnight — 05:30 in India. A window's last day counted as closed (Overdue)
+ * from 05:30 that morning, and a cleaning done before 05:30 on its first day
+ * was not credited to it.
+ */
+export function dateColumnDayStart(day: Date): Date {
+  return new Date(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+}
+
+export function dateColumnDayEnd(day: Date): Date {
+  return new Date(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate() + 1);
+}
+
+/**
  * Parse the END of a range, expanding a bare `yyyy-mm-dd` to the last
  * millisecond of that (local) day.
  *
