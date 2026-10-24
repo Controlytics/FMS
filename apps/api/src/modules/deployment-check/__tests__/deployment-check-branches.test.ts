@@ -119,7 +119,9 @@ describe('deployment check — all healthy', () => {
       expect(body.summary).toEqual({ total: 9, passed: 9, failed: 0, warnings: 0, status: 'PASS' });
       expect(subOf(body, 'Config Entries', 'reauth-policy')).toEqual({ name: 'reauth-policy', status: 'PASS', found: '4 actions gated' });
     } finally {
-      process.env = env;
+      // In place, never `process.env = env` (see checkEnvironment's afterEach below).
+      for (const k of Object.keys(process.env)) if (!(k in env)) delete process.env[k];
+      Object.assign(process.env, env);
     }
   });
 });
@@ -289,7 +291,14 @@ describe('Role Permissions + Config Entries checks', () => {
 
 describe('checkEnvironment', () => {
   const saved = { ...process.env };
-  afterEach(() => { process.env = { ...saved }; });
+  // Restore IN PLACE. `process.env = { ...saved }` swapped Node's env object for a
+  // plain one, so every later `process.env.TZ = …` in the same single-fork run
+  // stopped reaching Node: pin-time-zone.ts then failed "still Asia/Calcutta" in
+  // date-range-guard / pm-import-guards (seen 2026-10-24).
+  afterEach(() => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
   const sub = (name: string) => checkEnvironment().find((c) => c.name === name);
 
   it('JWT_SECRET: missing / short FAIL, dev secret WARNs in dev and FAILs in production', () => {
