@@ -396,7 +396,12 @@ export async function listSchedules() {
 // REPLACE_FILTER reauth before this runs, so the actual replacement stays gated.
 const filterOps = new FilterOperationsService();
 
-export async function executeReplacement(entryId: string, oldFilterId: string, remarks: string, ctx: RequestContext) {
+/**
+ * Every refusal of a schedule replacement, in one place. The route runs it
+ * BEFORE the REPLACE_FILTER signature (D03-09: a refused request costs no
+ * password), and executeReplacement runs it again before it writes.
+ */
+export async function assertCanExecuteReplacement(entryId: string, oldFilterId: string) {
   const entry = await prisma.replacementScheduleEntry.findUnique({ where: { id: entryId } });
   if (!entry) throw new AppError(404, 'NOT_FOUND', 'Replacement entry not found');
   // 2026-10-08: only an APPROVED entry is a task. The task lists already showed
@@ -423,6 +428,21 @@ export async function executeReplacement(entryId: string, oldFilterId: string, r
   if (before.total > 0 && before.remaining === 0) {
     throw new AppError(400, 'ALREADY_COMPLETE', 'Every filter in this AHU has already been replaced for this task');
   }
+  // A filter this row is already credited with (its own replacement put it in,
+  // or replaced that one since) is refused: replacing it again uses a new filter
+  // and counts nothing. A tablet's list can be stale — a second tablet on the
+  // AHU, or a batch that partly failed (2026-10-24).
+  const credit = (await creditedFiltersByEntry([entryId])).get(entryId)?.get(oldFilterId);
+  if (credit) {
+    const by = credit.performedByName ? ` by ${credit.performedByName}` : '';
+    throw new AppError(409, 'ALREADY_REPLACED_FOR_TASK',
+      `Filter "${oldFilter.name}" was already replaced for this task (${credit.performedAt.toISOString().slice(0, 10)}${by}).`);
+  }
+  return { entry, oldFilter };
+}
+
+export async function executeReplacement(entryId: string, oldFilterId: string, remarks: string, ctx: RequestContext) {
+  const { entry } = await assertCanExecuteReplacement(entryId, oldFilterId);
 
   // The actual retire-old + create-new (RFID carries over) — existing, unchanged action.
   const result = await filterOps.replace(ctx, oldFilterId, remarks);

@@ -6,7 +6,7 @@ import { refuseWithoutDecisionRemarks } from '../../lib/decision-remarks.js';
 import { AppError } from '../../lib/errors.js';
 import { MAX_UPLOAD_FILE_SIZE } from '../../lib/upload-limits.js';
 import { buildReplacementScheduleTemplate } from './template.service.js';
-import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement, blockedFilterIdsForCleaning } from './service.js';
+import { processUpload, listSchedules, listDueEntries, listTaskEntries, executeReplacement, assertCanExecuteReplacement, blockedFilterIdsForCleaning } from './service.js';
 import * as wf from './workflow.js';
 import { exportEntriesXlsx } from './export.js';
 
@@ -244,10 +244,13 @@ export default async function replacementScheduleRoutes(app: FastifyInstance) {
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },
   }, async (req, reply) => {
-    const { ok } = await enforceReauth('REPLACE_FILTER', req, reply);
-    if (!ok) return;
     const { id } = req.params as { id: string };
     const { oldFilterId, remarks } = req.body as { oldFilterId: string; remarks?: string };
+    // D03-09: refusals BEFORE the signature (no password spent on a request that
+    // cannot succeed); the write runs the same check again.
+    await assertCanExecuteReplacement(id, oldFilterId);
+    const { ok } = await enforceReauth('REPLACE_FILTER', req, reply);
+    if (!ok) return;
     return executeReplacement(id, oldFilterId, remarks ?? '', buildContext(req));
   });
 }

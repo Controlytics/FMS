@@ -475,10 +475,19 @@ describe('POST /entries/:id/execute', () => {
 
   it('requires FILTER_REPLACE, then the REPLACE_FILTER e-signature', async () => {
     const id = await entry(hier!.ahuId, { approvalStatus: 'APPROVED' });
-    expect((await exec(id, { oldFilterId: randomUUID() }, tok.op)).statusCode).toBe(403);
-    const nopw = await exec(id, { oldFilterId: randomUUID() }, tok.rpl, null);
+    const f = await filterUnder(hier!.ahuId, 'SIG');
+    expect((await exec(id, { oldFilterId: f }, tok.op)).statusCode).toBe(403);
+    const nopw = await exec(id, { oldFilterId: f }, tok.rpl, null);
     expect(nopw.statusCode).toBe(401);
     expect(nopw.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'REPLACE_FILTER' });
+  });
+
+  // D03-09 (2026-10-24): the refusals run BEFORE the signature, so a request that
+  // cannot succeed costs no password and writes no REAUTH_* row.
+  it('a refused execute asks for no password', async () => {
+    const id = await entry(hier!.ahuId, { approvalStatus: 'APPROVED' });
+    expect((await exec(randomUUID(), { oldFilterId: randomUUID() }, tok.rpl, null)).statusCode).toBe(404);
+    expect((await exec(id, { oldFilterId: randomUUID() }, tok.rpl, null)).json()).toMatchObject({ error: 'NOT_FOUND', message: 'Filter not found' });
   });
 
   it('unknown entry → 404; unapproved → 409; unknown filter → 404; filter of another AHU → 409', async () => {
@@ -528,6 +537,24 @@ describe('POST /entries/:id/execute', () => {
     expect(r2.json()).toMatchObject({ total: 2, replaced: 2, qtyRemaining: 0, status: 'COMPLETED' });
     expect((await prisma.replacementExecution.findFirst({ where: { entryId: id, oldFilterId: f2 } }))!.remarks).toBeNull();
     expect((await get(id))).toMatchObject({ qtyReplaced: 2, status: 'COMPLETED' });
+  });
+
+  // 2026-10-24: a row that is only PART done refused nothing here — the filter its
+  // own replacement had just put in could be replaced again (a stale tablet list:
+  // a second tablet, or a batch that partly failed), using a new filter for no count.
+  it('a filter the row is already credited with is refused, before the signature, and nothing is written', async () => {
+    const ahu = await newAhu('CRED');
+    const f1 = await filterUnder(ahu, 'C1');
+    await filterUnder(ahu, 'C2');
+    const id = await entry(ahu, { approvalStatus: 'APPROVED' });
+    const fitted = (await exec(id, { oldFilterId: f1 })).json().newFilterId as string;
+    const execsBefore = await prisma.replacementExecution.count({ where: { entryId: id } });
+    const again = await exec(id, { oldFilterId: fitted }, tok.rpl, null);
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ error: 'ALREADY_REPLACED_FOR_TASK' });
+    expect(again.json().message).toMatch(new RegExp(`^Filter "cvoW${S}-C1-01" was already replaced for this task \\(\\d{4}-\\d{2}-\\d{2} by ${U.rpl}\\)\\.$`));
+    expect(await prisma.replacementExecution.count({ where: { entryId: id } })).toBe(execsBefore);
+    expect((await prisma.assetInstance.findUnique({ where: { id: fitted } }))!.isActive).toBe(true);
   });
 
   it('the same filter cannot be replaced twice: once retired it has left the AHU, so the task refuses it', async () => {

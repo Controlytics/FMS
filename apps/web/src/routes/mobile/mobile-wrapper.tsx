@@ -535,7 +535,15 @@ function MobileShell() {
   // special permission. (Web view/upload stays role-gated; the execute still
   // requires REPLACE_FILTER reauth, so the 21 CFR signature + audit is kept.)
   const canReplacementTasks = true;
-  const [activeReplTask, setActiveReplTask] = useState<any | null>(null);
+  // The open task is kept by id and read from the latest /tasks on every render
+  // (2026-10-24), so its progress and its "already replaced" set never go stale —
+  // after a batch that partly failed, or while another tablet works the same AHU,
+  // the old snapshot offered filters fitted minutes earlier. The snapshot is only
+  // the fallback while the list does not hold the task.
+  const [activeReplTaskSnap, setActiveReplTask] = useState<any | null>(null);
+  const activeReplTask = activeReplTaskSnap
+    ? (replAllTasks.find((t: any) => t.id === activeReplTaskSnap.id) ?? activeReplTaskSnap)
+    : null;
   const replTaskScan = useRfidScanField();
   const [replTaskError, setReplTaskError] = useState('');
   const [replTaskSubmitting, setReplTaskSubmitting] = useState(false);

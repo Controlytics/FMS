@@ -135,6 +135,14 @@ clean-machine install, Super Admin probe session and the performance / endurance
   selection with one signature. It used to replace the scanned filter at once. A scan names the reason when it
   cannot select: unknown tag, not a filter, another AHU, already replaced for this task, not approved, or the
   remaining count reached.
+- **A filter the row already counts cannot be replaced again for it.** `executeReplacement` refused only a fully
+  done row (`ALREADY_COMPLETE`); on a part-done row the filter its own replacement had just put in could be
+  replaced again, using a new filter for no count. Now 409 `ALREADY_REPLACED_FOR_TASK` ("… was already replaced
+  for this task (date by user)"). All refusals of the execute route now run BEFORE the `REPLACE_FILTER`
+  signature (`assertCanExecuteReplacement`, D03-09: a refused request costs no password); the write re-runs them.
+- **Tablet: the open replacement task is read from the latest `/tasks`**, not the snapshot taken when it was
+  opened. After a batch that partly failed (or with a second tablet on the AHU) the snapshot kept offering the
+  filters just fitted and its count did not move.
 - Test fix: `drying-filters-panel-groups.test.tsx` clicked Submit while the fetched reading's report effect
   could still be pending (refused "Enter a temperature"; failed once in a full web run, passes alone). It now
   lets pending effects run first and asserts no error was raised. Not reproduced in isolation.

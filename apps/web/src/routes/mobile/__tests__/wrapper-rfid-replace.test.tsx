@@ -648,6 +648,31 @@ describe('Replacement tasks — performing one', () => {
     expect(screen.getByText('2 of 3 filters still to replace')).toBeInTheDocument();
   });
 
+  // 2026-10-24: the open task is read from the latest /tasks, not the snapshot
+  // taken when it was opened. After a batch that partly failed, the snapshot still
+  // offered the filter just replaced (the server now refuses it, 409
+  // ALREADY_REPLACED_FOR_TASK), and the count did not move.
+  it('after a partly failed batch the open task shows the refreshed count and no longer offers the filter just replaced', async () => {
+    let reads = 0;
+    const refreshed = { ...RT_DUE, qtyRemaining: 1, replaced: 2, replacedNewFilterIds: ['f999', 'f101'] };
+    await openTasks({ routes: [
+      { path: '/api/replacement-schedules/tasks', body: () => ({ data: (reads++ === 0 ? [RT_DUE] : [refreshed]) }) },
+      { method: 'POST', path: '/api/replacement-schedules/entries/rt1/execute', times: 1, body: { ok: true } },
+      { method: 'POST', path: '/api/replacement-schedules/entries/rt1/execute', status: 409, body: { error: 'X', message: 'Filter busy' } },
+    ], replTasks: [RT_DUE] });
+    fireEvent.click(taskButton('AHU-01'));
+    expect(await screen.findByText('2 of 3 filters still to replace')).toBeInTheDocument();
+    const cand = (n: string) => screen.getByText(n, { selector: 'div.font-display' }).closest('button')! as HTMLElement;
+    fireEvent.click(cand('F-101'));
+    fireEvent.click(cand('F-102'));
+    fireEvent.click(screen.getByRole('button', { name: 'Replace 2 selected filters' }));
+    expect(await screen.findByText('Replaced 1, 1 failed — F-102: Filter busy')).toBeInTheDocument();
+    expect(await screen.findByText('1 of 3 filters still to replace')).toBeInTheDocument();
+    expect(screen.getByText('2 already replaced for this task')).toBeInTheDocument();
+    expect(screen.queryByText('F-101', { selector: 'div.font-display' })).toBeNull();
+    expect(cand('F-102')).toBeInTheDocument();
+  });
+
   it('a batch whose password prompt is dismissed sends nothing and says nothing (D-OPS-8)', async () => {
     const { api } = await openTasks({ reauthActions: ['REPLACE_FILTER'] });
     fireEvent.click(taskButton('AHU-01'));
