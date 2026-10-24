@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { clearGlobalSwrCache, type MockRequest } from '@/test-utils/page-harness';
 import { useMobileLifecycle, flush, passReauth, cancelReauth, OPERATOR, SA } from './support/mobile-kit';
-import { renderWrapper } from './support/wrapper-harness';
+import { renderWrapper, INSTANCES, IDENTIFIERS, F102 } from './support/wrapper-harness';
 import { setOnline, back, emitSync } from './support/fakes';
 
 vi.mock('@/lib/connectivity', async () => (await import('./support/fakes')).connectivityModule);
@@ -567,39 +567,84 @@ describe('Replacement tasks — performing one', () => {
     expect(screen.getByText('1 of 1 filters still to replace')).toBeInTheDocument();
   });
 
-  it('scanning a tag replaces that filter at once (default remarks); unknown and blank scans are explained', async () => {
-    const { api } = await openTasks({ reauthActions: ['REPLACE_FILTER'], routes: [
-      { method: 'POST', path: '/api/replacement-schedules/entries/rt2/execute', body: { ok: true } },
-    ] });
-    fireEvent.click(taskButton('AHU-03'));
+  // 2026-10-24 (operator): a scan SELECTS its filter and moves it to the top of
+  // the list; nothing is replaced until Replace is tapped. It used to replace
+  // the scanned filter at once.
+  const F103 = { id: 'f103', name: 'F-103', templateId: 'tpl-filter', parentId: 'h1', attributes: {} };
+  const F104 = { id: 'f104', name: 'F-104', templateId: 'tpl-filter', parentId: 'h1', approvalStatus: 'PENDING_REVIEW', attributes: {} };
+  const F105 = { id: 'f105', name: 'F-105', templateId: 'tpl-filter', parentId: 'h1', attributes: {} };
+  const tag = (id: string, value: string, f: { id: string; name: string }) =>
+    ({ id, identifierType: 'RFID', identifierValue: value, assetId: f.id, asset: { id: f.id, name: f.name } });
+  const scanOpts = (routes: any[] = []) => ({
+    instances: [...INSTANCES, F103, F104, F105],
+    identifiers: [...IDENTIFIERS, tag('i7', 'E200A2', F102), tag('i8', 'E200A3', F103), tag('i9', 'E200A4', F104), tag('i10', 'E200A5', F105)],
+    // F-103 is already replaced for this task, so it is not offered.
+    replTasks: [{ ...RT_DUE, replacedNewFilterIds: ['f103'] }],
+    routes,
+  });
+  const listed = () => screen.getAllByText(/^F-\d+$/, { selector: 'div.font-display' }).map((el) => el.textContent);
+  const scanTag = async (value: string) => {
     const scan = await screen.findByPlaceholderText("Scan or type the old filter's tag, then Enter");
+    fireEvent.change(scan, { target: { value } });
     fireEvent.keyDown(scan, { key: 'Enter' });
-    expect(screen.getByText('Scan a filter tag to replace.')).toBeInTheDocument();
-    fireEvent.change(scan, { target: { value: 'ZZZ' } });
-    fireEvent.keyDown(scan, { key: 'Enter' });
+  };
+
+  it('a scan selects its filter and pins it to the top; Replace sends the selection; every refusal names the filter', async () => {
+    const { api } = await openTasks({ reauthActions: ['REPLACE_FILTER'], ...scanOpts([
+      { method: 'POST', path: '/api/replacement-schedules/entries/rt1/execute', body: { ok: true } },
+    ]) });
+    fireEvent.click(taskButton('AHU-01'));
+    expect(await screen.findByText('Scan filter to select')).toBeInTheDocument();
+    expect(listed()).toEqual(['F-101', 'F-102', 'F-105']); // by name
+
+    await scanTag('');
+    expect(screen.getByText('Scan a filter tag to select it.')).toBeInTheDocument();
+    await scanTag('ZZZ');
     expect(screen.getByText('No filter found for tag "ZZZ".')).toBeInTheDocument();
-    fireEvent.change(scan, { target: { value: 'e200a1' } });
-    fireEvent.keyDown(scan, { key: 'Enter' });
-    await cancelReauth(); // dismissed: silent, nothing sent, the scan works again
-    await flush(50);
-    expect(screen.queryByText(/Cancelled/)).toBeNull();
-    expect(api.calls('POST', '/api/replacement-schedules/entries/rt2/execute')).toHaveLength(0);
-    fireEvent.keyDown(scan, { key: 'Enter' });
+    await scanTag('E200H1');
+    expect(screen.getByText('Tag "E200H1" belongs to AHU-01, which is not a filter.')).toBeInTheDocument();
+    await scanTag('E200B2');
+    expect(screen.getByText("F-201 is not in AHU-01 — this task covers that AHU's filters only.")).toBeInTheDocument();
+    await scanTag('E200A3');
+    expect(screen.getByText('F-103 is already replaced for this task.')).toBeInTheDocument();
+    await scanTag('E200A4');
+    expect(screen.getByText('F-104 has not been approved yet, so it cannot be replaced.')).toBeInTheDocument();
+
+    // A name search that hides the scanned filter is cleared by the scan.
+    fireEvent.change(screen.getByPlaceholderText('Search by filter name…'), { target: { value: '101' } });
+    await scanTag('e200a5');
+    expect(screen.queryByText('F-104 has not been approved yet, so it cannot be replaced.')).toBeNull(); // the error clears
+    expect(screen.getByPlaceholderText('Search by filter name…')).toHaveValue('');
+    expect(listed()).toEqual(['F-105', 'F-101', 'F-102']);
+    await scanTag('E200A2');
+    expect(listed()).toEqual(['F-102', 'F-105', 'F-101']); // newest scan on top
+    expect(screen.getByRole('button', { name: 'Replace 2 selected filters' })).toBeInTheDocument();
+    await scanTag('E200A1');
+    expect(screen.getByText('Only 2 filters still to replace — untick one to select F-101.')).toBeInTheDocument();
+    await scanTag('E200A5'); // already selected: just back on top
+    expect(listed()).toEqual(['F-105', 'F-102', 'F-101']);
+
+    // Unticking unpins.
+    fireEvent.click(screen.getByText('F-102', { selector: 'div.font-display' }).closest('button')!);
+    expect(listed()).toEqual(['F-105', 'F-101', 'F-102']);
+    expect(api.calls('POST', '/api/replacement-schedules/entries/rt1/execute')).toHaveLength(0); // scans replace nothing
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace 1 selected filter' }));
     await passReauth();
-    expect(await screen.findByText('F-101 replaced (AHU AHU-03) · tag carried over')).toBeInTheDocument();
-    const req = api.calls('POST', '/api/replacement-schedules/entries/rt2/execute')[0];
-    expect(req.json).toEqual({ oldFilterId: 'f101', remarks: 'Replaced via schedule task (AHU AHU-03)', _currentPassword: 'Secret@123' });
+    expect(await screen.findByText('1 filter replaced (AHU AHU-01) · tags carried over')).toBeInTheDocument();
+    expect(api.calls('POST', '/api/replacement-schedules/entries/rt1/execute').map((c) => c.json)).toEqual([
+      { oldFilterId: 'f105', remarks: 'Replaced via schedule task (AHU AHU-01)', _currentPassword: 'Secret@123' },
+    ]);
   });
 
-  it('a refused scan replacement shows the reason and stays on the task', async () => {
-    await openTasks({ routes: [
+  it('a refused replacement of a scanned filter shows the reason and stays on the task', async () => {
+    await openTasks(scanOpts([
       { method: 'POST', path: '/api/replacement-schedules/entries/rt1/execute', status: 422, body: { error: 'X', message: 'Filter is not under this AHU' } },
-    ] });
+    ]));
     fireEvent.click(taskButton('AHU-01'));
-    const scan = await screen.findByPlaceholderText("Scan or type the old filter's tag, then Enter");
-    fireEvent.change(scan, { target: { value: 'E200B2' } });
-    fireEvent.keyDown(scan, { key: 'Enter' });
-    expect(await screen.findByText('Filter is not under this AHU')).toBeInTheDocument();
+    await scanTag('E200A1');
+    fireEvent.click(screen.getByRole('button', { name: 'Replace 1 selected filter' }));
+    expect(await screen.findByText('Replaced 0, 1 failed — F-101: Filter is not under this AHU')).toBeInTheDocument();
     expect(screen.getByText('2 of 3 filters still to replace')).toBeInTheDocument();
   });
 

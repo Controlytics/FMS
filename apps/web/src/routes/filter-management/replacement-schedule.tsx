@@ -29,9 +29,19 @@ const naText = (v: unknown): string => {
 
 // Filters belonging to one AHU — rendered inside an expanded Replacement
 // Schedule row (gated per-role by SUPER_ADMIN). Lazy-fetched on expand.
-function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<string, string[]> }) {
+//
+// The last column is each filter's REPLACEMENT status for the AHU's approved
+// schedule rows (operator 2026-10-24: it showed the cleaning stage, "To Be
+// Cleaned", which says nothing about replacement). A filter is Completed for a
+// row when the row's `replacements` (server: creditedFiltersByEntry) holds it.
+// An AHU usually has one row per micron, so each row gets its own line.
+function AhuFiltersRow({ ahuId, identMap, entries }: { ahuId: string; identMap: Map<string, string[]>; entries: any[] }) {
+  const { formatDate } = useDatetimeFormat();
   const { data, isLoading } = useSWR<any>(ahuId ? `/api/hierarchy/filters?ahuId=${ahuId}` : null);
   const filters: any[] = data?.data ?? [];
+  const tasks = entries.filter((e) => e.approvalStatus === 'APPROVED');
+  const replacementOf = (task: any, filterId: string) =>
+    (task.replacements ?? []).find((r: any) => r.filterId === filterId) as { performedAt: string; performedByName?: string | null } | undefined;
   if (isLoading) return <div className="px-8 py-3 text-[12px] text-slate-400">Loading filters…</div>;
   if (filters.length === 0) return <div className="px-8 py-3 text-[12px] text-slate-400">No filters under this AHU.</div>;
   return (
@@ -39,7 +49,7 @@ function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<strin
       <table className="w-full text-[12px]">
         <thead>
           <tr className="[&>th]:text-left [&>th]:px-2 [&>th]:py-1 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-slate-500">
-            <th>Filter</th><th>RFID</th><th>Micron</th><th>Filter Dimensions</th><th>Status</th>
+            <th>Filter</th><th>RFID</th><th>Micron</th><th>Filter Dimensions</th><th>Replacement</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -52,7 +62,28 @@ function AhuFiltersRow({ ahuId, identMap }: { ahuId: string; identMap: Map<strin
                 <td className="font-mono text-slate-500">{rfid || '—'}</td>
                 <td>{naText(attrs.micronSize)}</td>
                 <td>{naText(attrs.filterSize)}</td>
-                <td>{(f.currentLifecycleState ?? 'To Be Cleaned').replace(/_/g, ' ')}</td>
+                <td>
+                  {tasks.length === 0 ? (
+                    <span className="text-slate-400">No approved replacement</span>
+                  ) : tasks.map((task) => {
+                    const done = replacementOf(task, f.id);
+                    return (
+                      <div key={task.id} className="flex items-center gap-1.5 py-0.5 whitespace-nowrap">
+                        {tasks.length > 1 && (
+                          <span className="text-slate-500">Micron {naText(task.filterMicron)} · {formatDate(task.scheduleDate)}:</span>
+                        )}
+                        {done ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-medium bg-green-50 text-green-700 border-green-200"
+                            title={done.performedByName ? `Replaced by ${done.performedByName}` : undefined}>
+                            Completed · {formatDate(done.performedAt)}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-medium bg-amber-50 text-amber-700 border-amber-200">Pending</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </td>
               </tr>
             );
           })}
@@ -479,7 +510,7 @@ export function ReplacementSchedulePage() {
                   {filtersEnabled && lastOfAhu && expanded.has(e.ahuId) && e.ahuId && (
                     <tr>
                       <td colSpan={showSelectColumn ? 11 : 10} className="p-0">
-                        <AhuFiltersRow ahuId={e.ahuId} identMap={identMap} />
+                        <AhuFiltersRow ahuId={e.ahuId} identMap={identMap} entries={allEntries.filter((x: any) => x.ahuId === e.ahuId)} />
                       </td>
                     </tr>
                   )}

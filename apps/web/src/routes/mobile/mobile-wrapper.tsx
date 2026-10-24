@@ -542,6 +542,10 @@ function MobileShell() {
   // Pick-from-list selection for the active replacement task (multi-select,
   // capped at qtyRemaining). Additive to the scan box above it.
   const [replTaskSelected, setReplTaskSelected] = useState<Set<string>>(new Set());
+  // Filters selected by a SCAN, newest first: they are listed at the top
+  // (operator 2026-10-24: "the scanned tag's filter should be selected and come
+  // top"). Only the ones still selected are pinned, so untick = unpin.
+  const [replTaskPinned, setReplTaskPinned] = useState<string[]>([]);
   const [replTaskSearch, setReplTaskSearch] = useState('');
   const replBatchResultRef = useRef<{ done: number; failed: string[] } | null>(null);
   // Operator remarks for a task replacement (blank = the standard text) and the
@@ -893,38 +897,44 @@ function MobileShell() {
     replaceScan.setValue('');
   };
 
-  // ── Replacement-task: scan the old filter → replace it against the task entry ──
-  // Wraps the existing replace action via the schedule execute endpoint (which
-  // increments qty + logs the execution). REPLACE_FILTER reauth gates it.
-  const resolveAndExecuteReplTask = () => {
+  // ── Replacement-task: a scan SELECTS the filter (2026-10-24) ──
+  // It used to replace the scanned filter at once. Now it ticks the filter, pins
+  // it to the top of the list, and the operator replaces the selection with the
+  // button below (one signature for the batch, executeBatchReplTask). Each refusal
+  // names the filter: another AHU, already replaced for this task, not approved,
+  // or the task's remaining count reached.
+  const selectScannedReplTask = () => {
     if (!activeReplTask) return;
     const raw = normalizeRfidScan(replTaskScan.value); // C-07: one scan rule
-    if (!raw) { setReplTaskError('Scan a filter tag to replace.'); return; }
+    replTaskScan.setValue('');
+    if (!raw) { setReplTaskError('Scan a filter tag to select it.'); return; }
     const map = buildIdentifierMap(allIdentifiers);
     const hit = map[raw] ?? map[raw.toUpperCase()] ?? map[raw.toLowerCase()];
-    if (!hit) { setReplTaskError(`No filter found for tag "${raw}".`); replTaskScan.setValue(''); return; }
-    setReplTaskSubmitting(true); setReplTaskError('');
-    const taskId = activeReplTask.id;
-    const ahuName = activeReplTask.ahuName;
-    setReauthLabel('Replace Filter');
-    const remarks = replTaskRemarks.trim() || `Replaced via schedule task (AHU ${ahuName})`;
-    setReplTaskSuccess('');
-    reauth.execute('REPLACE_FILTER', async (password?: string) => {
-      const body = { oldFilterId: hit.filterId, remarks };
-      if (password) await api.postWithReauth(`/api/replacement-schedules/entries/${taskId}/execute`, body, password);
-      else await api.post(`/api/replacement-schedules/entries/${taskId}/execute`, body);
-    }, {
-      onSuccess: async () => {
-        // Feedback = the task list refreshes (qty decrements / task clears).
-        replTaskScan.setValue(''); setReplTaskSubmitting(false); setActiveReplTask(null); setReplTaskRemarks('');
-        setReplTaskSuccess(`${hit.filterName} replaced (AHU ${ahuName}) · tag carried over`);
-        await mutateReplDue();
-        if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
-      },
-      onError: (e: any) => { setReplTaskError(e?.message ?? 'Failed to replace filter'); setReplTaskSubmitting(false); },
-      // A dismissed password prompt is not an error (D-OPS-8).
-      onCancel: () => setReplTaskSubmitting(false),
-    });
+    if (!hit) { setReplTaskError(`No filter found for tag "${raw}".`); return; }
+    const filter = (allFilters as any[]).find((f: any) => f.id === hit.filterId);
+    const name = filter?.name ?? hit.filterName;
+    if (!filter) { setReplTaskError(`Tag "${raw}" belongs to ${name}, which is not a filter.`); return; }
+    if (filter.parentId !== activeReplTask.ahuId) {
+      setReplTaskError(`${name} is not in ${activeReplTask.ahuName} — this task covers that AHU's filters only.`);
+      return;
+    }
+    if ((activeReplTask.replacedNewFilterIds ?? []).includes(filter.id)) {
+      setReplTaskError(`${name} is already replaced for this task.`);
+      return;
+    }
+    if (!(operableFilters as any[]).some((f: any) => f.id === filter.id)) {
+      setReplTaskError(`${name} has not been approved yet, so it cannot be replaced.`);
+      return;
+    }
+    const remaining = activeReplTask.qtyRemaining ?? activeReplTask.qty ?? 0;
+    if (!replTaskSelected.has(filter.id) && replTaskSelected.size >= remaining) {
+      setReplTaskError(`Only ${remaining} filter${remaining === 1 ? '' : 's'} still to replace — untick one to select ${name}.`);
+      return;
+    }
+    // A name search left in the box could hide the row the scan just pinned.
+    setReplTaskError(''); setReplTaskSuccess(''); setReplTaskSearch('');
+    setReplTaskSelected(prev => new Set(prev).add(filter.id));
+    setReplTaskPinned(prev => [filter.id, ...prev.filter((id) => id !== filter.id)]);
   };
 
   // ── Replacement-task: replace the picked filters (multi-select) in one batch ──
@@ -965,6 +975,7 @@ function MobileShell() {
         setReplTaskSubmitting(false);
         replTaskScan.setValue('');
         setReplTaskSelected(new Set());
+        setReplTaskPinned([]);
         const res = replBatchResultRef.current;
         await mutateReplDue();
         if (online) { await mutate('/api/assets/instances'); await mutateIdentifiers(); }
@@ -3452,7 +3463,7 @@ function MobileShell() {
                         const isCompleted = t.computedStatus === 'COMPLETED';
                         return (
                           <button key={t.id} disabled={isCompleted}
-                            onClick={isCompleted ? undefined : () => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); }}
+                            onClick={isCompleted ? undefined : () => { setActiveReplTask(t); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskPinned([]); setReplTaskSearch(''); }}
                             className={`tile-lift w-full rounded-xl border border-slate-200 bg-white p-3 text-left flex items-center justify-between ${isCompleted ? 'opacity-90' : 'active:bg-slate-50'}`}>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
@@ -3482,8 +3493,11 @@ function MobileShell() {
               const replacedSet = new Set<string>(activeReplTask.replacedNewFilterIds ?? []);
               const ahuFilters = (operableFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
               const q = replTaskSearch.trim().toLowerCase();
+              const pinRank = new Map(replTaskPinned.filter((id) => replTaskSelected.has(id)).map((id, i) => [id, i]));
               const candidates = (q ? ahuFilters.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : ahuFilters)
-                .slice().sort((a: any, b: any) => String(a.name ?? '').localeCompare(String(b.name ?? '')));
+                .slice().sort((a: any, b: any) =>
+                  (pinRank.get(a.id) ?? Infinity) - (pinRank.get(b.id) ?? Infinity)
+                  || String(a.name ?? '').localeCompare(String(b.name ?? '')));
               const remaining = activeReplTask.qtyRemaining ?? activeReplTask.qty ?? 0;
               const atCap = replTaskSelected.size >= remaining;
               const toggleSel = (fid: string) => setReplTaskSelected(prev => {
@@ -3494,7 +3508,7 @@ function MobileShell() {
               });
               return (
               <div className="space-y-4">
-                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskSearch(''); setReplTaskRemarks(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
+                <button onClick={() => { setActiveReplTask(null); replTaskScan.setValue(''); setReplTaskError(''); setReplTaskSelected(new Set()); setReplTaskPinned([]); setReplTaskSearch(''); setReplTaskRemarks(''); }} className="text-[12px] text-slate-500 font-medium flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg> back to tasks
                 </button>
                 <div className="bg-white border border-slate-200 rounded-2xl p-4">
@@ -3506,12 +3520,12 @@ function MobileShell() {
                   )}
                 </div>
                 <div>
-                  <label htmlFor="m-repltask-scan" className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to replace</label>
+                  <label htmlFor="m-repltask-scan" className="block text-[10px] uppercase tracking-[0.15em] text-rose-600 font-semibold mb-1.5">Scan filter to select</label>
                   <input id="m-repltask-scan" data-rfid="true" type="text" value={replTaskScan.value}
-                    onKeyDown={(e) => { replTaskScan.onKeyDown(e); if (e.key === 'Enter' && !replTaskSubmitting) { e.preventDefault(); resolveAndExecuteReplTask(); } }}
+                    onKeyDown={(e) => { replTaskScan.onKeyDown(e); if (e.key === 'Enter' && !replTaskSubmitting) { e.preventDefault(); selectScannedReplTask(); } }}
                     onChange={replTaskScan.onChange} placeholder="Scan or type the old filter's tag, then Enter" autoFocus
                     className="w-full px-3 py-3 border border-rose-200 rounded-xl text-base font-mono bg-rose-50/40 focus:ring-2 focus:ring-rose-500 focus:border-rose-500" />
-                  <div className="text-[10.5px] text-slate-400 mt-1.5">Scan replaces one filter instantly — or pick from the list below.</div>
+                  <div className="text-[10.5px] text-slate-400 mt-1.5">Each scan selects its filter and moves it to the top of the list. Tap Replace when the selection is complete.</div>
                 </div>
 
                 {/* ── Pick from the AHU's filters (multi-select up to qty) ── */}

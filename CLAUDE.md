@@ -725,6 +725,15 @@ a Super Admin's edit, the console entry edit, and by the sweep's CLOSE half. One
 per visit (UNIQUE): if the new date is missed too, the sweep raises `DEVIATION_OPEN_BLOCKED`
 instead of a second deviation (operator-accepted). Guard: `e2e/pm-deviation-rescheduled.test.ts`.
 
+🔴 **Replacement schedule: ONE credit rule (2026-10-24).** Which filters a schedule row has replaced
+comes only from `creditedFiltersByEntry` (`replacement-schedule/service.ts`): each execution's new
+filter, followed through later replacements (`FILTER_REPLACED` audit rows, old → new) to the filter in
+place today. The tablet `/tasks`, the cleaning block (`/blocked-filters`, start-cycle), the execute
+check, `/due` and the web list all read it. Never count "newFilterId is still active" again: a second
+replacement of the same slot (another micron row of the AHU, or the Filters page) erased the first row's
+credit, blocked the AHU from cleaning and sent operators to swap filters fitted minutes earlier. Guard:
+`workflow-tasks.coverage.test.ts` "two schedule rows on one AHU".
+
 ## Missed-PM gate: "previous scheduled task is pending" (2026-08-27)
 
 Starting a **PM-reason** cleaning on an AHU that still owes an earlier PM is

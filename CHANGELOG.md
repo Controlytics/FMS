@@ -115,6 +115,32 @@ clean-machine install, Super Admin probe session and the performance / endurance
   operator read the old sentence as "only this month's dates can be chosen" (4 refused tries of 31 Oct).
 - Docs: the Module Guide said the overdue sweep runs at 08:30 (it is 03:00); BACKEND_GUIDE still described the
   deleted graphile-worker queue and a 500/min global rate limit.
+- **Replacement schedule: a replaced filter stays replaced (operator: "when a filter is replaced it's not
+  showing replaced for that filter").** An AHU usually has one schedule row per micron, and each row counts every
+  filter of the AHU. A row counted a filter only while the filter its replacement put in was still active, so
+  replacing that filter again (for the other row, or from the Filters page) took the count away. CWH/RDU on
+  10-14: the micron-1 row read 1 of 6 after 7 replacements; a filter fitted five minutes earlier was swapped
+  again because the tablet still listed it; the AHU's 6 filters were blocked from cleaning (MISSED) while the web
+  page said COMPLETED (it used `qtyReplaced >= qty`). One rule now, `creditedFiltersByEntry`
+  (`replacement-schedule/service.ts`): the credit follows the filter slot through later replacements, using
+  the `FILTER_REPLACED` audit rows (old → new; a redacted row breaks its link). Used by the tablet `/tasks`, the
+  cleaning block (`/blocked-filters` + the start-cycle check), the execute check (`ALREADY_COMPLETE`, stored
+  status), `/due` and the web list (`GET /`, whose status now follows the same rule). Live data after the fix:
+  both RDU rows 6/6 COMPLETED, nothing blocked. The whole-AHU-per-row rule itself (2026-06-15) is unchanged.
+- **Web Replacement Schedule, expanded AHU:** the last column is now each filter's replacement status per
+  approved row ("Completed · date", by whom on hover / "Pending"; one line per row when the AHU has several),
+  not its cleaning stage. `GET /api/replacement-schedules` entries carry `replacements` + `total` / `replaced`.
+- **Tablet Replacement Tasks: a scan selects.** Scanning a tag ticks its filter and moves it to the top of the
+  list (newest scan first, an untick unpins, a search that would hide it is cleared); Replace sends the
+  selection with one signature. It used to replace the scanned filter at once. A scan names the reason when it
+  cannot select: unknown tag, not a filter, another AHU, already replaced for this task, not approved, or the
+  remaining count reached.
+- Test fix: `drying-filters-panel-groups.test.tsx` clicked Submit while the fetched reading's report effect
+  could still be pending (refused "Enter a temperature"; failed once in a full web run, passes alone). It now
+  lets pending effects run first and asserts no error was raised. Not reproduced in isolation.
+- Tests: `workflow-tasks.coverage.test.ts` "two schedule rows on one AHU" (row B re-replaces row A's filter, a
+  Filters-page replace, web / tablet / cleaning block agree; fails without the fix) and a counter-vs-rule case
+  on `GET /`; tablet scan-select tests (rewritten from the old replace-at-once ones); web expand tests.
 - Tests: `e2e/pm-deviation-rescheduled.test.ts` (12: the operator's case end to end, staged + approved, still
   overdue, sweep backstop, the blocked limit, and India-time edges at 02:00 / 15:00 / 00:30 / 03:00 with only
   `Date` faked; 8 fail without the fix), `pmWindowPhase` / `dateColumnDay*` in `date-range-guard.test.ts`,

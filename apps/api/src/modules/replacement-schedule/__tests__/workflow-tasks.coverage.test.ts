@@ -18,6 +18,7 @@ import { buildApp, internalErrors, authGet, authPost, authPut } from '../../../e
 import replacementScheduleRoutes from '../routes.js';
 import { reviewEntries } from '../workflow.js';
 import { isFilterBlockedForCleaning } from '../service.js';
+import { FilterOperationsService } from '../../filter-operations/filter-operations.service.js';
 import { prisma } from '../../../lib/prisma.js';
 import {
   cleanupAll, createRole, createUser, deleteRoles, deleteUsers, login, runSuffix, addReauth, removeReauth,
@@ -385,6 +386,8 @@ describe('task reads', () => {
     E.future = await entry(ahuT, { approvalStatus: 'APPROVED', windowStart: day(10), windowEnd: day(14), scheduleDate: day(12) });
     E.missed = await entry(ahuT, { approvalStatus: 'APPROVED', windowStart: day(-14), windowEnd: day(-10), scheduleDate: day(-12) });
     E.review = await entry(ahuT, { approvalStatus: 'PENDING_REVIEW' });
+    // qtyReplaced says done, but no filter of the AHU was replaced for it.
+    E.counter = await entry(ahuT, { approvalStatus: 'APPROVED', qty: 2, qtyReplaced: 2 });
     // Progress under the all-AHU-filters model: fA replaced (newFilterId = fA) for E.inprog, both for E.done.
     await prisma.replacementExecution.createMany({ data: [
       { entryId: E.inprog, oldFilterId: randomUUID(), newFilterId: fA, performedBy: ids.rpl },
@@ -394,19 +397,26 @@ describe('task reads', () => {
     ] });
   }, 60_000);
 
-  it('GET / derives COMPLETED / IN_PROGRESS / DUE / PENDING / MISSED from qty + window', async () => {
+  it('GET / derives COMPLETED / IN_PROGRESS / DUE / PENDING / MISSED from the AHU-filter rule + window, with each row\'s replaced filters', async () => {
     const res = await authGet(app, R, tok.up);
     const mine = res.json().data.find((s: any) => s.id === scheduleId);
-    const status = (id: string) => mine.entries.find((e: any) => e.id === id).computedStatus;
+    const row = (id: string) => mine.entries.find((e: any) => e.id === id);
+    const status = (id: string) => row(id).computedStatus;
     expect([status(E.done), status(E.inprog), status(E.due), status(E.future), status(E.missed)])
       .toEqual(['COMPLETED', 'IN_PROGRESS', 'DUE', 'PENDING', 'MISSED']);
+    // 2026-10-24: the page used qtyReplaced >= qty, the tablet and the cleaning
+    // block the AHU filters — this row read COMPLETED here and DUE there.
+    expect(row(E.counter)).toMatchObject({ computedStatus: 'DUE', total: 2, replaced: 0, replacements: [] });
+    expect(row(E.inprog)).toMatchObject({ total: 2, replaced: 1 });
+    expect(row(E.inprog).replacements).toEqual([expect.objectContaining({ filterId: fA, performedAt: expect.any(String) })]);
+    expect(row(E.done).replacements.map((r: any) => r.filterId).sort()).toEqual([fA, fB].sort());
   });
 
   it('/due lists only APPROVED entries whose window spans today and that are DUE / IN_PROGRESS', async () => {
     const res = await authGet(app, `${R}/due`, tok.op);
     expect(res.statusCode).toBe(200);
     const mine = res.json().data.filter((e: any) => e.ahuId === ahuT);
-    expect(mine.map((e: any) => e.id).sort()).toEqual([E.due, E.inprog].sort());
+    expect(mine.map((e: any) => e.id).sort()).toEqual([E.due, E.inprog, E.counter].sort());
     expect(mine.find((e: any) => e.id === E.inprog)).toMatchObject({ computedStatus: 'IN_PROGRESS', qtyRemaining: 1 });
   });
 
@@ -540,6 +550,81 @@ describe('POST /entries/:id/execute', () => {
     const res = await exec(id, { oldFilterId: f, remarks: 'late' });
     expect(res.statusCode).toBe(200);
     expect((await prisma.replacementExecution.findFirst({ where: { entryId: id } }))!.isWithinWindow).toBe(false);
+  });
+});
+
+// 2026-10-24 (operator: "when a filter is replaced it's not showing replaced"). An
+// AHU usually has one schedule row per micron, and each row counts every filter
+// of the AHU. A row counted a filter only while the filter its replacement put in
+// was still active, so replacing that filter again — for the other row, or from
+// the Filters page — took the count away: on CWH/RDU the micron-1 row read 1 of 6
+// after 7 replacements, a filter fitted five minutes earlier was swapped again
+// because the tablet asked for it, and the AHU was blocked from cleaning.
+describe('two schedule rows on one AHU: a replacement stays counted', () => {
+  const exec = (entryId: string, oldFilterId: string) =>
+    authPost(app, `${R}/entries/${entryId}/execute`, tok.rpl, { oldFilterId }, PW);
+  const tasks = async (ahuId: string) => {
+    const res = await authGet(app, `${R}/tasks`, tok.op);
+    expect(res.statusCode).toBe(200);
+    return new Map<string, any>(res.json().data.filter((e: any) => e.ahuId === ahuId).map((e: any) => [e.id, e]));
+  };
+
+  it('replacing a filter again for the other row (or from the Filters page) keeps the first row complete; web, tablet and the cleaning block agree', async () => {
+    const ahu = await newAhu('TWO');
+    const f1 = await filterUnder(ahu, 'W1');
+    const f2 = await filterUnder(ahu, 'W2');
+    const A = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '1' });
+    const B = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '15' });
+
+    // A retired filter leaves its AHU (parentId cleared), so the afterAll sweep by
+    // AHU cannot find the ones replaced twice here: each is registered as made.
+    const a1 = (await exec(A, f1)).json().newFilterId as string;
+    filterIds.push(a1);
+    const a2r = await exec(A, f2);
+    expect(a2r.json()).toMatchObject({ status: 'COMPLETED', replaced: 2, qtyRemaining: 0 });
+    const a2 = a2r.json().newFilterId as string;
+    filterIds.push(a2);
+
+    // Row B replaces the filter row A put in.
+    const b1r = await exec(B, a1);
+    expect(b1r.statusCode, b1r.body).toBe(200);
+    expect(b1r.json()).toMatchObject({ status: 'IN_PROGRESS', replaced: 1, qtyRemaining: 1 });
+    const b1 = b1r.json().newFilterId as string;
+    filterIds.push(b1);
+
+    let t = await tasks(ahu);
+    expect(t.get(A)).toMatchObject({ total: 2, replaced: 2, remaining: 0, computedStatus: 'COMPLETED' });
+    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([b1, a2].sort());
+    expect(t.get(B)).toMatchObject({ total: 2, replaced: 1, computedStatus: 'IN_PROGRESS', replacedNewFilterIds: [b1] });
+    // The tablet no longer offers the slot to row A, and the server refuses it.
+    expect((await exec(A, b1)).json().error).toBe('ALREADY_COMPLETE');
+
+    // A replace from the Filters page (not a schedule task) keeps the credit too.
+    const ctx = { userId: U.rpl, userSub: ids.rpl, userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1', sessionId: 'two-rows' };
+    const p = (await new FilterOperationsService().replace(ctx, a2, 'media torn') as any).newFilterId as string;
+    filterIds.push(p);
+    t = await tasks(ahu);
+    expect(t.get(A)).toMatchObject({ replaced: 2, computedStatus: 'COMPLETED' });
+    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([b1, p].sort());
+
+    // The web schedule page says the same, per filter.
+    const web = (await authGet(app, R, tok.up)).json().data.find((x: any) => x.id === scheduleId);
+    const row = (id: string) => web.entries.find((e: any) => e.id === id);
+    expect(row(A)).toMatchObject({ computedStatus: 'COMPLETED', total: 2, replaced: 2 });
+    expect(row(A).replacements.map((r: any) => r.filterId).sort()).toEqual([b1, p].sort());
+    expect(row(B)).toMatchObject({ computedStatus: 'IN_PROGRESS', replaced: 1 });
+    expect(row(B).replacements.map((r: any) => r.filterId)).toEqual([b1]);
+
+    // Both windows close: only row B's unreplaced filter is blocked from cleaning.
+    await prisma.replacementScheduleEntry.updateMany({ where: { id: { in: [A, B] } }, data: { windowStart: day(-9), windowEnd: day(-5), scheduleDate: day(-7) } });
+    t = await tasks(ahu);
+    expect(t.get(A).computedStatus).toBe('COMPLETED');
+    expect(t.get(B).computedStatus).toBe('MISSED');
+    const blocked = new Set<string>((await authGet(app, `${R}/blocked-filters`, tok.op)).json().filterIds);
+    expect(blocked.has(p)).toBe(true);
+    expect(blocked.has(b1)).toBe(false);
+    expect(await isFilterBlockedForCleaning(p)).toBe(true);
+    expect(await isFilterBlockedForCleaning(b1)).toBe(false);
   });
 });
 

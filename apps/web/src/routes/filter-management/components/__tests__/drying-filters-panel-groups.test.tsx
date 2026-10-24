@@ -8,7 +8,7 @@
  * sent its id with the reading. One group, or a bound cycle, works as before.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { baseRoutes, usePageTestLifecycle, role } from '../../__tests__/fm-test-kit';
 import { DryingFiltersPanel } from '../drying-filters-panel';
@@ -77,9 +77,15 @@ describe('DryingFiltersPanel — the equipment group of a Dry In reading', () =>
     expect(await screen.findByText('61 °C')).toBeInTheDocument();
     expect(screen.queryByText('60.4 °C')).toBeNull();
     expect(s.api.calls('POST', '/api/equipment-groups/fetch-readings').map((c) => c.json.groupId)).toEqual(['da', 'db']);
+    // The fetched 61 reaches the panel through the row's report EFFECT, which can
+    // still be pending when "61 °C" is on screen; a click in that gap read an empty
+    // temperature and was refused "Enter a temperature" (failed once under
+    // full-suite load, 2026-10-24). Let pending effects run before clicking.
+    await act(async () => { await Promise.resolve(); });
     await waitFor(() => expect(submit()).toBeEnabled());
     fireEvent.click(submit());
     await waitFor(() => expect(s.executeOrQueue).toHaveBeenCalledTimes(1));
+    expect(s.onError).not.toHaveBeenCalled();
     expect(s.executeOrQueue.mock.calls[0][3]).toMatchObject({ equipmentGroupId: 'db', instrumentReadings: { tb: 61 } });
   });
 

@@ -14,7 +14,8 @@ beforeEach(() => { vi.mocked(createReport).mockClear(); pdf.addTable.mockClear()
 const ENTRIES = [
   { id: 'e1', slNo: 1, ahuName: 'AHU-1', ahuId: 'a1', filterMicron: '10', filterSize: '610x610', qty: 4, scheduleDate: '2026-11-01T00:00:00Z', toleranceDays: 5, computedStatus: 'DUE', approvalStatus: 'PENDING_REVIEW', submittedByName: 'uploader' },
   { id: 'e2', slNo: 2, ahuName: 'AHU-1', ahuId: 'a1', filterMicron: '10', filterSize: '305x610', qty: 2, scheduleDate: '2026-11-02T00:00:00Z', toleranceDays: 5, computedStatus: 'IN_PROGRESS', approvalStatus: 'PENDING_APPROVAL', submittedByName: 'uploader', reviewedByName: 'mgr' },
-  { id: 'e3', slNo: 3, ahuName: 'AHU-1', ahuId: 'a1', filterMicron: '5', filterSize: '', qty: 1, scheduleDate: '2026-11-03T00:00:00Z', toleranceDays: 3, computedStatus: 'COMPLETED', approvalStatus: 'APPROVED', submittedByName: 'uploader', reviewedByName: 'mgr', approvedByName: 'qa1' },
+  { id: 'e3', slNo: 3, ahuName: 'AHU-1', ahuId: 'a1', filterMicron: '5', filterSize: '', qty: 1, scheduleDate: '2026-11-03T00:00:00Z', toleranceDays: 3, computedStatus: 'COMPLETED', approvalStatus: 'APPROVED', submittedByName: 'uploader', reviewedByName: 'mgr', approvedByName: 'qa1',
+    replacements: [{ filterId: 'f1', performedAt: '2026-11-03T06:00:00Z', performedByName: 'opr1' }] },
   { id: 'e4', ahuName: 'AHU-2', ahuId: 'a2', filterMicron: null, filterSize: '[object Object]', qty: 3, scheduleDate: '2026-11-04T00:00:00Z', toleranceDays: 2, computedStatus: 'MISSED', approvalStatus: 'REJECTED', approvalRemarks: 'Wrong quantity', submittedByName: 'uploader' },
   { id: 'e5', ahuName: 'AHU-3', ahuId: null, filterMicron: '3', filterSize: '592x592', qty: 6, scheduleDate: '2026-11-05T00:00:00Z', toleranceDays: 1, approvalStatus: 'PENDING', submittedByName: 'qa1' },
   { id: 'e6', ahuName: 'AHU-2', ahuId: 'a2', filterMicron: '7', filterSize: '500x500', qty: 1, scheduleDate: '2026-11-06T00:00:00Z', toleranceDays: 2, computedStatus: 'PENDING', approvalStatus: 'PENDING_REVIEW', submittedByName: 'mgr' },
@@ -104,7 +105,7 @@ describe('Replacement Schedule page — table', () => {
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
   });
 
-  it('expanding an AHU lazy-loads its filters with RFID tags, set and NA attributes', async () => {
+  it('expanding an AHU lazy-loads its filters with RFID tags, set, NA attributes and each filter\'s replacement status', async () => {
     const api = setup([
       { path: /\/api\/hierarchy\/filters\?ahuId=a1/, body: { data: [
         { id: 'f1', name: 'FLT-A', filterSet: 'SET_A', attributes: { micronSize: '10', filterSize: ' ' }, currentLifecycleState: 'WASH_IN' },
@@ -119,11 +120,18 @@ describe('Replacement Schedule page — table', () => {
     const fA = rowOf('FLT-A');
     expect(fA).toHaveTextContent('Set A');
     expect(fA).toHaveTextContent('E2001, E2002');
-    expect(fA).toHaveTextContent('WASH IN');
     expect(within(fA).getByText('NA')).toBeInTheDocument();
+    // The last column is the REPLACEMENT status for the AHU's approved row (e3),
+    // not the cleaning stage (2026-10-24).
+    expect(screen.getByRole('columnheader', { name: 'Replacement' })).toBeInTheDocument();
+    expect(fA).not.toHaveTextContent('WASH IN');
+    const done = within(fA).getByText(/^Completed · /);
+    expect(done).toHaveAttribute('title', 'Replaced by opr1');
+    expect(fA).not.toHaveTextContent('Micron'); // one approved row: no row label
     const fB = rowOf('FLT-B');
     expect(fB).toHaveTextContent('—');
-    expect(fB).toHaveTextContent('To Be Cleaned');
+    expect(within(fB).getByText('Pending')).toBeInTheDocument();
+    expect(fB).not.toHaveTextContent('To Be Cleaned');
     fireEvent.click(screen.getByRole('button', { name: 'AHU-2' }));
     expect(await screen.findByText('No filters under this AHU.')).toBeInTheDocument();
     // collapse
@@ -131,6 +139,34 @@ describe('Replacement Schedule page — table', () => {
     expect(screen.queryByText('FLT-A')).toBeNull();
     // AHU-3 has no ahuId → not expandable
     expect(screen.queryByRole('button', { name: 'AHU-3' })).toBeNull();
+  });
+
+  it('an AHU with one schedule row per micron shows a status line per approved row; no approved row says so', async () => {
+    const rows = [
+      { id: 'r1', ahuName: 'RDU', ahuId: 'rdu', filterMicron: '1', filterSize: '610', qty: 3, scheduleDate: '2026-10-10T00:00:00Z', toleranceDays: 7, computedStatus: 'COMPLETED', approvalStatus: 'APPROVED',
+        replacements: [{ filterId: 'g1', performedAt: '2026-10-09T06:00:00Z', performedByName: null }, { filterId: 'g2', performedAt: '2026-10-09T06:00:00Z' }] },
+      { id: 'r2', ahuName: 'RDU', ahuId: 'rdu', filterMicron: '15', filterSize: '610', qty: 3, scheduleDate: '2026-10-15T00:00:00Z', toleranceDays: 7, computedStatus: 'IN_PROGRESS', approvalStatus: 'APPROVED',
+        replacements: [{ filterId: 'g1', performedAt: '2026-10-14T06:00:00Z', performedByName: 'opr2' }] },
+      { id: 'r3', ahuName: 'RDU', ahuId: 'rdu', filterMicron: '30', filterSize: '610', qty: 1, scheduleDate: '2026-12-01T00:00:00Z', toleranceDays: 7, computedStatus: 'PENDING', approvalStatus: 'PENDING_REVIEW' },
+      { id: 'r4', ahuName: 'NEW', ahuId: 'new', filterMicron: '1', filterSize: '610', qty: 1, scheduleDate: '2026-12-01T00:00:00Z', toleranceDays: 1, computedStatus: 'PENDING', approvalStatus: 'PENDING_REVIEW' },
+    ];
+    const api = setup([
+      { path: /\/api\/hierarchy\/filters\?ahuId=rdu/, body: { data: [{ id: 'g1', name: 'RDU-1', attributes: {} }, { id: 'g2', name: 'RDU-2', attributes: {} }, { id: 'g3', name: 'RDU-3', attributes: {} }] } },
+      { path: /\/api\/hierarchy\/filters\?ahuId=new/, body: { data: [{ id: 'n1', name: 'NEW-1', attributes: {} }] } },
+    ], {}, { data: [{ id: 's9', uploadedByName: 'uploader', createdAt: '2026-10-01T10:00:00Z', entries: rows }] });
+    renderPage(<ReplacementSchedulePage />, { user: SA, api });
+    fireEvent.click(await screen.findByRole('button', { name: 'RDU' }));
+    expect(await screen.findByText('RDU-1')).toBeInTheDocument();
+    const line = (filter: string, micron: string) =>
+      within(rowOf(filter)).getByText(new RegExp(`^Micron ${micron} · `)).parentElement as HTMLElement;
+    expect(within(line('RDU-1', '1')).getByText(/^Completed · /)).not.toHaveAttribute('title');
+    expect(within(line('RDU-1', '15')).getByText(/^Completed · /)).toHaveAttribute('title', 'Replaced by opr2');
+    expect(within(line('RDU-2', '1')).getByText(/^Completed · /)).toBeInTheDocument();
+    expect(within(line('RDU-2', '15')).getByText('Pending')).toBeInTheDocument();
+    expect(within(line('RDU-3', '1')).getByText('Pending')).toBeInTheDocument();
+    expect(rowOf('RDU-3')).not.toHaveTextContent('Micron 30'); // a row not yet approved is not a task
+    fireEvent.click(screen.getByRole('button', { name: 'NEW' }));
+    expect(within(await screen.findByText('NEW-1').then((el) => el.closest('tr')!)).getByText('No approved replacement')).toBeInTheDocument();
   });
 
   it('with the per-role filter feature off, AHU names are plain text and identifiers are not fetched', async () => {

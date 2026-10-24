@@ -350,26 +350,43 @@ export async function processUpload(
   return { results, created: toCreate.length, failed: 0, scheduleId: schedule.id };
 }
 
-// Compute display status for an entry given today's date (does not mutate rows;
-// MISSED/DUE are derived so the list/tasks reflect current time without a job).
-function deriveStatus(e: { qty: number; qtyReplaced: number; windowStart: Date; windowEnd: Date; status: string }, today: string): string {
-  if (e.qtyReplaced >= e.qty) return 'COMPLETED';
-  const ws = e.windowStart.toISOString().slice(0, 10);
-  const we = e.windowEnd.toISOString().slice(0, 10);
-  if (today > we) return 'MISSED';
-  if (today >= ws && today <= we) return e.qtyReplaced > 0 ? 'IN_PROGRESS' : 'DUE';
-  return 'PENDING';
-}
-
+/**
+ * Every schedule with its entries, each entry carrying the task rule's status
+ * and the AHU filters it has replaced (`replacements`: filter in place today,
+ * when, by whom), which the page's expanded AHU list shows per filter.
+ *
+ * 2026-10-24: the status here came from `qtyReplaced >= qty` (a counter), while
+ * the tablet and the cleaning block use the AHU-filter rule — the page showed
+ * CWH/RDU COMPLETED while its filters were blocked from cleaning as MISSED.
+ * One rule now (`taskProgress`).
+ */
 export async function listSchedules() {
   const today = todayLocalDateOnly();
   const schedules = await prisma.replacementSchedule.findMany({
     orderBy: { createdAt: 'desc' },
     include: { entries: { orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }] } },
   });
+  const entries = schedules.flatMap((s) => s.entries);
+  const [filtersByAhu, credits] = await Promise.all([
+    activeFilterIdsByAhu([...new Set(entries.map((e) => e.ahuId))]),
+    creditedFiltersByEntry(entries.map((e) => e.id)),
+  ]);
   return schedules.map((s) => ({
     ...s,
-    entries: s.entries.map((e) => ({ ...e, computedStatus: deriveStatus(e, today) })),
+    entries: s.entries.map((e) => {
+      const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
+      const credited = credits.get(e.id) ?? new Map<string, ReplacementCredit>();
+      const { remaining, computedStatus } = taskProgress(e, ahuFilterIds, new Set(credited.keys()), today);
+      return {
+        ...e,
+        computedStatus,
+        total: ahuFilterIds.length,
+        replaced: ahuFilterIds.length - remaining,
+        replacements: ahuFilterIds
+          .filter((id) => credited.has(id))
+          .map((filterId) => ({ filterId, ...credited.get(filterId)! })),
+      };
+    }),
   }));
 }
 
@@ -461,15 +478,23 @@ export async function listDueEntries() {
     where: { approvalStatus: 'APPROVED', windowStart: { lte: todayDate }, windowEnd: { gte: todayDate }, ahuId: { in: await activeAhuIds() } },
     orderBy: [{ windowEnd: 'asc' }],
   });
+  const [filtersByAhu, creditedByEntry] = await Promise.all([
+    activeFilterIdsByAhu([...new Set(entries.map((e) => e.ahuId))]),
+    creditedIdSets(entries.map((e) => e.id)),
+  ]);
   return entries
-    .map((e) => ({ ...e, computedStatus: deriveStatus(e, today), qtyRemaining: Math.max(0, e.qty - e.qtyReplaced) }))
+    .map((e) => {
+      const { remaining, computedStatus } = taskProgress(e, filtersByAhu.get(e.ahuId) ?? [], creditedByEntry.get(e.id) ?? new Set(), today);
+      return { ...e, computedStatus, qtyRemaining: remaining };
+    })
     .filter((e) => e.computedStatus === 'DUE' || e.computedStatus === 'IN_PROGRESS');
 }
 
 // ── All-AHU-filters task model (2026-06-15) ─────────────────────────────────
 // A replacement task covers EVERY active filter under its AHU. A filter counts
-// as replaced once its id is a ReplacementExecution.newFilterId for the entry
-// (`replace()` retires the old filter and creates this new active one in place).
+// as replaced once the entry is credited with it: the filter one of its
+// executions installed, or whatever has replaced that one since
+// (creditedFiltersByEntry, 2026-10-24).
 
 /** Active FILTER-kind instance ids under one or more AHUs (parentId === ahuId). */
 async function activeFilterIdsByAhu(ahuIds: string[]): Promise<Map<string, string[]>> {
@@ -493,15 +518,81 @@ async function activeFilterIdsByAhu(ahuIds: string[]): Promise<Map<string, strin
   return byAhu;
 }
 
+/** The replacement an entry is credited with for one filter in place. */
+export interface ReplacementCredit { performedAt: Date; performedByName: string | null }
+
+/**
+ * The filters each entry has replaced, as the filters in place TODAY
+ * (2026-10-24). The ONE credit rule: the tablet task list, the cleaning block,
+ * the execute check and the web schedule page all read it.
+ *
+ * It used to be "the new filter an execution installed, while that filter is
+ * still active". Replacing that filter again — for another row of the same AHU
+ * (one row per micron is the usual upload), or from the Filters page — retired
+ * it, so the first row lost the count and listed the slot as "to replace"
+ * again. On CWH/RDU (2026-10-14) a filter fitted five minutes earlier was
+ * replaced again because the tablet asked for it, the micron-1 row read 1 of 6
+ * after 7 replacements, and the AHU's 6 filters were blocked from cleaning.
+ *
+ * Now the credit follows the filter slot: from each replacement's new filter to
+ * whatever replaced it, to the filter in place today. The old → new links are
+ * the FILTER_REPLACED audit rows (targetId = the old filter, afterValue the new
+ * one; every replace path writes one, and the Replacement List reads the same
+ * rows). A redacted row has no payload, so its link is lost and that slot's
+ * credit ends at the retired filter.
+ *
+ * Returns entryId → (filter id in place → the latest replacement crediting it).
+ * Callers intersect it with the AHU's active filters.
+ */
+export async function creditedFiltersByEntry(entryIds: string[]): Promise<Map<string, Map<string, ReplacementCredit>>> {
+  const out = new Map<string, Map<string, ReplacementCredit>>();
+  if (entryIds.length === 0) return out;
+  const execs = await prisma.replacementExecution.findMany({
+    where: { entryId: { in: entryIds }, newFilterId: { not: null } },
+    select: { entryId: true, newFilterId: true, performedAt: true, performedByName: true },
+    orderBy: { performedAt: 'asc' },
+  });
+  // old filter → the filter that replaced it, walked out from the installed ones.
+  // Bounded by the filters these entries touched, never a scan of every row.
+  const next = new Map<string, string>();
+  let frontier = [...new Set(execs.map((x) => x.newFilterId as string))];
+  const seen = new Set(frontier);
+  for (let depth = 0; frontier.length > 0 && depth < 100; depth++) {
+    const rows = await prisma.auditTrail.findMany({
+      where: { action: 'FILTER_REPLACED', targetType: 'filter', targetId: { in: frontier } },
+      select: { targetId: true, afterValue: true },
+      orderBy: { chainPosition: 'asc' },
+    });
+    const found: string[] = [];
+    for (const r of rows) {
+      const newId = (r.afterValue as { newFilterId?: unknown } | null)?.newFilterId;
+      if (!r.targetId || typeof newId !== 'string') continue; // redacted: the link is lost
+      next.set(r.targetId, newId);
+      if (!seen.has(newId)) { seen.add(newId); found.push(newId); }
+    }
+    frontier = found;
+  }
+  for (const x of execs) {
+    let id = x.newFilterId as string;
+    for (let hops = 0; next.has(id) && hops < 100; hops++) id = next.get(id)!;
+    const credits = out.get(x.entryId) ?? new Map<string, ReplacementCredit>();
+    credits.set(id, { performedAt: x.performedAt, performedByName: x.performedByName });
+    out.set(x.entryId, credits);
+  }
+  return out;
+}
+
+/** The credited filter ids of each entry, as sets (creditedFiltersByEntry). */
+async function creditedIdSets(entryIds: string[]): Promise<Map<string, Set<string>>> {
+  const credits = await creditedFiltersByEntry(entryIds);
+  return new Map([...credits].map(([entryId, m]) => [entryId, new Set(m.keys())]));
+}
+
 /** Replacement progress for a single entry: total AHU filters vs. how many remain. */
 async function ahuReplacementProgress(ahuId: string, entryId: string): Promise<{ total: number; remaining: number }> {
-  const [byAhu, execs] = await Promise.all([
-    activeFilterIdsByAhu([ahuId]),
-    prisma.replacementExecution.findMany({ where: { entryId }, select: { newFilterId: true } }),
-  ]);
+  const [byAhu, credited] = await Promise.all([activeFilterIdsByAhu([ahuId]), creditedIdSets([entryId])]);
   const ids = byAhu.get(ahuId) ?? [];
-  const newIds = new Set(execs.map((x) => x.newFilterId).filter((x): x is string => !!x));
-  const remaining = ids.filter((id) => !newIds.has(id)).length;
+  const remaining = unreplacedAhuFilterIds(ids, credited.get(entryId) ?? new Set()).length;
   return { total: ids.length, remaining };
 }
 
@@ -518,6 +609,17 @@ function deriveTaskStatus(
   if (today > we) return 'MISSED';
   if (today >= ws && today <= we) return remaining < total ? 'IN_PROGRESS' : 'DUE';
   return 'PENDING';
+}
+
+/** Remaining count + status of one entry under the task rule (credited ids from creditedFiltersByEntry). */
+function taskProgress(
+  e: { windowStart: Date; windowEnd: Date },
+  ahuFilterIds: string[],
+  credited: Set<string>,
+  today: string,
+): { remaining: number; computedStatus: string } {
+  const remaining = unreplacedAhuFilterIds(ahuFilterIds, credited).length;
+  return { remaining, computedStatus: deriveTaskStatus(e, remaining, ahuFilterIds.length, today) };
 }
 
 /**
@@ -562,21 +664,11 @@ export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
   if (entries.length === 0) return new Set();
   const ahuIds = [...new Set(entries.map((e) => e.ahuId))];
   const entryIds = entries.map((e) => e.id);
-  const [filtersByAhu, execs] = await Promise.all([
-    activeFilterIdsByAhu(ahuIds),
-    prisma.replacementExecution.findMany({ where: { entryId: { in: entryIds } }, select: { entryId: true, newFilterId: true } }),
-  ]);
-  const newIdsByEntry = new Map<string, Set<string>>();
-  for (const x of execs) {
-    if (!x.newFilterId) continue;
-    const set = newIdsByEntry.get(x.entryId) ?? new Set<string>();
-    set.add(x.newFilterId);
-    newIdsByEntry.set(x.entryId, set);
-  }
+  const [filtersByAhu, creditedByEntry] = await Promise.all([activeFilterIdsByAhu(ahuIds), creditedIdSets(entryIds)]);
   const blocked = new Set<string>();
   for (const e of entries) {
     const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
-    const replaced = newIdsByEntry.get(e.id) ?? new Set<string>();
+    const replaced = creditedByEntry.get(e.id) ?? new Set<string>();
     for (const id of blockedEntryFilterIds(e, ahuFilterIds, replaced, today)) blocked.add(id);
   }
   return blocked;
@@ -594,20 +686,13 @@ export async function isFilterBlockedForCleaning(filterId: string): Promise<bool
     where: { approvalStatus: 'APPROVED', ahuId: filter.parentId },
   });
   if (entries.length === 0) return false;
-  const [filtersByAhu, execs] = await Promise.all([
+  const [filtersByAhu, creditedByEntry] = await Promise.all([
     activeFilterIdsByAhu([filter.parentId]),
-    prisma.replacementExecution.findMany({ where: { entryId: { in: entries.map((e) => e.id) } }, select: { entryId: true, newFilterId: true } }),
+    creditedIdSets(entries.map((e) => e.id)),
   ]);
   const ahuFilterIds = filtersByAhu.get(filter.parentId) ?? [];
-  const newIdsByEntry = new Map<string, Set<string>>();
-  for (const x of execs) {
-    if (!x.newFilterId) continue;
-    const set = newIdsByEntry.get(x.entryId) ?? new Set<string>();
-    set.add(x.newFilterId);
-    newIdsByEntry.set(x.entryId, set);
-  }
   for (const e of entries) {
-    const replaced = newIdsByEntry.get(e.id) ?? new Set<string>();
+    const replaced = creditedByEntry.get(e.id) ?? new Set<string>();
     if (blockedEntryFilterIds(e, ahuFilterIds, replaced, today).includes(filterId)) return true;
   }
   return false;
@@ -631,25 +716,14 @@ export async function listTaskEntries() {
 
   const ahuIds = [...new Set(entries.map((e) => e.ahuId))];
   const entryIds = entries.map((e) => e.id);
-  const [filtersByAhu, allExecs] = await Promise.all([
-    activeFilterIdsByAhu(ahuIds),
-    prisma.replacementExecution.findMany({
-      where: { entryId: { in: entryIds } },
-      select: { entryId: true, newFilterId: true },
-    }),
-  ]);
-  const newIdsByEntry = new Map<string, Set<string>>();
-  for (const x of allExecs) {
-    if (!x.newFilterId) continue;
-    const set = newIdsByEntry.get(x.entryId) ?? new Set<string>();
-    set.add(x.newFilterId);
-    newIdsByEntry.set(x.entryId, set);
-  }
+  const [filtersByAhu, creditedByEntry] = await Promise.all([activeFilterIdsByAhu(ahuIds), creditedIdSets(entryIds)]);
 
   return entries.map((e) => {
     const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
-    const newIds = newIdsByEntry.get(e.id) ?? new Set<string>();
-    const replacedNewFilterIds = [...newIds];
+    const newIds = creditedByEntry.get(e.id) ?? new Set<string>();
+    // The AHU's filters credited to this entry (the tablet drops them from its
+    // "to replace" list); a retired filter is never in it.
+    const replacedNewFilterIds = ahuFilterIds.filter((id) => newIds.has(id));
     const total = ahuFilterIds.length;
     const remaining = unreplacedAhuFilterIds(ahuFilterIds, newIds).length;
     const computedStatus = deriveTaskStatus(e, remaining, total, today);
