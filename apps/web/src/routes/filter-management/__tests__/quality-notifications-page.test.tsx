@@ -14,7 +14,7 @@ usePageTestLifecycle();
 beforeEach(() => { vi.mocked(createReport).mockClear(); vi.mocked(exportToExcel).mockClear(); pdf.addTable.mockClear(); pdf.save.mockClear(); });
 
 const ROWS = [
-  { id: 'q1', qnn: 'QN-2026-000131', action: 'APPROVE', ahuName: 'AHU-1', message: 'PM schedule approved', performedBy: 'u1', performedByName: 'qa1', createdAt: '2026-10-01T09:00:00Z' },
+  { id: 'q1', qnn: 'QN-2026-000131', action: 'APPROVE', ahuName: 'AHU-1', message: 'Approved — AHU-1 (month 10)', performedBy: 'u1', performedByName: 'qa1', createdAt: '2026-10-01T09:00:00Z' },
   { id: 'q2', qnn: 'QN-2026-000132', action: 'LEGACY_X', ahuName: null, message: null, performedBy: null, performedByName: null, createdAt: '2026-10-02T09:00:00Z' },
 ];
 const resp = (data: any[], total = data.length) => ({ data, total, page: 1, limit: 25, totalPages: Math.max(1, Math.ceil(total / 25)) });
@@ -44,8 +44,11 @@ describe('Quality Notifications page', () => {
     renderPage(<QualityNotificationsPage />, { user: role('QA', ['PM_READ']), api });
     expect(await screen.findByText('QN-2026-000131')).toBeInTheDocument();
     const r1 = screen.getByText('QN-2026-000131').closest('tr')!;
-    expect(r1).toHaveTextContent('APPROVE');
-    expect(r1).toHaveTextContent('PM schedule approved');
+    // Plain language (2026-10-24): the action is a word, and a message stored in
+    // the old short-code form is shown reworded (lib/qnn-message.ts).
+    expect(r1).toHaveTextContent('Approved');
+    expect(r1).toHaveTextContent('PM visit for AHU-1 in October approved.');
+    expect(r1).not.toHaveTextContent('(month 10)');
     expect(r1).toHaveTextContent('qa1');
     const r2 = screen.getByText('QN-2026-000132').closest('tr')!;
     expect(within(r2).getAllByText('—')).toHaveLength(3);
@@ -100,7 +103,7 @@ describe('Quality Notifications page', () => {
     const arg = vi.mocked(exportToExcel).mock.calls[0][0];
     expect(arg.sheetName).toBe('QNN');
     expect(arg.head).toEqual(['S.No', 'QNN', 'Action', 'AHU', 'Message', 'By', 'Date & Time']);
-    expect(arg.rows[0].slice(0, 6)).toEqual(['1', 'QN-2026-000131', 'APPROVE', 'AHU-1', 'PM schedule approved', 'qa1']);
+    expect(arg.rows[0].slice(0, 6)).toEqual(['1', 'QN-2026-000131', 'Approved', 'AHU-1', 'PM visit for AHU-1 in October approved.', 'qa1']);
     expect(arg.rows[1].slice(0, 6)).toEqual(['2', 'QN-2026-000132', 'LEGACY_X', '-', '-', '-']);
   });
 

@@ -253,7 +253,7 @@ describe('QNNs for the filter workflow', () => {
     const id = created.body.data.id as string;
     minted.push(id);
     const c = await qnnOf(id, 'UPLOAD');
-    expect(c.row).toMatchObject({ ahuName, message: `Filter created (pending review) — ${own.n('Q-1')}`, performedBy: up.id });
+    expect(c.row).toMatchObject({ ahuName, message: `Filter ${own.n('Q-1')} created. Waiting for review.`, performedBy: up.id });
     expect(c.row!.qnn).toMatch(/^QN-\d{4}-\d{6}$/);
     expect(c.note).toMatchObject({ forRole: rv.role });
     expect(c.note!.metadata).toMatchObject({ filterId: id, subject: 'Filter', action: 'UPLOAD' });
@@ -261,12 +261,12 @@ describe('QNNs for the filter workflow', () => {
     const reviewed = await rv.call('POST', '/api/assets/instances/review', { body: { filterIds: [id], remarks: 'checked' } });
     expect(reviewed.body.qnns).toHaveLength(1);
     const r = await qnnOf(id, 'REVIEW');
-    expect(r.row).toMatchObject({ qnn: reviewed.body.qnns[0], message: `Filter reviewed (pending approval) — ${own.n('Q-1')}` });
+    expect(r.row).toMatchObject({ qnn: reviewed.body.qnns[0], message: `Filter ${own.n('Q-1')} reviewed. Sent for approval.` });
     expect(r.note).toMatchObject({ forRole: ap.role });
 
     const approved = await ap.call('POST', '/api/assets/instances/approve', { body: { filterIds: [id], remarks: 'released' } });
     const a = await qnnOf(id, 'APPROVE');
-    expect(a.row).toMatchObject({ qnn: approved.body.qnns[0], message: `Filter approved (can now be cleaned) — ${own.n('Q-1')}` });
+    expect(a.row).toMatchObject({ qnn: approved.body.qnns[0], message: `Filter ${own.n('Q-1')} approved. It can now be cleaned.` });
     expect(a.note!.forRole).toBeNull();
   });
 
@@ -276,10 +276,10 @@ describe('QNNs for the filter workflow', () => {
     minted.push(id);
     const rejected = await rv.call('POST', '/api/assets/instances/reject', { body: { filterIds: [id], remarks: 'wrong size' } });
     expect(rejected.status).toBe(200);
-    expect((await qnnOf(id, 'REJECT')).row).toMatchObject({ qnn: rejected.body.qnns[0], message: `Filter rejected at review — ${own.n('Q-RJ')}` });
+    expect((await qnnOf(id, 'REJECT')).row).toMatchObject({ qnn: rejected.body.qnns[0], message: `Filter ${own.n('Q-RJ')} rejected at review. Reason: wrong size.` });
     const res = await up.call('POST', `/api/assets/instances/${id}/resubmit`);
     const s = await qnnOf(id, 'RESUBMIT');
-    expect(s.row).toMatchObject({ qnn: res.body.qnn, message: `Filter resubmitted (pending review) — ${own.n('Q-RJ')}` });
+    expect(s.row).toMatchObject({ qnn: res.body.qnn, message: `Filter ${own.n('Q-RJ')} resubmitted. Waiting for review.` });
     expect(s.note).toMatchObject({ forRole: rv.role });
   });
 
@@ -301,9 +301,9 @@ describe('QNNs for the filter workflow', () => {
     minted.push(...rows.map((x) => x.id));
     const q = await Promise.all(rows.map((x) => qnnOf(x.id, 'UPLOAD')));
     // Both filters sit under one AHU, so the tag counts filters and does not list AHUs (as for PM).
-    expect(q[0].row!.message.startsWith(`Filter uploaded (pending review) — ${own.n('QB-1')} [batch B-`)).toBe(true);
-    expect(q[0].row!.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2\]$/);
-    expect(q[1].row!.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2\]$/);
+    expect(q[0].row!.message.startsWith(`Filter ${own.n('QB-1')} uploaded. Waiting for review. Batch B-`)).toBe(true);
+    expect(q[0].row!.message).toMatch(/ Batch B-[0-9A-F]{6}: [12] of 2\.$/);
+    expect(q[1].row!.message).toMatch(/ Batch B-[0-9A-F]{6}: [12] of 2\.$/);
     expect(q[0].row!.message.match(/B-[0-9A-F]{6}/)![0]).toBe(q[1].row!.message.match(/B-[0-9A-F]{6}/)![0]);
   });
 
@@ -311,7 +311,7 @@ describe('QNNs for the filter workflow', () => {
     const created = await sa.call('POST', '/api/hierarchy/filters', { body: { name: own.n('Q-SA'), ahuId } });
     const id = created.body.data.id as string;
     minted.push(id);
-    expect((await qnnOf(id, 'UPLOAD')).row!.message).toBe(`Filter created (approved at once, Super Admin) — ${own.n('Q-SA')}`);
+    expect((await qnnOf(id, 'UPLOAD')).row!.message).toBe(`Filter ${own.n('Q-SA')} created. Approved at once (Super Admin).`);
   });
 
   it('with the workflow OFF a new filter mints no QNN', async () => {

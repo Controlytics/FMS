@@ -24,15 +24,16 @@ import { generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from '../pm-
 import { getFilterWorkflowConfig } from './filter-workflow.js';
 
 /**
- * Mint one QNN per filter for `action`. `note` is the opening of the message
- * ("Filter approved"); it may depend on the filter (a reject names its step).
- * Returns the QNN numbers in the order of `filters`.
+ * Mint one QNN per filter for `action`. `happened` completes the plain-language
+ * message "Filter <name> <happened>" ("approved. It can now be cleaned."); it may
+ * depend on the filter (a reject names its step). Returns the QNN numbers in the
+ * order of `filters`.
  */
 export async function mintFilterQnns(
   action: QnnAction,
   filters: ReadonlyArray<{ id: string; name: string }>,
   ctx: RequestContext,
-  note: string | ((f: { id: string; name: string }) => string),
+  happened: string | ((f: { id: string; name: string }) => string),
 ): Promise<string[]> {
   if (filters.length === 0) return [];
   const cfg = await getFilterWorkflowConfig();
@@ -51,7 +52,7 @@ export async function mintFilterQnns(
   const qnns: string[] = [];
   for (const [i, f] of filters.entries()) {
     const ahuName = ahuOf.get(f.id) ?? null;
-    const opening = typeof note === 'function' ? note(f) : note;
+    const what = typeof happened === 'function' ? happened(f) : happened;
     qnns.push(await generateQnn(action, {
       pmScheduleEntryId: f.id, // soft uuid column: holds the FILTER id (see the header)
       scheduleId: null,
@@ -59,15 +60,15 @@ export async function mintFilterQnns(
       subject: 'Filter',
       filterId: f.id,
       route: { reviewRole: cfg.reviewRole, approvalRole: cfg.approvalRole },
-      message: `${opening} — ${f.name}${qnnBatchTag(batchRef, i + 1, filters.length, batchAhus)}`,
+      message: `Filter ${f.name} ${what}${qnnBatchTag(batchRef, i + 1, filters.length, batchAhus)}`,
     }, ctx));
   }
   return qnns;
 }
 
-/** The opening of a create / upload / resubmit QNN, by the status the filter now has. */
+/** "created. Waiting for review." — a create / upload / resubmit QNN, by the status the filter now has. */
 export function filterSubmissionNote(verb: 'created' | 'uploaded' | 'resubmitted', status: string): string {
   return status === 'APPROVED'
-    ? `Filter ${verb} (approved at once, Super Admin)`
-    : `Filter ${verb} (pending review)`;
+    ? `${verb}. Approved at once (Super Admin).`
+    : `${verb}. Waiting for review.`;
 }

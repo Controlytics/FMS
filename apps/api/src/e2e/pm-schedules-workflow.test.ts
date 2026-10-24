@@ -20,6 +20,7 @@ import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { formatConfiguredDate } from '../lib/format-datetime.js';
 import pmScheduleRoutes from '../modules/pm-schedules/routes.js';
 import {
   PmFixture, installConfigOverrides, defaultPmConfig, iso, DAY, type ConfigOverrides,
@@ -188,7 +189,8 @@ describe('review → approve (workflow ON)', () => {
     }
     const [qa] = await qnnsFor(a.id);
     expect(qa).toMatchObject({ action: 'REVIEW', ahuName: W1 });
-    expect(qa.message).toMatch(new RegExp(`^Reviewed \\(sent for approval\\) — ${W1} \\(month 1\\) \\[batch B-[0-9A-F]{6}, 1 of 3 across ${W1}, ${W2.replace(/[-=]/g, (c) => `\\${c}`)}\\]$`));
+    // Plain language (2026-10-24): "PM visit for <AHU> on <date> reviewed. Sent for approval. Batch …".
+    expect(qa.message).toMatch(new RegExp(`^PM visit for ${W1} on \\S+ reviewed\\. Sent for approval\\. Batch B-[0-9A-F]{6}: 1 of 3 \\(${W1}, ${W2.replace(/[-=]/g, (c) => `\\${c}`)}\\)\\.$`));
     // A REVIEW QNN routes to the approver.
     const note = await prisma.notification.findFirst({ where: { type: 'PM_SCHEDULE_QNN', createdBy: u.rev.username } });
     expect(note?.forRole).toBe(APR);
@@ -204,7 +206,7 @@ describe('review → approve (workflow ON)', () => {
     }
     expect((await get(legacy.id)).approvalStatus).toBe('PENDING_APPROVAL');
     const approveQnn = (await qnnsFor(b.id)).find((q) => q.action === 'APPROVE');
-    expect(approveQnn?.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2 across /);
+    expect(approveQnn?.message).toMatch(/ Batch B-[0-9A-F]{6}: [12] of 2 \(/);
   });
 
   it('approve reports entries that are not awaiting approval instead of touching them', async () => {
@@ -301,7 +303,7 @@ describe('workflow OFF (legacy single step)', () => {
     const appr = await call('POST', '/entries/approve', 'apr', { entryIds: [p1.id], comment: 'approved' });
     expect(appr.json().results).toEqual([`${p1.id}: approved`]);
     // A single-entry action carries no batch tag.
-    expect((await qnnsFor(p1.id)).find((q) => q.action === 'APPROVE')?.message).toBe(`Approved — ${W2} (month ${p1.month})`);
+    expect((await qnnsFor(p1.id)).find((q) => q.action === 'APPROVE')?.message).toBe(`PM visit for ${W2} on ${await formatConfiguredDate(p1.plannedDate)} approved.`);
 
     const rej = await call('POST', '/entries/reject', 'apr', { entryIds: [p2.id], remarks: 'not this year' });
     expect(rej.statusCode).toBe(200);
@@ -456,7 +458,7 @@ describe('reviewer modifies an entry awaiting review', () => {
     expect(audit.beforeValue).toEqual({ plannedDate: e.plannedDate.toISOString(), toleranceDays: 1 });
     expect(audit.afterValue).toEqual({ plannedDate: iso(target), toleranceDays: 0 });
     // Modified-at-review QNN: an EDIT, routed back to the review role.
-    expect((await qnnsFor(e.id))[0].message).toMatch(/^Modified at review — /);
+    expect((await qnnsFor(e.id))[0].message).toMatch(/^PM visit for .+ changed at review to \S+\.$/);
   });
 
   it('refuses entries not awaiting review, unknown ids, bad dates and overlaps', async () => {
@@ -492,7 +494,7 @@ describe('an entry whose AHU no longer exists', () => {
     expect(res.json().qnns).toHaveLength(2);
     const [q] = await qnnsFor(ghostEntry);
     expect(q).toMatchObject({ action: 'REJECT', ahuName: '?' });
-    expect(q.message).toMatch(/^Rejected at approval — \? \(month \d+\) \[batch B-[0-9A-F]{6}, [12] of 2 across .+\]$/);
+    expect(q.message).toMatch(/^PM visit for \? on \S+ rejected at approval\. Reason: AHU decommissioned\. Batch B-[0-9A-F]{6}: [12] of 2 \(.+\)\.$/);
     expect((await get(ghostEntry)).approvalStatus).toBe('REJECTED');
   });
 

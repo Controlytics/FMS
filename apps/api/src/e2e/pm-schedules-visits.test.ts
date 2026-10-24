@@ -216,7 +216,7 @@ describe('POST /visits — adding a visit', () => {
     const e = entries.find((x: any) => iso(x.plannedDate) === `${YEAR}-04-04`)!;
     expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: u.upl.id, submittedByName: u.upl.username, approvedBy: null, approvedAt: null });
     const qnn = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: e.id } });
-    expect(qnn?.message).toContain('(pending review)');
+    expect(qnn?.message).toContain('Waiting for review.');
   });
 
   // 2026-10-24 (operator: a Super Admin's own work is not held). Until then this

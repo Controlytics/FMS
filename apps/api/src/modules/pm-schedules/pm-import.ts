@@ -19,6 +19,7 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { checkPmEnabled, readPmSettings } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag } from './pm-workflow.js';
+import { qnnDay, qnnNextStep } from './qnn-message.js';
 import { checkSeparation } from './pm-separation.js';
 import { submissionApprovalFields, pmReviewSkippedBySuperAdmin } from './pm-submission.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
@@ -418,7 +419,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
   let qnn: string | null = null;
   const qnns: string[] = [];
   // The real status, not the switch: a Super Admin's own upload is approved at once (2026-10-24).
-  const pendingSuffix = approvalFields.approvalStatus === 'PENDING_REVIEW' ? ' (pending review)' : '';
+  const nextStep = qnnNextStep(approvalFields.approvalStatus, ctx.userRole);
   // One shared reference across every entry of this upload, so the whole batch —
   // and therefore every AHU it covered — can be recovered from any one row.
   const batchRef = imported.length > 1 ? newQnnBatchRef() : null;
@@ -429,7 +430,7 @@ export async function importSchedules(ctx: RequestContext, rows: Array<Record<st
       pmScheduleEntryId: entry.entryId || null,
       scheduleId: entry.scheduleId,
       ahuName: entry.ahuName,
-      message: `Uploaded — ${entry.ahuName} (${entry.plannedDate})${pendingSuffix}`
+      message: `PM visit for ${entry.ahuName} on ${await qnnDay(entry.plannedDate)} uploaded.${nextStep}`
         + qnnBatchTag(batchRef, i + 1, imported.length, batchAhus),
     }, ctx));
   }

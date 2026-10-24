@@ -140,7 +140,7 @@ describe('review step', () => {
     expect(await get(id)).toMatchObject({ approvalStatus: 'PENDING_APPROVAL', reviewedBy: ids.rev, reviewedByName: U.rev, reviewRemarks: 'looks right' });
     const q = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: id } });
     expect(q).toMatchObject({ action: 'REVIEW', scheduleId, ahuName: `cvoW${S}-AHU` });
-    expect(q!.message).toBe(`Reviewed (sent for approval) — cvoW${S}-AHU · 610x610x150 · 10µ · qty 2`);
+    expect(q!.message).toMatch(new RegExp(`^Filter replacement for cvoW${S}-AHU \\(2 filters, 10 micron, size 610x610x150, due \\S+\\) reviewed\\. Sent for approval\\.$`));
     const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetId: id } });
     expect(a!.afterValue).toMatchObject({ name: `AHU: cvoW${S}-AHU · Size: 610x610x150 · Micron: 10µ · Qty: 2`, filterMicron: '10', qty: 2 });
   });
@@ -155,7 +155,7 @@ describe('review step', () => {
     const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetId: id } });
     expect((a!.afterValue as any).name).toBe(`AHU: cvoW${S}-AHU · Qty: 2`);
     const q = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: id } });
-    expect(q!.message).toBe(`Reviewed (sent for approval) — cvoW${S}-AHU · qty 2`);
+    expect(q!.message).toMatch(new RegExp(`^Filter replacement for cvoW${S}-AHU \\(2 filters, due \\S+\\) reviewed\\. Sent for approval\\.$`));
   });
 
   it('reject needs remarks (>= 3 chars after trim); with them → REJECTED at REVIEW', async () => {
@@ -240,7 +240,7 @@ describe('approval step', () => {
     const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_APPROVED', targetId: a } });
     expect(audit!.afterValue).toMatchObject({ comment: 'ok to run' });
     const qnns = (await prisma.qualityNotification.findMany({ where: { pmScheduleEntryId: { in: [a, b] }, action: 'APPROVE' } })).map((q) => q.message);
-    expect(qnns.every((m) => /\[batch B-[0-9A-F]{6}, [12] of 2/.test(m ?? ''))).toBe(true);
+    expect(qnns.every((m) => / Batch B-[0-9A-F]{6}: [12] of 2/.test(m ?? ''))).toBe(true);
   });
 
   it('an approval needs remarks, refused before the signature (D03-13); they are stored trimmed', async () => {
@@ -315,7 +315,7 @@ describe('resubmit + reviewer edit', () => {
     const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetId: rej } });
     expect(a!.afterValue).toMatchObject({ scheduleDate: date, toleranceDays: 2 });
     expect(a!.afterValue).not.toHaveProperty('superAdminExemptGates');
-    expect((await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: rej, action: 'RESUBMIT' } }))!.message).toMatch(/^Resubmitted — /);
+    expect((await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: rej, action: 'RESUBMIT' } }))!.message).toMatch(/^Filter replacement for .+ resubmitted\. Waiting for review\.$/);
   });
 
   // 2026-10-24 (operator: a Super Admin's own work is not held).

@@ -368,7 +368,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     const qnn = await prisma.qualityNotification.findMany({ where: { scheduleId: body.scheduleId } });
     expect(qnn).toHaveLength(1);
     expect(qnn[0]).toMatchObject({ action: 'UPLOAD', performedBy: ids.up });
-    expect(qnn[0].message).toBe('Uploaded replacement schedule (2 entries) — pending review');
+    expect(qnn[0].message).toBe('Replacement schedule uploaded with 2 rows. Waiting for review.');
   });
 
   // 2026-10-24 (operator: a Super Admin's own work is not held, lib/super-admin-own-work.ts).
@@ -382,7 +382,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
       const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_UPLOADED', targetId: res.json().scheduleId } });
       expect(audit!.afterValue).toMatchObject({ entries: 1, superAdminExemptGates: ['REPLACEMENT_REVIEW'] });
       const qnn = await prisma.qualityNotification.findFirst({ where: { scheduleId: res.json().scheduleId } });
-      expect(qnn!.message).toBe('Uploaded replacement schedule (1 entry)');
+      expect(qnn!.message).toBe('Replacement schedule uploaded with 1 row. Approved at once (Super Admin).');
     } finally {
       await setApproval({ workflowEnabled: true, uploadRole: [ROLE_UP], reviewRole: '', approvalRole: '' });
     }
@@ -408,7 +408,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
       const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_UPLOADED', targetId: res.json().scheduleId } });
       expect(audit!.reason).toBe('Uploaded replacement schedule with 1 entry');
       const qnn = await prisma.qualityNotification.findFirst({ where: { scheduleId: res.json().scheduleId } });
-      expect(qnn!.message).toBe('Uploaded replacement schedule (1 entry)');
+      expect(qnn!.message).toBe('Replacement schedule uploaded with 1 row. Approved at once (Super Admin).');
     } finally {
       await setApproval({ workflowEnabled: true, uploadRole: [ROLE_UP], reviewRole: '', approvalRole: '' });
     }

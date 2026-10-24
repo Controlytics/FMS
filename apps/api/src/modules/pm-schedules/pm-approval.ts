@@ -19,6 +19,7 @@ import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatc
 import { assertSeparation, assertBatchSeparation } from './pm-separation-guard.js';
 import { pmReviewSkippedBySuperAdmin } from './pm-submission.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
+import { qnnDay, qnnReason, qnnNextStep } from './qnn-message.js';
 import { syncDeviationWithVisit } from './pm-deviations.js';
 
 const MS_DAY = 86400000;
@@ -38,14 +39,32 @@ async function ahuNameByEntry(entries: { id: string; schedule?: { entityId?: str
   return out;
 }
 
-async function mintQnn(action: QnnAction, entry: any, ahuName: string, ctx: RequestContext, note: string, batchTag = '') {
+/** `sentence` is the plain-language message (qnn-message.ts); `batchTag` is '' for a single-entry action. */
+async function mintQnn(action: QnnAction, entry: any, ahuName: string, ctx: RequestContext, sentence: string, batchTag = '') {
   return generateQnn(action, {
     pmScheduleEntryId: entry.id,
     scheduleId: entry.scheduleId,
     ahuName,
-    // `batchTag` is '' for a single-entry action; see qnnBatchTag.
-    message: `${note} — ${ahuName} (month ${entry.month})${batchTag}`,
+    message: `${sentence}${batchTag}`,
   }, ctx);
+}
+
+/**
+ * What a PM QNN is about: the visit ("PM visit for CWH/RDU on 08/10/2026"), or
+ * its staged date change ("Date change for CWH/RDU PM visit (21/10/2026 to
+ * 02/10/2026)") when one is pending.
+ */
+async function pmSubject(entry: { plannedDate: Date; pendingPlannedDate?: Date | null }, ahuName: string): Promise<string> {
+  if (entry.pendingPlannedDate) {
+    return `Date change for ${ahuName} PM visit (${await qnnDay(entry.plannedDate)} to ${await qnnDay(entry.pendingPlannedDate)})`;
+  }
+  return `PM visit for ${ahuName} on ${await qnnDay(entry.plannedDate)}`;
+}
+
+/** A rejection: a staged change is dropped and the visit keeps its date. */
+async function pmRejected(entry: { plannedDate: Date; pendingPlannedDate?: Date | null }, ahuName: string, step: 'review' | 'approval', remarks: string): Promise<string> {
+  const keeps = entry.pendingPlannedDate ? ` The visit stays on ${await qnnDay(entry.plannedDate)}.` : '';
+  return `${await pmSubject(entry, ahuName)} rejected at ${step}.${keeps}${qnnReason(remarks)}`;
 }
 
 /** List schedule entries with workflow status for the PM Schedules table. */
@@ -224,7 +243,7 @@ export async function reviewEntries(
           reviewRemarks: remarks,
         },
       });
-      qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, 'Reviewed (sent for approval)',
+      qnns.push(await mintQnn('REVIEW', entry, ahuName, ctx, `${await pmSubject(entry, ahuName)} reviewed. Sent for approval.`,
         qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEWED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { remarks, ahuName }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     } else {
@@ -232,8 +251,7 @@ export async function reviewEntries(
         where: { id: entry.id },
         data: rejectionUpdate(entry, 'REVIEW', remarks!.trim(), ctx),
       });
-      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx,
-        entry.pendingPlannedDate != null ? 'Change rejected at review (visit stays approved)' : 'Rejected at review',
+      qnns.push(await mintQnn('REJECT', entry, ahuName, ctx, await pmRejected(entry, ahuName, 'review', remarks!),
         qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: rejectionAudit(entry, 'REVIEW', remarks!.trim()), ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     }
@@ -314,7 +332,11 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
         } : {}),
       },
     });
-    qnns.push(await mintQnn('APPROVE', entry, ahuNames.get(entry.id) ?? '?', ctx, 'Approved',
+    const approvedAhu = ahuNames.get(entry.id) ?? '?';
+    const approvedNote = hasPendingEdit
+      ? `${await pmSubject(entry, approvedAhu)} approved. The visit is now on ${await qnnDay(newPlannedDate)}.`
+      : `${await pmSubject(entry, approvedAhu)} approved.`;
+    qnns.push(await mintQnn('APPROVE', entry, approvedAhu, ctx, approvedNote,
       qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_APPROVED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: { comment, hasPendingEdit, ahuName: ahuNames.get(entry.id) ?? '?' }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     // The approved date change is live: the visit's deviation follows it
@@ -362,7 +384,7 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
       data: rejectionUpdate(entry, 'APPROVAL', remarks.trim(), ctx),
     });
     qnns.push(await mintQnn('REJECT', entry, ahuNames.get(entry.id) ?? '?', ctx,
-      entry.pendingPlannedDate != null ? 'Change rejected at approval (visit stays approved)' : 'Rejected at approval',
+      await pmRejected(entry, ahuNames.get(entry.id) ?? '?', 'approval', remarks),
       qnnBatchTag(batchRef, qnns.length + 1, batchTotal, batchAhus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REJECTED', targetType: 'pm_schedule_entry', targetId: entry.id, afterValue: rejectionAudit(entry, 'APPROVAL', remarks.trim()), ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
@@ -421,7 +443,8 @@ export async function resubmitEntry(
     },
   });
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
-  const qnn = await mintQnn('RESUBMIT', entry, ahuName, ctx, 'Resubmitted');
+  const qnn = await mintQnn('RESUBMIT', entry, ahuName, ctx,
+    `PM visit for ${ahuName} resubmitted for ${await qnnDay(planned)}.${qnnNextStep(nextStatus, ctx.userRole)}`);
 
   await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_RESUBMITTED', targetType: 'pm_schedule_entry', targetId: entryId, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol, approvalStatus: nextStatus, ...superAdminExemptionFields(saOwn ? ['PM_REVIEW'] : []) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
@@ -478,7 +501,8 @@ export async function editApprovedEntry(
       },
     });
     const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
-    const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Edited (applied at once, Super Admin)');
+    const qnn = await mintQnn('EDIT', entry, ahuName, ctx,
+      `PM visit for ${ahuName} moved from ${await qnnDay(entry.plannedDate)} to ${await qnnDay(planned)}. Applied at once (Super Admin).`);
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_EDIT_REQUESTED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol, appliedAtOnce: true, ...superAdminExemptionFields(['PM_REVIEW']) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     // Live at once, so the visit's deviation follows the new date now.
     await syncDeviationWithVisit(applied, ctx, { movedBy: ctx.userId });
@@ -502,7 +526,8 @@ export async function editApprovedEntry(
     },
   });
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
-  const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Edit requested');
+  const qnn = await mintQnn('EDIT', entry, ahuName, ctx,
+    `Date change requested for ${ahuName} PM visit: ${await qnnDay(entry.plannedDate)} to ${await qnnDay(planned)}.${qnnNextStep(nextStatus, ctx.userRole)}`);
 
   await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_EDIT_REQUESTED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { pendingPlannedDate: data.plannedDate, pendingToleranceDays: data.toleranceDays ?? entry.toleranceDays }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
@@ -550,7 +575,9 @@ export async function modifyReviewEntry(
     },
   });
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
-  const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Modified at review');
+  const qnn = await mintQnn('EDIT', entry, ahuName, ctx, isEdit
+    ? `Date change for ${ahuName} PM visit changed at review to ${await qnnDay(planned)}.`
+    : `PM visit for ${ahuName} changed at review to ${await qnnDay(planned)}.`);
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_REVIEW_MODIFIED', targetType: 'pm_schedule_entry', targetId: entryId,
     beforeValue: isEdit

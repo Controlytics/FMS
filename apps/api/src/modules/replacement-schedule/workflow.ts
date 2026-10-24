@@ -12,6 +12,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from '../pm-schedules/pm-workflow.js';
+import { qnnDay, qnnReason, qnnNextStep, qnnCount } from '../pm-schedules/qnn-message.js';
 import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 const MS_DAY = 86400000;
@@ -41,16 +42,27 @@ const entryDetail = (e: any) => ({
   qty: e.qty,
 });
 
-async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, note: string, batchTag = '') {
+/**
+ * "Filter replacement for CWH/RDU (3 filters, 15 micron, size 610x610x150, due
+ * 15/10/2026) <what happened>" — the plain-language QNN message (qnn-message.ts).
+ * `entry` is the row as it now stands, so a resubmit / review edit names the new date.
+ */
+async function mintQnn(action: QnnAction, entry: any, ctx: RequestContext, happened: string, batchTag = '') {
   // Tagged for the REPLACEMENT workflow's roles, not PM's (2026-10-24).
   const cfg = await getReplacementWorkflowConfig();
+  const spec = [
+    qnnCount(entry.qty, 'filter'),
+    entry.filterMicron ? `${entry.filterMicron} micron` : null,
+    entry.filterSize ? `size ${entry.filterSize}` : null,
+    entry.scheduleDate ? `due ${await qnnDay(entry.scheduleDate)}` : null,
+  ].filter(Boolean).join(', ');
   return generateQnn(action, {
     pmScheduleEntryId: entry.id, // soft uuid column; holds the replacement entry id
     scheduleId: entry.scheduleId,
     ahuName: entry.ahuName,
     subject: 'Replacement Schedule',
     route: { reviewRole: cfg.reviewRole, approvalRole: cfg.approvalRole },
-    message: `${note} — ${entry.ahuName}${entry.filterSize ? ` · ${entry.filterSize}` : ''}${entry.filterMicron ? ` · ${entry.filterMicron}µ` : ''} · qty ${entry.qty}${batchTag}`,
+    message: `Filter replacement for ${entry.ahuName} (${spec}) ${happened}${batchTag}`,
   }, ctx);
 }
 
@@ -99,14 +111,14 @@ export async function reviewEntries(ctx: RequestContext, entryIds: string[], act
         where: { id: entry.id },
         data: { approvalStatus: 'PENDING_APPROVAL', reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date(), reviewRemarks: remarks },
       });
-      qnns.push(await mintQnn('REVIEW', entry, ctx, 'Reviewed (sent for approval)', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
+      qnns.push(await mintQnn('REVIEW', entry, ctx, 'reviewed. Sent for approval.', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REVIEWED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), remarks }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     } else {
       await prisma.replacementScheduleEntry.update({
         where: { id: entry.id },
         data: { approvalStatus: 'REJECTED', rejectionStage: 'REVIEW', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(), approvalRemarks: remarks!.trim() },
       });
-      qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at review', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
+      qnns.push(await mintQnn('REJECT', entry, ctx, `rejected at review.${qnnReason(remarks)}`, qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
       await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REJECTED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), stage: 'REVIEW', remarks: remarks!.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
     }
   }
@@ -129,7 +141,7 @@ export async function approveEntries(ctx: RequestContext, entryIds: string[], co
       where: { id: entry.id },
       data: { approvalStatus: 'APPROVED', approvalRemarks: comment, approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(), rejectionStage: null, rejectedBy: null, rejectedByName: null, rejectedAt: null },
     });
-    qnns.push(await mintQnn('APPROVE', entry, ctx, 'Approved', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
+    qnns.push(await mintQnn('APPROVE', entry, ctx, 'approved.', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_APPROVED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), comment }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
   return { processed: qnns.length, qnns };
@@ -151,7 +163,7 @@ export async function rejectEntries(ctx: RequestContext, entryIds: string[], rem
       where: { id: entry.id },
       data: { approvalStatus: 'REJECTED', rejectionStage: 'APPROVAL', rejectedBy: ctx.userSub, rejectedByName: ctx.userId, rejectedAt: new Date(), approvalRemarks: remarks.trim() },
     });
-    qnns.push(await mintQnn('REJECT', entry, ctx, 'Rejected at approval', qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
+    qnns.push(await mintQnn('REJECT', entry, ctx, `rejected at approval.${qnnReason(remarks)}`, qnnBatchTag(batch.ref, qnns.length + 1, batch.total, batch.ahus)));
     await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REJECTED', targetType: 'replacement_schedule_entry', targetId: entry.id, afterValue: { ...entryDetail(entry), stage: 'APPROVAL', remarks: remarks.trim() }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   }
   return { processed: qnns.length, qnns };
@@ -180,7 +192,7 @@ export async function resubmitEntry(ctx: RequestContext, entryId: string, data: 
       submittedBy: ctx.userSub, submittedByName: ctx.userId,
     },
   });
-  const qnn = await mintQnn('RESUBMIT', entry, ctx, 'Resubmitted');
+  const qnn = await mintQnn('RESUBMIT', updated, ctx, `resubmitted.${qnnNextStep(updated.approvalStatus, ctx.userRole)}`);
   await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetType: 'replacement_schedule_entry', targetId: entryId, afterValue: { ...entryDetail(entry), scheduleDate: data.scheduleDate, toleranceDays: tol, ...superAdminExemptionFields(reviewSkipped ? ['REPLACEMENT_REVIEW'] : []) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
 }
@@ -200,7 +212,7 @@ export async function modifyReviewEntry(ctx: RequestContext, entryId: string, da
     where: { id: entryId },
     data: { scheduleDate: planned, toleranceDays: tol, windowStart, windowEnd, ...(data.qty != null ? { qty: data.qty } : {}), reviewedBy: ctx.userSub, reviewedByName: ctx.userId, reviewedAt: new Date() },
   });
-  const qnn = await mintQnn('EDIT', entry, ctx, 'Modified at review');
+  const qnn = await mintQnn('EDIT', updated, ctx, 'changed at review.');
   await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_REVIEW_MODIFIED', targetType: 'replacement_schedule_entry', targetId: entryId, afterValue: { ...entryDetail(entry), scheduleDate: data.scheduleDate, toleranceDays: tol }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
 }

@@ -135,6 +135,19 @@ clean-machine install, Super Admin probe session and the performance / endurance
   selection with one signature. It used to replace the scanned filter at once. A scan names the reason when it
   cannot select: unknown tag, not a filter, another AHU, already replaced for this task, not approved, or the
   remaining count reached.
+- **Quality Notifications in plain language (operator: "show message content properly — basic, human readable,
+  simple, understandable").** Messages were short codes that named no date: "Edited (applied at once, Super Admin)
+  — CWH/RDU (month 10)", "Uploaded — X (2026-10-08) (pending review) [batch B-FEE70F, 3 of 3 across …]",
+  "Approved — X · 610x610x150 · 15µ · qty 3". Every QNN is now written as short sentences — what it is about, the
+  AHU and date, what happened, what happens next, and the reason for a rejection: "PM visit for CWH/RDU moved from
+  21/10/2026 to 02/10/2026. Applied at once (Super Admin).", "Filter replacement for CWH/RDU (3 filters, 15
+  micron, size 610x610x150, due 15/10/2026) rejected at review. Reason: wrong size.", "Filter F-1 approved. It can
+  now be cleaned." A bulk action ends "Batch B-FEE70F: 1 of 3 (CWH/RDU, CWH/AHU-01, CWH/AHU-02)."
+  (`pm-schedules/qnn-message.ts`, `qnnBatchTag`; PM, replacement and filter call sites). "Approved at once (Super
+  Admin)" only when it was one (with the workflow off anyone's upload is approved at once). Rows stored before
+  keep their text; the page and its PDF / Excel export reword them (`lib/qnn-message.ts`, every stored shape;
+  anything unrecognised is shown as stored), the Action column says "Approved" not APPROVE, and the subtitle no
+  longer claims QNNs come only from PM. The Notifications center gets the new sentences for new QNNs.
 - **A deviation follows its visit's date (operator: "deviations are not updating as per PM schedule date
   change"; decision "Update the same deviation").** CWH/RDU was moved 8 Oct → 21 Oct (deviation closed
   RESCHEDULED) → 2 Oct, already past: the visit was overdue again but its one deviation stayed closed, and the

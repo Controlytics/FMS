@@ -2,7 +2,7 @@
  * Replacement schedule — bulk review/approve and task execution guards (2026-10-08).
  *
  *  - Bulk review / approve process every actionable entry in one call, each
- *    with its own QNN tagged "[batch B-…, n of N …]" (parity with PM).
+ *    with its own QNN tagged "Batch B-…: n of N …" (parity with PM).
  *  - Segregation of duties by USER: the uploader may not review or approve
  *    their own entries, the reviewer may not approve. One own entry refuses the
  *    WHOLE batch before anything is written (SELF_APPROVAL_FORBIDDEN).
@@ -78,7 +78,7 @@ describe('bulk review / approve', () => {
     expect(rows.every((e) => e.approvalStatus === 'APPROVED')).toBe(true);
     const msgs = (await qnnMessages(ids)).map((m) => m.message ?? '');
     expect(msgs).toHaveLength(6);
-    expect(msgs.filter((m) => /\[batch B-[0-9A-F]{6}, [123] of 3/.test(m))).toHaveLength(6);
+    expect(msgs.filter((m) => / Batch B-[0-9A-F]{6}: [123] of 3/.test(m))).toHaveLength(6);
   });
 
   it('skips entries that are not at the step (partial success)', async () => {

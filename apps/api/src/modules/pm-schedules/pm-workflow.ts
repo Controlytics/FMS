@@ -129,9 +129,10 @@ export function newQnnBatchRef(): string {
 const BATCH_AHU_BUDGET = 220;
 
 /**
- * ` [batch B-3F7A2C, 3 of 15 across AHU-88, AHU-90, AHU-024]`, or '' when the
- * action covered a single entry — a one-entry action is not a bulk action and
- * tagging it would be noise.
+ * ` Batch B-3F7A2C: 3 of 15 (AHU-88, AHU-90, AHU-024).`, or '' when the action
+ * covered a single entry — a one-entry action is not a bulk action and tagging
+ * it would be noise. (2026-10-24: was the bracketed code
+ * ` [batch B-3F7A2C, 3 of 15 across …]`; the page rewords old rows.)
  *
  * The AHUs are NAMED, not counted (operator request 2026-09-02): a count tells
  * you how wide the action was, but not which units it touched, and "which AHUs
@@ -153,9 +154,9 @@ export function qnnBatchTag(ref: string | null, index: number, total: number, ah
     let shown = names.length;
     while (shown > 1 && names.slice(0, shown).join(', ').length > BATCH_AHU_BUDGET) shown--;
     const hidden = names.length - shown;
-    across = ` across ${names.slice(0, shown).join(', ')}${hidden > 0 ? `, +${hidden} more` : ''}`;
+    across = ` (${names.slice(0, shown).join(', ')}${hidden > 0 ? `, +${hidden} more` : ''})`;
   }
-  return ` [batch ${ref}, ${index} of ${total}${across}]`;
+  return ` Batch ${ref}: ${index} of ${total}${across}.`;
 }
 
 export async function generateQnn(

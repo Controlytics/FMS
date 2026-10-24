@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import ExcelJS from 'exceljs';
 import { buildApp } from './test-helper.js';
 import { prisma } from '../lib/prisma.js';
+import { formatConfiguredDate } from '../lib/format-datetime.js';
 import pmScheduleRoutes from '../modules/pm-schedules/routes.js';
 import {
   PmFixture, installConfigOverrides, defaultPmConfig, multipartBody, iso, DAY, type ConfigOverrides,
@@ -244,12 +245,12 @@ describe('CSV import (workflow OFF, SUPER_ADMIN auto-approves)', () => {
       const r = byQnn.get(q)!;
       expect(r).toMatchObject({ action: 'UPLOAD', performedBy: sa.id, performedByName: sa.username });
       expect(r.pmScheduleEntryId).toBe(result.details.imported[i].entryId);
-      const m = r.message!.match(/\[batch (B-[0-9A-F]{6}), (\d) of 4 across (.+)\]$/);
+      const m = r.message!.match(/ Batch (B-[0-9A-F]{6}): (\d) of 4 \((.+)\)\.$/);
       expect(m, r.message!).toBeTruthy();
       refs.add(m![1]);
       expect(Number(m![2])).toBe(i + 1);
       expect(m![3]).toBe(`${A}, ${B}`);
-      expect(r.message).not.toContain('pending review');
+      expect(r.message).not.toContain('Waiting for review');
     });
     expect(refs.size).toBe(1);
     // Workflow OFF with no review/approval role → the notification has no role routing.
@@ -327,7 +328,7 @@ describe('approval state depends on who uploads and on the workflow', () => {
     expect(e).toMatchObject({ approvalStatus: 'PENDING', submittedBy: upl.id, submittedByName: upl.username, approvedBy: null, approvedAt: null });
     // A single-entry upload carries no batch tag.
     const q = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: e.id } });
-    expect(q?.message).toBe(`Uploaded — ${D} (${YEAR}-01-05)`);
+    expect(q?.message).toBe(`PM visit for ${D} on ${await formatConfiguredDate(`${YEAR}-01-05`)} uploaded. Waiting for approval.`);
   });
 
   it('workflow ON → PENDING_REVIEW for a non-Super-Admin uploader, and the QNN routes to the review role', async () => {
@@ -341,9 +342,9 @@ describe('approval state depends on who uploads and on the workflow', () => {
     for (const e of added) expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: upl.id, approvedBy: null });
     const qnns = await prisma.qualityNotification.findMany({ where: { pmScheduleEntryId: { in: added.map((e) => e.id) } } });
     for (const q of qnns) {
-      expect(q.message).toContain('(pending review)');
+      expect(q.message).toContain('Waiting for review.');
       // Both visits are the same AHU: the tag counts visits but does not list AHUs.
-      expect(q.message).toMatch(/\[batch B-[0-9A-F]{6}, [12] of 2\]$/);
+      expect(q.message).toMatch(/ Batch B-[0-9A-F]{6}: [12] of 2\.$/);
     }
     const notes = await prisma.notification.findMany({ where: { type: 'PM_SCHEDULE_QNN', forRole: reviewRole } });
     expect(notes.length).toBe(2);

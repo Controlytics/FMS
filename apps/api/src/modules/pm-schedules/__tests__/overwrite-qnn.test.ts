@@ -27,7 +27,11 @@ const { mockPrisma } = vi.hoisted(() => ({
 vi.mock('../../../lib/prisma.js', () => ({ prisma: mockPrisma }));
 vi.mock('../pm-shared.js', () => ({ checkPmEnabled: vi.fn(async () => {}) }));
 vi.mock('../../../lib/audit.js', () => ({ auditLog: vi.fn(async () => {}) }));
-vi.mock('../../../lib/format-datetime.js', () => ({ formatConfiguredDateTime: vi.fn(async () => '16 Jul 2026, 18:00') }));
+vi.mock('../../../lib/format-datetime.js', () => ({
+  formatConfiguredDateTime: vi.fn(async () => '16 Jul 2026, 18:00'),
+  // QNN messages name their dates (qnn-message.ts): dd/mm/yyyy of the UTC day.
+  formatConfiguredDate: vi.fn(async (v: Date | string) => new Date(v).toISOString().slice(0, 10).split('-').reverse().join('/')),
+}));
 vi.mock('../../notifications/notification.service.js', () => ({ createNotification: vi.fn(async () => ({})) }));
 
 import { editApprovedEntry } from '../pm-approval.js';

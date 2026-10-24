@@ -14,6 +14,7 @@ import { AppError } from '../../lib/errors.js';
 import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn } from '../pm-schedules/pm-workflow.js';
+import { qnnCount, qnnNextStep } from '../pm-schedules/qnn-message.js';
 import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 export interface RowError { row: number; column?: string; value?: string; error: string; }
@@ -342,7 +343,8 @@ export async function processUpload(
     scheduleId: schedule.id,
     subject: 'Replacement Schedule',
     route: { reviewRole: wf.reviewRole, approvalRole: wf.approvalRole }, // the replacement workflow's roles, not PM's (2026-10-24)
-    message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${approvalStatus === 'PENDING_REVIEW' ? ' — pending review' : ''}`, // the real status: a Super Admin's own upload is approved at once (2026-10-24)
+    // Plain language (qnn-message.ts); the real status: a Super Admin's own upload is approved at once (2026-10-24).
+    message: `Replacement schedule uploaded with ${qnnCount(toCreate.length, 'row')}.${qnnNextStep(approvalStatus, ctx.userRole)}`,
   }, ctx);
 
   for (const c of toCreate) results.push({ row: c.rowNumber, status: 'success', ahuName: c.ahuName });

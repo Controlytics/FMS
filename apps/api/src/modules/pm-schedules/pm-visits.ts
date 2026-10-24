@@ -30,6 +30,7 @@ import { auditLog } from '../../lib/audit.js';
 import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js';
 import { checkPmEnabled, readPmSettings, assertLiveAhu, assertPmYear } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
+import { qnnDay, qnnNextStep } from './qnn-message.js';
 import { assertSeparation } from './pm-separation-guard.js';
 import { submissionApprovalFields, pmReviewSkippedBySuperAdmin } from './pm-submission.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
@@ -159,12 +160,11 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
   // One QNN per entry, as the upload mints (after commit — generateQnn writes
   // through its own connection, exactly as on the upload path).
   // The real status, not the switch: a Super Admin's own visit is approved at once (2026-10-24).
-  const pendingSuffix = entry.approvalStatus === 'PENDING_REVIEW' ? ' (pending review)' : '';
   const qnn = await generateQnn('UPLOAD', {
     pmScheduleEntryId: entry.id,
     scheduleId,
     ahuName: ahu.name,
-    message: `Visit added — ${ahu.name} (${data.plannedDate})${pendingSuffix}`,
+    message: `PM visit for ${ahu.name} on ${await qnnDay(data.plannedDate)} added.${qnnNextStep(entry.approvalStatus, ctx.userRole)}`,
   }, ctx);
 
   return { scheduleId, scheduleCreated, entry, qnn };

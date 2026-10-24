@@ -59,15 +59,16 @@ describe('qnnBatchTag / newQnnBatchRef', () => {
   });
 
   it('counts visits, and names the AHUs only when more than one is involved (deduped, blanks dropped)', () => {
-    expect(qnnBatchTag('B-ABC123', 2, 3)).toBe(' [batch B-ABC123, 2 of 3]');
-    expect(qnnBatchTag('B-ABC123', 2, 3, ['AHU-1', 'AHU-1', ''])).toBe(' [batch B-ABC123, 2 of 3]');
-    expect(qnnBatchTag('B-ABC123', 1, 3, ['AHU-1', '', 'AHU-2', 'AHU-1'])).toBe(' [batch B-ABC123, 1 of 3 across AHU-1, AHU-2]');
+    // Plain language (2026-10-24): was " [batch B-ABC123, 2 of 3 across …]".
+    expect(qnnBatchTag('B-ABC123', 2, 3)).toBe(' Batch B-ABC123: 2 of 3.');
+    expect(qnnBatchTag('B-ABC123', 2, 3, ['AHU-1', 'AHU-1', ''])).toBe(' Batch B-ABC123: 2 of 3.');
+    expect(qnnBatchTag('B-ABC123', 1, 3, ['AHU-1', '', 'AHU-2', 'AHU-1'])).toBe(' Batch B-ABC123: 1 of 3 (AHU-1, AHU-2).');
   });
 
   it('summarises a very wide batch with "+N more" instead of crowding out the message', () => {
     const names = Array.from({ length: 30 }, (_, i) => `AIR-HANDLING-UNIT-${String(i).padStart(3, '0')}`);
     const tag = qnnBatchTag('B-ABC123', 1, 60, names);
-    const m = tag.match(/^ \[batch B-ABC123, 1 of 60 across (.+), \+(\d+) more\]$/);
+    const m = tag.match(/^ Batch B-ABC123: 1 of 60 \((.+), \+(\d+) more\)\.$/);
     expect(m).toBeTruthy();
     const shown = m![1].split(', ');
     expect(shown.length + Number(m![2])).toBe(30);

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import useSWR from 'swr';
+import { readableQnnMessage, qnnActionLabel } from '@/lib/qnn-message';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { createReport } from '../../lib/pdf-report';
 import { exportToExcel } from '@/lib/excel-export';
@@ -38,7 +39,7 @@ type Resp = { data: QnnRow[]; total: number; page: number; limit: number; totalP
 
 
 export function QualityNotificationsPage() {
-  const { formatDateTime } = useDatetimeFormat();
+  const { formatDateTime, formatDate } = useDatetimeFormat();
   const { toast } = useToast();
 
   // Report exports are re-auth gated per report (Config → Action Re-auth → Reports), 2026-09-24.
@@ -101,7 +102,8 @@ export function QualityNotificationsPage() {
       ? `${from ? formatDateTime(from) : 'Start'} to ${to ? formatDateTime(`${to}T23:59:59`) : 'Now'}`
       : 'All Time';
     const body = all.data.map((r, i) => [
-      String(i + 1), r.qnn, r.action, r.ahuName ?? '-', r.message ?? '-',
+      // The same plain-language text the table shows (lib/qnn-message.ts).
+      String(i + 1), r.qnn, qnnActionLabel(r.action), r.ahuName ?? '-', readableQnnMessage(r.message, formatDate) || '-',
       r.performedByName ?? '-', formatDateTime(r.createdAt),
     ]);
     return { body, period, total: all.total };
@@ -200,7 +202,7 @@ export function QualityNotificationsPage() {
         <div className="px-6 py-4 border-b border-slate-200 bg-white shrink-0">
           <PageHeader
             title={L.title}
-            subtitle={L.subtitle || 'Quality Notifications (QNN) minted by the PM approval workflow'}
+            subtitle={L.subtitle || 'Quality Notifications (QNN) for PM schedules, replacement schedules and filters'}
             actions={total > 0 && (
                 <>
                   <ExportMenu surface="qnn" onExportPdf={exportPdf} onExportExcel={exportExcel} busy={downloading}
@@ -243,9 +245,9 @@ export function QualityNotificationsPage() {
                   <tr key={r.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-2.5 text-[13px] text-slate-400 font-medium text-center tabular-nums">{(page - 1) * perPage + idx + 1}</td>
                     <td className="px-4 py-2.5 text-[13px] font-semibold text-slate-800 font-mono whitespace-nowrap">{r.qnn}</td>
-                    <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">{r.action}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-700 whitespace-nowrap">{qnnActionLabel(r.action)}</td>
                     <td className="px-4 py-2.5 text-[13px] text-slate-600">{r.ahuName ?? <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-2.5 text-[13px] text-slate-600 max-w-[360px]">{r.message ?? <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-2.5 text-[13px] text-slate-700 max-w-[420px] leading-snug">{r.message ? readableQnnMessage(r.message, formatDate) : <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap">{r.performedByName ?? <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-2.5 text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{formatDateTime(r.createdAt)}</td>
                     {isSuperAdmin && <td className="px-4 py-2.5 text-right"><SuperAdminEditButton onClick={() => setEditRow(r)} /></td>}

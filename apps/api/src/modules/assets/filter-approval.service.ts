@@ -21,6 +21,7 @@ import type { RequestContext } from '../../types/context.js';
 import { getFilterWorkflowConfig, assertPmRole, initialApprovalStatus, filterReviewSkippedBySuperAdmin } from './filter-workflow.js';
 import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 import { mintFilterQnns, filterSubmissionNote } from './filter-qnn.js';
+import { qnnReason } from '../pm-schedules/qnn-message.js';
 
 /** Filters in the workflow, for the Filters page's review actions. */
 export async function listPendingFilters(_ctx: RequestContext, status?: string) {
@@ -155,7 +156,7 @@ export async function reviewFilters(ctx: RequestContext, filterIds: string[], re
   });
   await auditEach(rows, ctx, 'FILTER_REVIEWED', { reviewRemarks: why }, why);
   // One QNN per filter, tagged for the approval role (2026-10-24, filter-qnn.ts).
-  const qnns = await mintFilterQnns('REVIEW', rows, ctx, 'Filter reviewed (pending approval)');
+  const qnns = await mintFilterQnns('REVIEW', rows, ctx, 'reviewed. Sent for approval.');
   return { reviewed: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
@@ -187,7 +188,7 @@ export async function approveFilters(ctx: RequestContext, filterIds: string[], r
     },
   });
   await auditEach(rows, ctx, 'FILTER_APPROVED', { approvalRemarks: why }, why);
-  const qnns = await mintFilterQnns('APPROVE', rows, ctx, 'Filter approved (can now be cleaned)');
+  const qnns = await mintFilterQnns('APPROVE', rows, ctx, 'approved. It can now be cleaned.');
   return { approved: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
@@ -232,7 +233,7 @@ export async function rejectFilters(ctx: RequestContext, filterIds: string[], re
   await auditEach(rows, ctx, 'FILTER_REJECTED', { rejectionRemarks: remarks.trim() }, remarks.trim());
   // The step each filter was rejected at, from the status it had (rows were read before the update).
   const stepOf = new Map(rows.map((r) => [r.id, r.approvalStatus === 'PENDING_REVIEW' ? 'review' : 'approval']));
-  const qnns = await mintFilterQnns('REJECT', rows, ctx, (f) => `Filter rejected at ${stepOf.get(f.id)}`);
+  const qnns = await mintFilterQnns('REJECT', rows, ctx, (f) => `rejected at ${stepOf.get(f.id)}.${qnnReason(remarks)}`);
   return { rejected: rows.length, filters: rows.map(r => r.name), qnns };
 }
 
