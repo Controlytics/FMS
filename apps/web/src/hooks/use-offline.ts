@@ -19,6 +19,7 @@ import {
   clearAllOperations,
   getAllOperations,
   generateClientOpId,
+  onQueueChange,
 } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent, startAutoSync } from '@/lib/sync-engine';
 import { isOnline as connIsOnline, onConnectivityChange, startConnectivityEngine } from '@/lib/connectivity';
@@ -81,6 +82,10 @@ export function useOffline() {
   }, []);
 
   useEffect(() => { refreshPendingCount(); }, [refreshPendingCount]);
+
+  // Recount when ANY screen changes the queue (offline-store onQueueChange):
+  // the header's copy must follow an op queued by the station screen.
+  useEffect(() => onQueueChange(() => { void refreshPendingCount(); }), [refreshPendingCount]);
 
   // === Offline-safe API calls ===
 

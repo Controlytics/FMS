@@ -212,6 +212,11 @@ export default async function auditRoutes(app: FastifyInstance) {
                   ipAddress: { type: 'string', nullable: true },
                   timestamp: { type: 'string', format: 'date-time' },
                   integrityValid: { type: 'boolean', description: 'Whether the checksum integrity verification passed' },
+                  // 2026-10-23: the Audit Record Detail window renders a row of THIS
+                  // list and shows its checksum; without the key here Fastify
+                  // stripped it and the box was always empty. GET /:id already
+                  // returns it to the same readers.
+                  checksum: { type: 'string', nullable: true, description: 'SHA-256 / HMAC checksum of the row (hash chain)' },
                   // Redaction stamps. The handler already spread these off the row,
                   // but Fastify strips any field absent from this schema — so the
                   // frontend received none of them and rendered a redacted §11

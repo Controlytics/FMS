@@ -172,6 +172,12 @@ beforeAll(async () => {
   await scenario('NOPAR', at(1), 25, { parentId: null });
   await scenario('TOP', T, 5, { parentId: area2Id });
 
+  // Upcoming: window T+35..T+45 has not opened. Its filter is mid-PM-clean NOW,
+  // which belongs to today's visit, not this one.
+  await scenario('FUT', at(40), 5);
+  f.fu1 = await fx.filter('fu1', ahu.FUT);
+  await C('fu1', { status: 'IN_PROGRESS', startedAt: at(-1) });
+
   // Overdue and uncleaned — used by the deviation close paths and the write-off.
   await scenario('GHOST', at(-15), 5);
   f.gh1 = await fx.filter('gh1', ahu.GHOST);
@@ -331,6 +337,16 @@ describe('GET /due — My Tasks', () => {
     expect(rowFor(fromOnly.overdue, 'FAR')).toBeUndefined();
     // A period with nothing planned in it.
     expect(await due('?from=2190-01-01&to=2190-01-02')).toEqual({ tasks: [], overdue: [], settings: { showOverdueSeparately: true } });
+  });
+
+  it('a visit whose window has not opened yet is pending, never overdue (period reaching into the future)', async () => {
+    expect(rowFor((await due()).tasks, 'FUT')).toBeUndefined(); // not in the default "due now" view
+    const d = await due(`?from=${iso(at(30))}&to=${iso(at(50))}`);
+    expect(rowFor(d.overdue, 'FUT')).toBeUndefined();
+    const r = rowFor(d.tasks, 'FUT');
+    expect(r).toMatchObject({ entryId: entryOf.FUT, overallStatus: 'pending', totalFilters: 1, cleanedCount: 0 });
+    // The cleaning running today is not credited to the upcoming visit.
+    expect(r.filters).toEqual([expect.objectContaining({ filterId: f.fu1, status: 'pending' })]);
   });
 
   it('showOverdueSeparately=false hides the overdue section', async () => {

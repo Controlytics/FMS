@@ -516,6 +516,50 @@ describe('operation queue', () => {
   });
 });
 
+// 2026-10-23: every useOffline() copy recounts on this signal, so the tablet
+// header follows an op queued by the station screen.
+describe('queue-change signal', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 80)); // > the 50 ms coalescing window
+
+  it('a burst of queued ops is ONE notification, after the rows are written', async () => {
+    await openApp();
+    const seen: number[] = [];
+    const off = store.onQueueChange(() => { seen.push(idb.rows('operations').length); });
+    const base = { type: 'advance' as const, filterId: 'f-1', filterName: 'F-1', payload: {} };
+    await queueOperation(base); await queueOperation(base); await queueOperation(base);
+    await settle();
+    off();
+    expect(seen).toEqual([3]);
+  });
+
+  it('deleting an op, clearing the queue and the boot requeue each notify; an unsubscribed listener does not hear it', async () => {
+    await openApp();
+    idb.seed('operations', [op('a'), op('b', { status: 'syncing' })]);
+    const heard = vi.fn();
+    const off = store.onQueueChange(heard);
+    await requeueStuckSyncing(); await settle();
+    await deleteOperation('a'); await settle();
+    await clearAllOperations(); await settle();
+    expect(heard).toHaveBeenCalledTimes(3);
+    off();
+    await queueOperation({ type: 'advance', filterId: 'f-1', filterName: 'F-1', payload: {} }); await settle();
+    expect(heard).toHaveBeenCalledTimes(3);
+  });
+
+  it('a boot requeue that finds nothing stuck, and the drain\'s status updates, do not notify', async () => {
+    await openApp();
+    idb.seed('operations', [op('a')]);
+    const heard = vi.fn();
+    const off = store.onQueueChange(heard);
+    await requeueStuckSyncing();
+    await updateOperationStatus('a', 'syncing');
+    await updateOperationStatus('a', 'synced');
+    await settle();
+    off();
+    expect(heard).not.toHaveBeenCalled();
+  });
+});
+
 describe('tombstones', () => {
   it('queueTombstone writes a pending row; getPendingTombstones reads it back', async () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('99999999-8888-4777-8666-555555555555');

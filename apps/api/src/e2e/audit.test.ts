@@ -68,6 +68,17 @@ describe('Audit Trail endpoints', () => {
       expect(row).toHaveProperty('redactedByName');
       expect(row).toHaveProperty('redactionReason');
     });
+
+    // 2026-10-23: the Audit Record Detail window renders the row it got from THIS
+    // list, and its "Integrity Checksum" box was always empty: the list schema
+    // had no `checksum`, so Fastify stripped it. GET /:id already returns it to
+    // the same AUDIT_READ readers, so the list exposes nothing new.
+    it('serializes the checksum (the detail window shows it)', async () => {
+      const res = await authGet(app, '/api/audit?limit=1', adminToken);
+      const row = JSON.parse(res.body).data[0];
+      expect(row).toBeDefined();
+      expect(row.checksum).toMatch(/^[0-9a-f]{64}$/);
+    });
   });
 
   describe('GET /api/audit/:id', () => {

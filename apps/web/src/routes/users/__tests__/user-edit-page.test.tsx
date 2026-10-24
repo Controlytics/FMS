@@ -91,6 +91,31 @@ describe('Edit User — loaded page', () => {
     expect(screen.getByText('Password Changed').parentElement).not.toHaveTextContent('Never');
   });
 
+  // 2026-10-23: the role list arriving AFTER the user (as it does against the real
+  // server) dropped the separately-rendered current-role option, so the control
+  // showed the FIRST role for every user, and picking that role changed nothing.
+  it('shows the user\'s real role when the role list arrives after the user, and the first role can be chosen', async () => {
+    const creatable = [
+      { name: 'ADMIN', displayName: 'Admin', color: 'bg-purple-600' },
+      { name: 'OPERATOR', displayName: 'Operator', color: 'bg-blue-600' },
+    ];
+    const api = mockApi(routes({ creatable, extra: [{ method: 'PUT', path: '/api/users/u-1', body: { ok: true } }] }));
+    const hold = holdRequests(/\/api\/roles\/[A-Z_]+\/creatable$/);
+    open(api);
+    await waitFor(() => expect(byValue('Jane Doe')).toBeInTheDocument());
+    await waitFor(() => expect(hold.held()).toBe(1));
+    hold.release();
+    expect(await screen.findByRole('option', { name: 'Admin' })).toBeInTheDocument();
+    const role = document.getElementById('edit-role') as HTMLSelectElement;
+    await waitFor(() => expect(role.value).toBe('OPERATOR'));
+    expect((screen.getByRole('option', { name: 'Operator' }) as HTMLOptionElement).selected).toBe(true);
+    // The first role in the list is a real choice, not what is already shown.
+    fireEvent.change(role, { target: { value: 'ADMIN' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(api.calls('PUT', '/api/users/u-1')).toHaveLength(1));
+    expect(api.calls('PUT', '/api/users/u-1')[0].json).toMatchObject({ role: 'ADMIN' });
+  });
+
   it('with an empty creatable list (403 for a USER_UPDATE-only editor) still shows the current role by its code', async () => {
     const api = mockApi(routes({ creatable: [] }));
     open(api, { role: 'MANAGER', permissions: ['USER_READ', 'USER_UPDATE'] });

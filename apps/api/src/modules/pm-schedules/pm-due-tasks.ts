@@ -238,12 +238,19 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     // deviation predicate in pm-deviations.ts (completedAt >= windowStart, which
     // covers in-window AND late cleaning). In-window behaviour is unchanged.
     const windowClosed = now > entry.windowEnd;
+    // A visit whose window has not opened yet (a My Tasks period reaching into
+    // the future) is upcoming. Nothing done today can be credited to it - the
+    // `cleaned` predicate needs completedAt >= windowStart - so it is pending,
+    // never overdue. Before 2026-10-23 it fell into the "window closed" branch
+    // below and every future visit in the period was listed as Overdue.
+    const notYetOpen = now < entry.windowStart;
 
     const filterStatuses: DueFilterRow[] = childFilters.map(f => {
       const cycles = cyclesByFilter.get(f.id) ?? [];
       // IN_PROGRESS cycle: started during the window (in-window), or — for an
-      // overdue task — a catch-up clean started after the window closed.
-      const inProgress = cycles.find(c =>
+      // overdue task — a catch-up clean started after the window closed. A
+      // cleaning running now belongs to the current visit, not an upcoming one.
+      const inProgress = !notYetOpen && cycles.find(c =>
         c.status === 'IN_PROGRESS'
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
         && (windowClosed ? c.startedAt >= entry.windowStart : c.startedAt <= entry.windowEnd),
@@ -292,6 +299,8 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     // business, but as a documented non-performance, never a completion.
     if (skippedCount > 0 && skippedCount === totalFilters) {
       overallStatus = 'not_performed';
+    } else if (notYetOpen) {
+      overallStatus = 'pending';
     } else if (inWindow) {
       if (totalFilters > 0 && cleanedCount === totalFilters) overallStatus = 'complete';
       else if (cleanedCount + inProgressCount > 0) overallStatus = 'in_progress';

@@ -66,6 +66,14 @@ export function EditUserPage() {
   const creatableRoles = creatableRolesData || [];
 
   const { data: userData, error: loadError, mutate } = useSWR(id ? `/api/users/${id}` : null);
+  // The role choices: the creatable roles, plus the user's current role when it
+  // is not one of them (see the <Select> below for why it is one keyed list).
+  const roleOptions: Array<{ name: string; displayName: string }> = [
+    ...(userData?.role && !creatableRoles.some((r) => r.name === userData.role)
+      ? [{ name: userData.role as string, displayName: (userData.roleDisplayName || userData.role) as string }]
+      : []),
+    ...creatableRoles,
+  ];
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<UpdateUserInput>({
     resolver: zodResolver(updateUserSchema),
@@ -321,11 +329,14 @@ export function EditUserPage() {
                         gets a 403 and an empty list — the control then rendered
                         completely blank, showing neither the current role nor
                         any option. (The save itself was never broken: RHF
-                        submits from its own form state, not the DOM.) */}
-                    {userData.role && !creatableRoles.some((r) => r.name === userData.role) && (
-                      <option value={userData.role}>{userData.roleDisplayName || userData.role}</option>
-                    )}
-                    {creatableRoles.map((r) => (
+                        submits from its own form state, not the DOM.)
+                        ONE keyed list (2026-10-23): the current role used to be a
+                        separate unkeyed <option> that was dropped when /creatable
+                        arrived (it holds the role), taking the selected element
+                        with it, so the browser showed the FIRST role (Admin /
+                        Super Admin) for every user, and choosing that role
+                        fired no change, so it could not be assigned. */}
+                    {roleOptions.map((r) => (
                       <option key={r.name} value={r.name}>{r.displayName}</option>
                     ))}
                   </Select>

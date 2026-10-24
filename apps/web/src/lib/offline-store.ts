@@ -686,6 +686,37 @@ export function compareQueueOrder(
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * "The queue changed" — for every useOffline() copy, not just the caller's.
+ *
+ * Each screen that calls useOffline() keeps its own pendingCount. Until
+ * 2026-10-23 an op queued by the station screen recounted only the station's
+ * copy, so while offline the tablet header never showed "N operations queued"
+ * or "N pending — sync", and its logout warning about unsent work was skipped.
+ *
+ * Fired by the writes a person causes: queueing an op, deleting one, clearing
+ * the queue, the boot requeue. NOT by the per-op status changes of a drain:
+ * those end in the sync engine's 'complete' event, which already recounts every
+ * copy, and a recount per replayed op would revalidate the tablet's data once
+ * per op. A burst (a 50-tag offline submit) is coalesced into one notification.
+ */
+const QUEUE_NOTIFY_DELAY_MS = 50;
+const queueListeners = new Set<() => void>();
+let queueNotifyTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function onQueueChange(listener: () => void): () => void {
+  queueListeners.add(listener);
+  return () => { queueListeners.delete(listener); };
+}
+
+export function notifyQueueChanged(): void {
+  if (queueNotifyTimer) return;
+  queueNotifyTimer = setTimeout(() => {
+    queueNotifyTimer = null;
+    for (const listener of [...queueListeners]) listener();
+  }, QUEUE_NOTIFY_DELAY_MS);
+}
+
 export async function queueOperation(op: QueueInput): Promise<string> {
   const db = await openDB();
   const seq = await nextQueueSeq(db);
@@ -708,6 +739,7 @@ export async function queueOperation(op: QueueInput): Promise<string> {
     seq,
   });
   await txCommitted(tx);
+  notifyQueueChanged();
   return id;
 }
 
@@ -846,6 +878,7 @@ export async function requeueStuckSyncing(): Promise<number> {
   if (db.objectStoreNames.contains('tombstones')) {
     total += await requeueSyncingInStore(db, 'tombstones');
   }
+  if (total > 0) notifyQueueChanged();
   return total;
 }
 
@@ -858,7 +891,8 @@ export async function deleteOperation(id: string): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('operations', 'readwrite');
   tx.objectStore('operations').delete(id);
-  return txCommitted(tx);
+  await txCommitted(tx);
+  notifyQueueChanged();
 }
 
 /**
@@ -965,7 +999,8 @@ export async function clearAllOperations(): Promise<void> {
   const db = await openDB();
   const tx = db.transaction('operations', 'readwrite');
   tx.objectStore('operations').clear();
-  return txCommitted(tx);
+  await txCommitted(tx);
+  notifyQueueChanged();
 }
 
 // === Phase 8.4b — Versioned local-cache stores (Option D) ===

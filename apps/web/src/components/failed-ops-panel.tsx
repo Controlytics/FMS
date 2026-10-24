@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useId } from 'react';
-import { getAllOperations, deleteOperation, updateOperationStatus } from '@/lib/offline-store';
+import { getAllOperations, deleteOperation, updateOperationStatus, notifyQueueChanged } from '@/lib/offline-store';
 import { syncPendingOperations, onSyncEvent } from '@/lib/sync-engine';
 
 /**
@@ -65,6 +65,7 @@ export function FailedOpsPanel() {
     setBusy(true);
     try {
       await updateOperationStatus(id, 'pending');
+      notifyQueueChanged(); // the op counts as pending again, even if the drain below cannot run (offline)
       await syncPendingOperations();
     } finally { setBusy(false); await refresh(); }
   };
@@ -78,6 +79,7 @@ export function FailedOpsPanel() {
     setBusy(true);
     try {
       for (const o of failed) await updateOperationStatus(o.id, 'pending');
+      notifyQueueChanged();
       await syncPendingOperations();
     } finally { setBusy(false); await refresh(); }
   };

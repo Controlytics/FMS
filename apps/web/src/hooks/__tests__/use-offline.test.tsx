@@ -438,6 +438,30 @@ describe('queue utilities', () => {
     expect(await result.current.getOfflineFilters()).toEqual([filter]);
   });
 
+  // 2026-10-23: the tablet header (mobile-wrapper) and the station screen
+  // (mobile-operations) each call useOffline(). An op queued by the station only
+  // recounted the station's copy, so while offline the header's red ribbon never
+  // said "N operations queued", the "N pending — sync" button never appeared and
+  // the logout warning about unsent work was skipped. Every copy must follow.
+  it('an op queued through one instance updates the count of every other instance', async () => {
+    api.add({ method: 'POST', path: '/api/filters/f-1/advance', body: netDown() });
+    const header = await mountHook();
+    const station = renderHook(() => useOffline());
+    await act(async () => { await station.result.current.executeOrQueue('advance', FID, 'F-1', { targetState: 'WASH_OUT' }); });
+    expect(station.result.current.pendingCount).toBe(1);
+    await waitFor(() => expect(header.result.current.pendingCount).toBe(1));
+  });
+
+  it('clearing the queue in one instance resets the count of every other instance', async () => {
+    await queueOperation({ type: 'advance', filterId: FID, filterName: 'F-1', payload: {}, userId: 'u-me', userName: 'Me' });
+    const header = await mountHook();
+    const station = renderHook(() => useOffline());
+    await waitFor(() => expect(station.result.current.pendingCount).toBe(1));
+    await waitFor(() => expect(header.result.current.pendingCount).toBe(1));
+    await act(async () => { await header.result.current.clearQueue(); });
+    await waitFor(() => expect(station.result.current.pendingCount).toBe(0));
+  });
+
   it('getQueueDetails lists every op; clearQueue empties it and resets the count', async () => {
     await queueOperation({ type: 'advance', filterId: FID, filterName: 'F-1', payload: {}, userId: 'u-me', userName: 'Me' });
     const { result } = await mountHook();

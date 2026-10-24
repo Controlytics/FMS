@@ -1,3 +1,24 @@
+# USER MANUALS (operator 2026-10-23) — Word + PDF, separate demo DB, all at once (no sample chapter)
+
+Two manuals: (1) Super Admin manual; (2) one manual for ADMIN / MANAGER / QA / SHIFTOFFICER /
+SUPERVISOR / OPERATOR. Every screen: real screenshot, numbered red markers placed from the DOM, a
+numbered explanation table under the image, then steps. Plain language for someone new to the app.
+Demo env: own DB built like a fresh 1.2.3 install + realistic data created through the app; own API
+port; digilog_db untouched. Generator outside git like the install guide.
+
+- [x] Finish installer rebuild (97b6452) — done (fe5c6364), guide regenerated
+- [x] Inventory: routes, sidebar per role (baseline roleConfigs), feature toggles per role
+- [x] Demo env: fms_manual_demo DB (+ snapshot fms_manual_demo_snap, reset-demo.ps1), API :3910
+- [x] Demo data through the app (seed-demo.js)
+- [x] Screenshot + annotation harness (lib/capture.js, lib/tablet.js, trim-images.py)
+- [x] User manual (6 roles): 16 chapters, 103 figures, 111 pages, every page checked; in Downloads
+- [ ] Super Admin manual: capture + write (scope = every "set by the Super Admin" promise in the user manual)
+- [ ] Generate SA docx/pdf, check every page, copy to Downloads, memory
+- [ ] Product fixes found while writing (UNCOMMITTED, not in Setup 1.2.3 / APK): My Tasks future visits
+      shown Overdue (pm-due-tasks.ts); Edit User showed the wrong role (users/edit.tsx); audit detail
+      checksum always empty (audit/routes.ts list schema). CHANGELOG done.
+      Operator decides: rebuild (1.2.3 again or 1.2.4) and commit. PDF-logo fix 5104af8 is in the same boat.
+
 # STATUS 2026-10-23 — campaign closed (operator: "finish right now")
 
 - [x] Release decision: **CONDITIONAL PASS** (`test-results/FINAL-RELEASE-DECISION.md`); 01–10 written; CHANGELOG through 1.2.3

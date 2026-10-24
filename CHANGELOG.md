@@ -6,6 +6,39 @@ Release decision: **CONDITIONAL PASS** (test-results/FINAL-RELEASE-DECISION.md).
 clean-machine install, Super Admin probe session and the performance / endurance re-run were NOT run
 ("finish right now"); they are the go-live conditions.
 
+### After the 1.2.3 build (found while writing the user manuals, 2026-10-23) - NOT in Setup 1.2.3 (`fe5c6364…`) or its APK
+
+- **Tablet offline: the header never showed queued work (`offline-store.ts`, `use-offline.ts`).** Each
+  screen's `useOffline()` keeps its own `pendingCount`; an op queued by the station screen recounted only
+  the station's copy. So while offline the red ribbon never said "N operations queued", the
+  "N pending — sync" button never appeared, the home tile counts (`refreshOfflineData` keyed on
+  `pendingCount`) went stale, and the logout warning about unsent work was skipped. Now `queueOperation`,
+  `deleteOperation`, `clearAllOperations` and a non-empty boot `requeueStuckSyncing` fire one coalesced
+  (50 ms) `onQueueChange` signal, every `useOffline()` recounts on it, and the failed-ops panel fires it after
+  a retry. Deliberately NOT fired per drain status update (the sync `complete` event already recounts; a
+  recount per replayed op would revalidate `/api/assets/instances` once per op). Tests: 2 in
+  `use-offline.test.tsx` (fail on the old code), 3 in `offline-store.idb.test.ts`; web 5176/5176. Live on the
+  demo tablet: offline Wash In → header "1 pending — sync", ribbon "1 operation queued", logout warning
+  shown; back online → op replayed (cycle on the server), header "Data Synced".
+- **PDF exports from an installed server lost the company logo (`5104af8`).** The logo is stored as a
+  `data:` URL and `loadLogo()` fetched it; the installed server's CSP (`connect-src 'self'`) blocks that
+  fetch, so every report PDF printed without a logo. A `data:` URL is now used as is (no fetch).
+- **My Tasks listed future PM visits as Overdue (`pm-due-tasks.ts`).** With a date range reaching into the
+  future, every visit whose window had not opened yet fell into the "window closed" branch and was shown
+  as **Overdue** (the API returned it in `overdue`). A visit not yet open is now `pending`, and a cleaning
+  running today is not credited to it. Guard: `e2e/pm-schedules-due-tasks.test.ts` (fails on the old code).
+- **Edit User showed the wrong role (`routes/users/edit.tsx`).** The current role was a separate unkeyed
+  `<option>` that was dropped when the creatable-roles list arrived (after the user), taking the selection
+  with it: every user whose role is creatable showed the FIRST role (Admin, or Super Admin for a Super
+  Admin editor), and choosing that role fired no change, so it could not be assigned. Saving without
+  touching the field kept the real role (the form state was right; the control was not). One keyed list
+  now. Guard: `user-edit-page.test.tsx` (holds `/creatable`; fails on the old code).
+- **Audit Record Detail showed an empty "Integrity Checksum" (`modules/audit/routes.ts`).** The window
+  renders a row of `GET /api/audit`, whose response schema had no `checksum`, so Fastify stripped it: the
+  only screen meant to show a record's checksum (Super Admin) always showed a blank box. Added to the list
+  schema; `GET /:id` already returned it to the same readers, so nothing new is exposed. Guard:
+  `e2e/audit.test.ts` "serializes the checksum" (fails on the old code).
+
 - **Dates are local days at both ends (`d195f84`, `d7a4dc0`).** A bare start date was read as UTC
   midnight and a bare end date as local end-of-day, so on the India server a filter "from 1 Feb" dropped
   records made 00:00–05:30 IST that day (audit, notifications, QNN, RFID Track Record, stage approvals,
