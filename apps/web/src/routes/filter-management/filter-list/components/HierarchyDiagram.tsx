@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatFilterSet } from '@/lib/filter-set';
 import { STATUS_LABELS } from '../constants';
 import type { CreateDialogState, DiagramFilterState, HierarchyNode } from '../types';
 
@@ -36,7 +37,7 @@ export function FilterDiagNode({ filter: f, identifiersByAsset, onNavigate }: Fi
         <span className="text-[11px] font-bold text-center text-slate-700 truncate w-full">{f.name}</span>
         <span className={`text-[11px] mt-0.5 px-1.5 py-0.5 rounded-full border font-medium ${stateInfo.color}`}>{stateInfo.label}</span>
         {rfidTags.length > 0 && <span className="text-[11px] font-mono mt-0.5 truncate w-full text-center text-theme-primary">{rfidTags[0].identifierValue}</span>}
-        {f.filterSet && <span className="text-[11px] text-slate-400 mt-0.5">{f.filterSet.replace('_', ' ')}</span>}
+        {f.filterSet && <span className="text-[11px] text-slate-400 mt-0.5">{formatFilterSet(f.filterSet)}</span>}
       </button>
     </div>
   );

@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { useReauth } from '@/hooks/use-reauth';
 import { useDatetimeFormat } from '@/hooks/use-datetime-format';
+import { useRoleColors } from '@/hooks/use-role-colors';
 import { useCan } from '@/hooks/use-can';
 import { ReauthDialog } from '@/components/reauth-dialog';
 import { prettyStage, detailRows, type StageApprovalSummary } from '@/lib/stage-approval';
@@ -74,6 +75,8 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
   const { data: usersData } = useSWR<any>(isSuperAdmin ? `/api/users?page=1&limit=${ALL_ROWS}` : null);
   const users: any[] = usersData?.data ?? [];
   const { data: rolesData } = useSWR<Array<{ name: string; displayName?: string }>>(isSuperAdmin ? '/api/roles' : null);
+  // Display names for the "another <role> must sign off" line (any reader; /active is open).
+  const { roleLabels } = useRoleColors();
   const roles = Array.isArray(rolesData) ? rolesData : [];
   const [saEditRow, setSaEditRow] = useState<StageApprovalSummary | null>(null);
   const [cycleEdit, setCycleEdit] = useState<{ cycle: any; events: any[]; title: string } | null>(null);
@@ -281,7 +284,7 @@ export function StageApprovalsPage({ overlayBackRef }: StageApprovalsPageProps =
             // endpoints would 403 AFTER the password was accepted. Say why
             // instead of offering a button that can only fail.
             <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 text-right">
-              You performed this stage — another {r.approverRole} must sign off.
+              You performed this stage — another {roleLabels[r.approverRole] || r.approverRole} must sign off.
             </span>
           ) : (
           <>

@@ -47,12 +47,12 @@ describe('HierarchyCanvas — tree', () => {
     expect(f1).toHaveTextContent('Dry In');
     expect(f1).toHaveTextContent('E200F1'); // RFID, not the barcode
     expect(f1).not.toHaveTextContent('BC-1');
-    expect(f1).toHaveTextContent('SET A');
+    expect(f1).toHaveTextContent('Set A');
     expect(nodeBtn('FLT-002')).toHaveTextContent('To Be Cleaned');
     const f3 = nodeBtn('FLT-003');
     expect(f3).toHaveTextContent('QUARANTINE HOLD');
     expect(f3).not.toHaveTextContent('BC-3');
-    expect(f3).toHaveTextContent('SET B');
+    expect(f3).toHaveTextContent('Set B');
   });
 
   it('clicking a node navigates with its type, id and name', () => {

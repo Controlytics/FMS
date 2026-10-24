@@ -38,6 +38,8 @@ export function baseRoutes(o: BaseRouteOpts = {}): MockRoute[] {
     { path: '/api/config/branding', body: {} },
     { path: '/api/config/pm-schedule-filters/current', body: { enabled: true } },
     { path: '/api/config/replacement-schedule-filters/current', body: { enabled: true } },
+    // Role display names (useRoleColors) for the interlock / approval wording; public on the server.
+    { path: '/api/roles/active', body: [] },
   ];
 }
 

@@ -44,10 +44,12 @@ interface LogEntry {
 }
 
 // ─── Multi-Select Event Types ─────────────────────────────────────────
-function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
+function MultiSelectEventTypes({ eventTypes, selected, onChange, storedMeta }: {
   eventTypes: EventTypeMeta[];
   selected: string[];
   onChange: (vals: string[]) => void;
+  /** The rule's own type labels from the list endpoint, for a type the picker no longer offers. */
+  storedMeta?: EventTypeMeta[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -84,10 +86,14 @@ function MultiSelectEventTypes({ eventTypes, selected, onChange }: {
         <div className="flex flex-wrap gap-1 mt-1.5">
           {selected.map(val => {
             const et = eventTypes.find(e => e.value === val);
+            // A type the API no longer offers is one nothing sends (2026-10-24): the
+            // rule can never fire on it and Save refuses it until it is removed.
+            const unsent = eventTypes.length > 0 && !et;
+            const label = et?.label ?? storedMeta?.find(e => e.value === val)?.label ?? val;
             return (
-              <span key={val} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
-                {et?.label ?? val}
-                <button type="button" onClick={() => toggle(val)} className="hover:text-amber-900">
+              <span key={val} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${unsent ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                {unsent ? `${label} (never sent - remove it)` : label}
+                <button type="button" onClick={() => toggle(val)} aria-label={`Remove ${label}`} title={`Remove ${label}`} className="hover:text-amber-900">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </span>
@@ -305,7 +311,7 @@ function RulesTab() {
         <div className="bg-white rounded-2xl border border-slate-300 p-6 shadow-sm space-y-5">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-slate-800">{editing.id ? 'Edit Rule' : 'New Notification Rule'}</h3>
-            <button onClick={() => setEditing(null)} className="p-2 rounded-lg hover:bg-slate-100">
+            <button onClick={() => setEditing(null)} aria-label="Close editor" title="Close editor" className="p-2 rounded-lg hover:bg-slate-100">
               <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
@@ -324,6 +330,7 @@ function RulesTab() {
                 eventTypes={eventTypes ?? []}
                 selected={editing.eventTypes ?? (editing.eventType ? [editing.eventType] : [])}
                 onChange={(vals) => setEditing({ ...editing, eventTypes: vals, eventType: vals[0] ?? '' })}
+                storedMeta={editing.eventTypesMeta}
               />
             </div>
           </div>

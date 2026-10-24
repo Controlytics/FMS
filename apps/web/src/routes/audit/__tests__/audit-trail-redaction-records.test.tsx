@@ -5,7 +5,7 @@ import { screen, fireEvent, waitFor, cleanup, within } from '@testing-library/re
 import { mockApi, renderPage } from '@/test-utils/page-harness';
 import { captureConsole, type ConsoleCapture } from '@/routes/users/__tests__/support/page-findings';
 import { expectAllControlsNamed } from '@/components/__tests__/support/a11y';
-import { SA, REC, ROWS, page, auditRoutes, myActionsLoaded, rowOf } from './audit-page-fixtures';
+import { SA, REC, ROWS, page, auditRoutes, myActionsLoaded, rowOf, giveReason } from './audit-page-fixtures';
 import { AuditTrailPage } from '../index';
 import { AUDIT_META_ACTIONS, canRedactRecord } from '../audit-helpers';
 
@@ -88,11 +88,10 @@ describe('records of an audit-trail change on the Audit Trail page', () => {
     fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
     expect(screen.getByText(/5 selected records are left out: already redacted, or a record of an earlier audit-trail change/)).toBeInTheDocument();
     expectAllControlsNamed();
-    prompt.mockReturnValueOnce('Duplicate test entries');
+    giveReason('Duplicate test entries');
     fireEvent.click(screen.getByRole('button', { name: 'Redact 3 Records' }));
 
     await waitFor(() => expect(api.calls('POST', '/api/audit/bulk-redact')).toHaveLength(1));
-    expect(prompt).toHaveBeenLastCalledWith('Reason for redacting 3 audit records (min 5 characters):');
     expect(api.calls('POST', '/api/audit/bulk-redact')[0].json).toEqual({ ids: ['a1', 'a2', 'a3'], reason: 'Duplicate test entries' });
     await waitFor(() => expect(screen.queryByText('Redact Audit Records')).toBeNull());
     expect(con.errors).toEqual([]);
@@ -117,6 +116,8 @@ describe('records of an audit-trail change on the Audit Trail page', () => {
     expect(screen.getByText(/^2 can't be redacted/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Redact Selected/ })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: /Redact Selected/ }));
+    expect(screen.getByRole('button', { name: 'Redact 1 Record' })).toBeDisabled(); // no reason yet
+    giveReason('Duplicate test entries');
     expect(screen.getByRole('button', { name: 'Redact 1 Record' })).toBeEnabled();
     expect(screen.getByText(/2 selected records are left out/)).toBeInTheDocument();
   });

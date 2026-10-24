@@ -47,6 +47,8 @@ export const TEMPLATES = [FILTER_TEMPLATE, BLOCK_TEMPLATE, AREA_TEMPLATE, AHU_TE
 export function mobileRoutes(o: MobileRouteOpts = {}): MockRoute[] {
   return [
     { path: '/api/config/action-reauth/my-actions', body: { actions: o.reauthActions ?? [] } },
+    // Role display names (useRoleColors) for the interlock wording; public on the server.
+    { path: '/api/roles/active', body: [] },
     { path: '/api/config/datetime/current', body: { dateFormat: 'DD/MM/YYYY', timeFormat: 'HH:mm', timezone: 'UTC' } },
     { path: '/api/config/branding', body: { appName: 'FMS Tablet', logoText: 'FT', logoUrl: '', companyName: 'Acme', version: '9.9' } },
     { path: '/api/config/offline-cache/current', body: {} },

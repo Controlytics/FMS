@@ -151,7 +151,7 @@ describe('scanning into the queue', () => {
 });
 
 describe('keyboard-wedge readers', () => {
-  it('a fast burst ending in Enter is submitted as one tag; the debug overlay shows the keys', async () => {
+  it('a fast burst ending in Enter is submitted as one tag; no RFID debug overlay is offered', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     let t = new Date('2026-10-21T10:00:00Z').getTime();
     vi.setSystemTime(t);
@@ -165,12 +165,8 @@ describe('keyboard-wedge readers', () => {
     t += 20; vi.setSystemTime(t); fireEvent.keyDown(document.body, { key: 'Tab' });
     expect(await message(/Filter not found for tag "E1XX"/)).toBeInTheDocument();
     await dismissAll();
-    fireEvent.click(screen.getByTitle('Toggle RFID debug'));
-    expect(screen.getByText(/RFID DEBUG \(\d+\)/)).toBeInTheDocument();
-    expect(screen.getByText('SUBMIT: "E1XX" (len 4)')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
-    expect(screen.getByText(/Waiting for keystrokes/)).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle('Toggle RFID debug'));
+    // Removed 2026-10-24 (operator): the floating ⓘ toggle covered the dryer Submit.
+    expect(screen.queryByTitle('Toggle RFID debug')).toBeNull();
     expect(screen.queryByText(/RFID DEBUG/)).toBeNull();
   });
 
@@ -289,6 +285,7 @@ describe('submitting the queue — online (one /bulk-operate)', () => {
           { clientOpId: r.json.items[0].clientOpId, filterId: 'f1', status: 'failed', error: { code: 'STAGE_APPROVAL_PENDING', message: 'Wash Out awaits SHIFTOFFICER' } },
         ] }) },
         { path: '/api/filters/f1/current-state', body: { interlock: { stageKey: 'WASH_OUT', status: 'PENDING', approverRole: 'SHIFTOFFICER', blocksLeaving: true } } },
+        { path: '/api/roles/active', body: [{ name: 'SHIFTOFFICER', displayName: 'Shift Officer', color: 'bg-amber-600' }] },
       ],
     });
     await scanTag('E1'); await inQueue('F-001');
@@ -296,7 +293,8 @@ describe('submitting the queue — online (one /bulk-operate)', () => {
     expect(await message('F-001: Wash Out awaits SHIFTOFFICER')).toBeInTheDocument();
     await dismissAll();
     expect(screen.getByText('Wash Out awaiting approval')).toBeInTheDocument();
-    expect(screen.getByText('SHIFTOFFICER must verify and approve before this filter can continue.')).toBeInTheDocument();
+    // The banner names the role by its display name, not the code (2026-10-24).
+    expect(await screen.findByText('Shift Officer must verify and approve before this filter can continue.')).toBeInTheDocument();
   });
 
   it('an interlock refusal whose live state can no longer be read still lists the reason', async () => {

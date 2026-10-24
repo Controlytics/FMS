@@ -245,6 +245,22 @@ describe('Notification Rules — Rules tab', () => {
     expect(await screen.findByText('3 notification rules configured')).toBeInTheDocument();
   });
 
+  it('a stored type the API no longer offers shows the stored label of the rule, marked never sent (2026-10-24)', async () => {
+    const DEAD = {
+      id: 'r8', name: 'Device rule', eventType: 'DEVICE_ONLINE', eventTypes: ['DEVICE_ONLINE'], conditions: {}, isActive: false, createdAt: '',
+      recipients: [], eventTypesMeta: [{ value: 'DEVICE_ONLINE', label: 'Device Online', module: 'devices', variables: [] }],
+    };
+    const api = setup([], { rules: [DEAD] });
+    await screen.findByText('Device rule');
+    await waitForEditorData(api);
+    fireEvent.click(within(card('Device rule')).getByTitle('Edit'));
+    expect(screen.getByText('Device Online (never sent - remove it)', { selector: 'span' })).toBeInTheDocument();
+    // The chip's remove button and the editor's close button are named (they were icon-only).
+    expect(screen.getByRole('button', { name: 'Close editor' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Device Online' }));
+    expect(screen.queryByText(/never sent - remove it/)).toBeNull();
+  });
+
   it('the editor close (X) button discards the draft', async () => {
     const api = setup();
     await screen.findByText('Cycle alert');
@@ -324,7 +340,7 @@ describe('Notification Rules — Rules tab', () => {
     expect(api.calls('DELETE', P)[0].headers['x-reauth-password']).toBe('pw-del');
   });
 
-  it('editor fallbacks: unknown event chips show their raw value; missing channel/cooldown/priority fields use defaults', async () => {
+  it('editor fallbacks: an event type the API no longer offers is marked never sent; missing channel/cooldown/priority fields use defaults', async () => {
     const SPARSE = {
       id: 'r9', name: 'Sparse rule', eventType: '', eventTypes: ['GONE_EVENT'], conditions: {}, isActive: true, createdAt: '',
       recipients: [{ id: 'x1', recipientType: 'ROLE', roleValue: 'QA', displayName: 'Quality' }],
@@ -333,8 +349,9 @@ describe('Notification Rules — Rules tab', () => {
     await screen.findByText('Sparse rule');
     await waitForEditorData(api);
     fireEvent.click(within(card('Sparse rule')).getByTitle('Edit'));
-    // An event type no longer in the catalog still shows (by its raw value).
-    expect(screen.getByText('GONE_EVENT', { selector: 'span' })).toBeInTheDocument();
+    // An event type no longer in the catalog still shows (by its raw value, no stored label),
+    // marked as never sent so the operator removes it (2026-10-24; Save would be refused).
+    expect(screen.getByText('GONE_EVENT (never sent - remove it)', { selector: 'span' })).toBeInTheDocument();
     // No stored channel flags: In-App defaults on, Email/SMS off; cooldown/priority default 0.
     expect(screen.getByLabelText('In-App')).toBeChecked();
     expect(screen.getByLabelText('Email')).not.toBeChecked();

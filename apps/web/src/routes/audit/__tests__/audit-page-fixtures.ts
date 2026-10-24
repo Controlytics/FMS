@@ -65,6 +65,11 @@ export async function ack(title: string) {
   await waitFor(() => expect(screen.queryByText(title)).toBeNull());
 }
 
+/** Type the redact / delete reason into the open confirm dialog (it replaced window.prompt 2026-10-24). */
+export function giveReason(text: string) {
+  fireEvent.change(screen.getByLabelText(/Reason for this change/), { target: { value: text } });
+}
+
 /** Answer the open re-auth dialog with a password. */
 export async function signWith(password: string) {
   fireEvent.change(await screen.findByPlaceholderText('Enter your password'), { target: { value: password } });

@@ -30,7 +30,7 @@ describe('OQ-02 — interlock reaches the LIVE queue submit', () => {
   it('handleSubmitQueue sets the banner and names the approver for a held filter', () => {
     const queue = slice(ops, 'const handleSubmitQueue = async', 'const handleSubmit = async');
     expect(queue).toMatch(/noteInterlock\(held\)/);
-    expect(queue).toMatch(/interlockRefusalLine\(item\.filterName, held\)/);
+    expect(queue).toMatch(/interlockRefusalLine\(item\.filterName, held, roleLabels\)/);
     expect(queue).toMatch(/INTERLOCK_REFUSAL_CODES\.has\(r\.error\?\.code/);
     expect(queue).toMatch(/setInterlock\(null\)/);
   });

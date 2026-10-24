@@ -58,6 +58,7 @@ function routes(queue: any[] = [A, B, SELF], all: any[] = ARCHIVE, extra: MockRo
     { path: '/api/stage-approvals/queue', body: { data: queue } },
     { path: '/api/stage-approvals', body: { data: all } },
     { path: '/api/users', body: { data: [{ id: 'u1', username: 'qa1', fullName: 'QA One' }] } },
+    { path: '/api/roles/active', body: [{ name: 'QA', displayName: 'Quality Assurance', color: 'bg-emerald-600' }] },
     { path: '/api/roles', body: [{ name: 'QA', displayName: 'Quality' }, { name: 'MANAGER' }] },
     DT_UTC,
     ...baseRoutes({ reauthActions }),
@@ -197,7 +198,8 @@ describe('Stage Approvals — permissions and segregation of duties', () => {
     const self = rowEl('FLT-self');
     expect(within(self).queryByRole('button', { name: 'Verify & Approve' })).toBeNull();
     expect(within(self).queryByRole('button', { name: 'Reject' })).toBeNull();
-    expect(within(self).getByText('You performed this stage — another QA must sign off.')).toBeInTheDocument();
+    // The role by its display name from /api/roles/active, not the code (2026-10-24).
+    expect(await within(self).findByText('You performed this stage — another Quality Assurance must sign off.')).toBeInTheDocument();
     expect(within(self).getByRole('checkbox', { name: 'Select FLT-self' })).toBeDisabled();
     // The decidable rows keep their buttons.
     expect(within(rowEl('FLT-a')).getByRole('button', { name: 'Verify & Approve' })).toBeEnabled();
@@ -257,7 +259,7 @@ describe('Stage Approvals — single decision', () => {
     fireEvent.change(screen.getByLabelText(/Remarks/), { target: { value: REMARKS } });
     expect(screen.getByRole('heading', { name: 'Verify & approve stage' })).toBeInTheDocument();
     expect(screen.getByText('Wash Out — FLT-a')).toBeInTheDocument();
-    for (const [label, value] of [['Micron Size', '5'], ['Filter Type', 'HEPA'], ['Filter Dimensions', '610x610'], ['Filter Set', 'SET_A']]) {
+    for (const [label, value] of [['Micron Size', '5'], ['Filter Type', 'HEPA'], ['Filter Dimensions', '610x610'], ['Filter Set', 'Set A']]) {
       expect(screen.getByText(label).nextSibling).toHaveTextContent(value);
     }
     expect(screen.getByTestId('stage-details')).toHaveTextContent('Cleaned by');

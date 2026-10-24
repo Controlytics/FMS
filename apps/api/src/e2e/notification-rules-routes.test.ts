@@ -4,9 +4,11 @@
  *
  * Isolation on the shared test DB:
  *   - own SUPER_ADMIN + two throwaway roles/users, deleted in afterAll;
- *   - every rule created here is INACTIVE or uses a DEVICE_* event type (nothing
- *     emits those any more), so another agent's logins/user-creates can never
- *     match one; rules are deleted in afterAll;
+ *   - every rule created here is INACTIVE (the toggle test's rule is active
+ *     for a moment, with no recipients), so another agent's logins/user-creates
+ *     can never reach anyone through one; rules are deleted in afterAll. They
+ *     used DEVICE_* types for this until 2026-10-24, when the API began refusing
+ *     the six types nothing sends (EVENT_TYPE_NOT_SENT);
  *   - recipients are only this file's users / a throwaway role / own group;
  *   - action-reauth gets MANAGE_NOTIFICATION_RULES for the throwaway role only.
  *
@@ -106,14 +108,12 @@ afterAll(async () => {
 }, 60_000);
 
 describe('GET /api/notification-rules/event-types', () => {
-  it('lists every NotificationEventType with label, module and the variables a template may use', async () => {
+  it('lists only the event types the application sends, with label, module and the variables a template may use (2026-10-24)', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/notification-rules/event-types', headers: H(roToken) });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Array<{ value: string; label: string; module: string; variables: string[] }>;
-    expect(body.map(e => e.value).sort()).toEqual([
-      'CHECKLIST_APPROVED', 'CHECKLIST_REJECTED', 'CHECKLIST_SUBMITTED', 'DEVICE_INACTIVITY', 'DEVICE_OFFLINE',
-      'DEVICE_ONLINE', 'SYSTEM_ERROR', 'USER_CREATED', 'USER_LOCKED', 'USER_LOGIN',
-    ]);
+    // DEVICE_* (data-ingestion, removed 2026-06) and CHECKLIST_* are never dispatched.
+    expect(body.map(e => e.value).sort()).toEqual(['SYSTEM_ERROR', 'USER_CREATED', 'USER_LOCKED', 'USER_LOGIN']);
     const locked = body.find(e => e.value === 'USER_LOCKED')!;
     expect(locked).toMatchObject({ label: 'User Locked', module: 'users' });
     expect(locked.variables).toContain('reason');
@@ -130,7 +130,7 @@ describe('POST /api/notification-rules', () => {
     const res = await createRule({
       name: `cov rule create ${TAG}`,
       description: 'created by coverage test',
-      eventTypes: ['DEVICE_OFFLINE', 'DEVICE_ONLINE'],
+      eventTypes: ['USER_CREATED', 'SYSTEM_ERROR'],
       conditions: { site: 'A' },
       emailEnabled: false, smsEnabled: false, inAppEnabled: true,
       cooldownMinutes: 3, isActive: false,
@@ -143,8 +143,8 @@ describe('POST /api/notification-rules', () => {
     });
     expect(res.statusCode).toBe(200);
     const rule = res.json();
-    expect(rule.eventType).toBe('DEVICE_OFFLINE'); // first of eventTypes
-    expect(rule.eventTypes).toEqual(['DEVICE_OFFLINE', 'DEVICE_ONLINE']);
+    expect(rule.eventType).toBe('USER_CREATED'); // first of eventTypes
+    expect(rule.eventTypes).toEqual(['USER_CREATED', 'SYSTEM_ERROR']);
     expect(rule.createdBy).toBe(SA);
     expect(rule.isActive).toBe(false);
     expect(rule.cooldownMinutes).toBe(3);
@@ -158,13 +158,13 @@ describe('POST /api/notification-rules', () => {
     const audit = await latestAudit('NOTIFICATION_RULE_CREATED', rule.id);
     expect(audit).toBeTruthy();
     expect(audit!.userId).toBe(SA);
-    expect(audit!.afterValue).toMatchObject({ name: `cov rule create ${TAG}`, eventType: 'DEVICE_OFFLINE' });
+    expect(audit!.afterValue).toMatchObject({ name: `cov rule create ${TAG}`, eventType: 'USER_CREATED' });
   });
 
   // D6 (2026-10-21): the create allow-list omitted `priority`, so a rule created
   // with a priority from the UI was stored at 0 (PUT kept it).
   it('stores the priority given on create', async () => {
-    const res = await createRule({ name: `cov rule priority ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false, priority: 5 });
+    const res = await createRule({ name: `cov rule priority ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false, priority: 5 });
     expect(res.statusCode).toBe(200);
     expect(res.json().priority).toBe(5);
     expect((await prisma.notificationRule.findUnique({ where: { id: res.json().id } }))!.priority).toBe(5);
@@ -173,7 +173,7 @@ describe('POST /api/notification-rules', () => {
   it('defaults conditions to {} and ignores client-set id/createdAt (whitelist)', async () => {
     const forgedId = '00000000-0000-4000-8000-00000000c0de';
     const res = await createRule({
-      name: `cov rule whitelist ${TAG}`, eventTypes: ['DEVICE_INACTIVITY'], isActive: false,
+      name: `cov rule whitelist ${TAG}`, eventTypes: ['USER_LOCKED'], isActive: false,
       id: forgedId, createdAt: '2001-01-01T00:00:00.000Z', createdBy: 'forged',
     });
     expect(res.statusCode).toBe(200);
@@ -188,10 +188,10 @@ describe('POST /api/notification-rules', () => {
   it.each([
     ['missing eventTypes', { name: 'x' }],
     ['empty eventTypes', { name: 'x', eventTypes: [] }],
-    ['empty name', { name: '', eventTypes: ['DEVICE_ONLINE'] }],
-    ['name over 200 chars', { name: 'n'.repeat(201), eventTypes: ['DEVICE_ONLINE'] }],
-    ['unknown recipientType', { name: 'x', eventTypes: ['DEVICE_ONLINE'], recipients: [{ recipientType: 'TEAM' }] }],
-    ['negative cooldown', { name: 'x', eventTypes: ['DEVICE_ONLINE'], cooldownMinutes: -1 }],
+    ['empty name', { name: '', eventTypes: ['SYSTEM_ERROR'] }],
+    ['name over 200 chars', { name: 'n'.repeat(201), eventTypes: ['SYSTEM_ERROR'] }],
+    ['unknown recipientType', { name: 'x', eventTypes: ['SYSTEM_ERROR'], recipients: [{ recipientType: 'TEAM' }] }],
+    ['negative cooldown', { name: 'x', eventTypes: ['SYSTEM_ERROR'], cooldownMinutes: -1 }],
   ])('rejects %s with 400', async (_label, payload) => {
     const before = await prisma.notificationRule.count();
     const res = await app.inject({ method: 'POST', url: '/api/notification-rules', headers: H(saToken, PW), payload });
@@ -204,17 +204,33 @@ describe('POST /api/notification-rules', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it.each([
+    ['a device type', ['DEVICE_ONLINE'], '"Device Online" is never sent by this application'],
+    ['a checklist type next to a sent one', ['USER_LOGIN', 'CHECKLIST_SUBMITTED'], '"Checklist Submitted" is never sent by this application'],
+  ])('refuses %s (EVENT_TYPE_NOT_SENT) before the password is asked, and stores nothing (2026-10-24)', async (_l, eventTypes, msg) => {
+    const before = await prisma.notificationRule.count();
+    const reauthRowsBefore = await prisma.auditTrail.count({ where: { userId: CFG, action: { in: ['REAUTH_SUCCESS', 'REAUTH_FAILED'] } } });
+    // cfgToken's role is under MANAGE_NOTIFICATION_RULES re-auth: no password is sent, yet the answer is 400, not 401
+    const res = await app.inject({ method: 'POST', url: '/api/notification-rules', headers: H(cfgToken), payload: { name: `cov unsent ${TAG}`, eventTypes, isActive: false } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('EVENT_TYPE_NOT_SENT');
+    expect(res.json().message).toContain(msg);
+    expect(res.json().message).toContain('Choose from: User Login, User Created, User Locked, System Error.');
+    expect(await prisma.notificationRule.count()).toBe(before);
+    expect(await prisma.auditTrail.count({ where: { userId: CFG, action: { in: ['REAUTH_SUCCESS', 'REAUTH_FAILED'] } } })).toBe(reauthRowsBefore);
+  });
+
   it('403s a role holding only CONFIG_READ', async () => {
     const res = await app.inject({
       method: 'POST', url: '/api/notification-rules', headers: H(roToken, PW),
-      payload: { name: 'ro', eventTypes: ['DEVICE_ONLINE'] },
+      payload: { name: 'ro', eventTypes: ['SYSTEM_ERROR'] },
     });
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe('FORBIDDEN');
   });
 
   it('enforces MANAGE_NOTIFICATION_RULES re-auth for a role it is configured for', async () => {
-    const payload = { name: `cov reauth ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false };
+    const payload = { name: `cov reauth ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false };
     const none = await app.inject({ method: 'POST', url: '/api/notification-rules', headers: H(cfgToken), payload });
     expect(none.statusCode).toBe(401);
     expect(none.json()).toMatchObject({ error: 'REAUTH_REQUIRED', action: 'MANAGE_NOTIFICATION_RULES' });
@@ -240,7 +256,7 @@ describe('GET /api/notification-rules (list) and /:id', () => {
 
   beforeAll(async () => {
     const res = await createRule({
-      name: `cov rule list ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false, priority: 7,
+      name: `cov rule list ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false, priority: 7,
       recipients: [
         { recipientType: 'ROLE', roleValue: ROLE_RCPT },
         { recipientType: 'GROUP', groupId },
@@ -263,8 +279,8 @@ describe('GET /api/notification-rules (list) and /:id', () => {
     const body = res.json();
     expect(body.total).toBe(body.data.length);
     const rule = body.data.find((r: any) => r.id === ruleId);
-    expect(rule.eventTypesMeta).toEqual([expect.objectContaining({ value: 'DEVICE_ONLINE', label: 'Device Online' })]);
-    expect(rule.eventTypeMeta).toMatchObject({ label: 'Device Online', module: 'devices' });
+    expect(rule.eventTypesMeta).toEqual([expect.objectContaining({ value: 'SYSTEM_ERROR', label: 'System Error' })]);
+    expect(rule.eventTypeMeta).toMatchObject({ label: 'System Error', module: 'system' });
     const names = Object.fromEntries(rule.recipients.map((r: any) => [`${r.recipientType}:${r.userId ?? r.groupId ?? r.roleValue}`, r.displayName]));
     expect(names[`ROLE:${ROLE_RCPT}`]).toBe(ROLE_RCPT);
     expect(names[`GROUP:${groupId}`]).toBe(GROUP_NAME);
@@ -277,6 +293,8 @@ describe('GET /api/notification-rules (list) and /:id', () => {
     const legacy = res.json().data.find((r: any) => r.id === legacyId);
     expect(legacy.eventTypes).toEqual(['DEVICE_INACTIVITY']);
     expect(legacy.eventTypesMeta[0].value).toBe('DEVICE_INACTIVITY');
+    // a stored type that is no longer sent still shows its label
+    expect(legacy.eventTypesMeta[0].label).toBe('Device Inactivity');
   });
 
   it('GET /:id returns the rule with recipients', async () => {
@@ -317,7 +335,7 @@ describe('PUT /api/notification-rules/:id', () => {
 
   beforeAll(async () => {
     const res = await createRule({
-      name: `cov rule put ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false,
+      name: `cov rule put ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false,
       description: 'before', recipients: [{ recipientType: 'USER', userId: ids.r1 }],
     });
     ruleId = res.json().id;
@@ -337,7 +355,7 @@ describe('PUT /api/notification-rules/:id', () => {
         // what the UI echoes back from the list endpoint
         id: ruleId, eventTypeMeta: { x: 1 }, eventTypesMeta: [], createdAt: '2001-01-01T00:00:00Z', updatedAt: 'x', createdBy: 'forged',
         name: `cov rule put renamed ${TAG}`,
-        eventTypes: ['DEVICE_INACTIVITY', 'DEVICE_OFFLINE'],
+        eventTypes: ['USER_LOCKED', 'USER_CREATED'],
         priority: 9,
         emailTemplateId: tplEmail,
         recipients: [{ recipientType: 'ROLE', roleValue: ROLE_RCPT }, { recipientType: 'GROUP', groupId }],
@@ -346,7 +364,7 @@ describe('PUT /api/notification-rules/:id', () => {
     expect(res.statusCode).toBe(200);
     const rule = res.json();
     expect(rule.name).toBe(`cov rule put renamed ${TAG}`);
-    expect(rule.eventType).toBe('DEVICE_INACTIVITY');
+    expect(rule.eventType).toBe('USER_LOCKED');
     expect(rule.priority).toBe(9);
     expect(rule.emailTemplateId).toBe(tplEmail);
     expect(rule.createdBy).toBe(SA); // provenance not client-settable
@@ -361,11 +379,11 @@ describe('PUT /api/notification-rules/:id', () => {
   it('a single eventType is widened to eventTypes; empty template ids and description become null', async () => {
     const res = await app.inject({
       method: 'PUT', url: `/api/notification-rules/${ruleId}`, headers: H(saToken, PW),
-      payload: { eventType: 'DEVICE_OFFLINE', emailTemplateId: '', smsTemplateId: '', description: '' },
+      payload: { eventType: 'USER_CREATED', emailTemplateId: '', smsTemplateId: '', description: '' },
     });
     expect(res.statusCode).toBe(200);
     const rule = res.json();
-    expect(rule.eventTypes).toEqual(['DEVICE_OFFLINE']);
+    expect(rule.eventTypes).toEqual(['USER_CREATED']);
     expect(rule.emailTemplateId).toBeNull();
     expect(rule.smsTemplateId).toBeNull();
     expect(rule.description).toBeNull();
@@ -391,6 +409,24 @@ describe('PUT /api/notification-rules/:id', () => {
     expect(await latestAudit('NOTIFICATION_RULE_UPDATED', missing)).toBeNull();
   });
 
+  it('an edit naming an unsent type is refused (EVENT_TYPE_NOT_SENT); one that leaves the types out keeps them (2026-10-24)', async () => {
+    const bad = await app.inject({
+      method: 'PUT', url: `/api/notification-rules/${ruleId}`, headers: H(saToken, PW), payload: { eventTypes: ['DEVICE_OFFLINE'] },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toBe('EVENT_TYPE_NOT_SENT');
+    expect((await prisma.notificationRule.findUnique({ where: { id: ruleId } }))!.eventTypes).not.toContain('DEVICE_OFFLINE');
+    const legacy = await prisma.notificationRule.create({
+      data: { name: `cov legacy put ${TAG}`, eventType: 'DEVICE_ONLINE', eventTypes: ['DEVICE_ONLINE'], isActive: false, createdBy: 'cov-test' },
+    });
+    createdRuleIds.push(legacy.id);
+    const rename = await app.inject({
+      method: 'PUT', url: `/api/notification-rules/${legacy.id}`, headers: H(saToken, PW), payload: { name: `cov legacy put renamed ${TAG}` },
+    });
+    expect(rename.statusCode).toBe(200);
+    expect(rename.json().eventTypes).toEqual(['DEVICE_ONLINE']);
+  });
+
   it('rejects a schema violation with 400', async () => {
     const res = await app.inject({
       method: 'PUT', url: `/api/notification-rules/${ruleId}`, headers: H(saToken, PW), payload: { eventTypes: [] },
@@ -410,7 +446,7 @@ describe('PUT /api/notification-rules/:id', () => {
 
 describe('PUT /api/notification-rules/:id/toggle', () => {
   it('flips isActive atomically and audits each flip with a signature meaning', async () => {
-    const rule = (await createRule({ name: `cov toggle ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false })).json();
+    const rule = (await createRule({ name: `cov toggle ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false })).json();
     const on = await app.inject({ method: 'PUT', url: `/api/notification-rules/${rule.id}/toggle`, headers: H(saToken, PW), payload: {} });
     expect(on.statusCode).toBe(200);
     expect(on.json().isActive).toBe(true);
@@ -432,7 +468,7 @@ describe('PUT /api/notification-rules/:id/toggle', () => {
   });
 
   it('requires re-auth for the configured role', async () => {
-    const rule = (await createRule({ name: `cov toggle reauth ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false })).json();
+    const rule = (await createRule({ name: `cov toggle reauth ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false })).json();
     const res = await app.inject({ method: 'PUT', url: `/api/notification-rules/${rule.id}/toggle`, headers: H(cfgToken), payload: {} });
     expect(res.statusCode).toBe(401);
     expect((await prisma.notificationRule.findUnique({ where: { id: rule.id } }))!.isActive).toBe(false);
@@ -442,7 +478,7 @@ describe('PUT /api/notification-rules/:id/toggle', () => {
 describe('DELETE /api/notification-rules/:id', () => {
   it('deletes the rule, cascades its recipients and audits the prior name/eventType', async () => {
     const rule = (await createRule({
-      name: `cov delete ${TAG}`, eventTypes: ['DEVICE_OFFLINE'], isActive: false,
+      name: `cov delete ${TAG}`, eventTypes: ['USER_CREATED'], isActive: false,
       recipients: [{ recipientType: 'USER', userId: ids.r1 }],
     })).json();
     const res = await app.inject({ method: 'DELETE', url: `/api/notification-rules/${rule.id}`, headers: H(saToken, PW) });
@@ -451,7 +487,7 @@ describe('DELETE /api/notification-rules/:id', () => {
     expect(await prisma.notificationRule.findUnique({ where: { id: rule.id } })).toBeNull();
     expect(await prisma.notificationRuleRecipient.count({ where: { ruleId: rule.id } })).toBe(0);
     const audit = await latestAudit('NOTIFICATION_RULE_DELETED', rule.id);
-    expect(audit!.beforeValue).toEqual({ name: `cov delete ${TAG}`, eventType: 'DEVICE_OFFLINE' });
+    expect(audit!.beforeValue).toEqual({ name: `cov delete ${TAG}`, eventType: 'USER_CREATED' });
   });
 
   it('answers 404 for an unknown id', async () => {
@@ -460,7 +496,7 @@ describe('DELETE /api/notification-rules/:id', () => {
   });
 
   it('requires re-auth for the configured role', async () => {
-    const rule = (await createRule({ name: `cov delete reauth ${TAG}`, eventTypes: ['DEVICE_OFFLINE'], isActive: false })).json();
+    const rule = (await createRule({ name: `cov delete reauth ${TAG}`, eventTypes: ['USER_CREATED'], isActive: false })).json();
     const res = await app.inject({ method: 'DELETE', url: `/api/notification-rules/${rule.id}`, headers: H(cfgToken) });
     expect(res.statusCode).toBe(401);
     expect(await prisma.notificationRule.findUnique({ where: { id: rule.id } })).not.toBeNull();
@@ -496,7 +532,7 @@ describe('POST /api/notification-rules/:id/test', () => {
   });
 
   it('a dispatch failure (database outage mid-dispatch) is reported in the body, not thrown as a 500', async () => {
-    const rule = (await createRule({ name: `cov testfire fail ${TAG}`, eventTypes: ['DEVICE_ONLINE'], isActive: false })).json();
+    const rule = (await createRule({ name: `cov testfire fail ${TAG}`, eventTypes: ['SYSTEM_ERROR'], isActive: false })).json();
     dispatchFault.next = new Error('Invalid `prisma.notificationRule.findMany()` invocation in C:/app/src/x.ts:87 connection terminated');
     const res = await app.inject({ method: 'POST', url: `/api/notification-rules/${rule.id}/test`, headers: H(saToken), payload: {} });
     expect(res.statusCode).toBe(200);

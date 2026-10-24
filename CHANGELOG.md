@@ -6,6 +6,37 @@ Release decision: **CONDITIONAL PASS** (test-results/FINAL-RELEASE-DECISION.md).
 clean-machine install, Super Admin probe session and the performance / endurance re-run were NOT run
 ("finish right now"); they are the go-live conditions.
 
+### 2026-10-24 - operator requests - NOT in Setup 1.2.3 (`fe5c6364…`) or its APK
+
+- **Tablet: the RFID debug button is gone (`mobile-operations.tsx`).** The floating ⓘ (bottom right) opened
+  a keystroke log for checking a keyboard-wedge reader; it sat over the dryer Submit button. Removed with its
+  log state; the wedge capture itself is unchanged. Guard: `ops-scan-queue.test.tsx` (no toggle, no overlay).
+- **Role and set codes shown as people read them.** The interlock banner and the batch refusal line on the
+  tablet, the Filter Operations banner, the Stage Approvals "another … must sign off" note, and the server's
+  `STAGE_APPROVAL_PENDING` / `WRONG_APPROVER_ROLE` messages printed the role CODE (`SHIFTOFFICER`); they now
+  print its display name from the roles table ("Shift Officer"; the code only when no row names it). The web
+  reads `/api/roles/active` (`useRoleColors`), the API `roleDisplayName()` (`stage-interlock.ts`, refusal
+  path only). Stage-approval details printed `SET_B`, and the Filter Data Management table and the hierarchy
+  diagram "SET A": one formatter now, `lib/filter-set.ts` `formatFilterSet` ("Set B"). The stored values are
+  unchanged.
+- **Audit Trail: the Redact / Delete reason is typed in the dialog, not a browser pop-up (`routes/audit`).**
+  `window.prompt` asked for it; a reason under 5 characters (the API minimum) or Cancel did nothing at all,
+  silently. The confirm dialog now holds a required reason box (`ReasonBox`: says how many characters are
+  missing; the button stays off until there are 5), and a single row's Redact / Delete Permanently opens the
+  same dialog as the bulk actions (it had no confirm step). The dialog stays open on a refusal, with the reason
+  kept, and each opening starts empty. Tests: `audit-trail-destructive.test.tsx` rewritten (and asserts the
+  page never calls `window.prompt`).
+- **Notification rules offer only events the application sends (`notification-rules/routes.ts`).** The picker
+  listed 10 event types; only `USER_LOGIN`, `USER_CREATED`, `USER_LOCKED` and `SYSTEM_ERROR` are ever
+  dispatched. `DEVICE_ONLINE/OFFLINE/INACTIVITY` belonged to the data-ingestion layer removed 2026-06 and
+  nothing emits a `CHECKLIST_*` event, so a rule on any of the six never fired. `GET /event-types` returns the
+  four (`SENT_EVENT_TYPES`); a create / edit naming another is refused 400 `EVENT_TYPE_NOT_SENT` with the
+  allowed list, before the password is asked (D03-09); an edit that leaves the types out keeps them. Their
+  labels stay, so an existing rule still renders, and the editor marks such a type "(never sent - remove it)".
+  The Prisma enum is unchanged (no migration).
+- Test fix: `offline-store.idb.test.ts` (from `671788a`) queued ops without an owner and failed `tsc`
+  (vitest does not type-check); the ops now carry `userId` / `userName`.
+
 ### After the 1.2.3 build (found while writing the user manuals, 2026-10-23) - NOT in Setup 1.2.3 (`fe5c6364…`) or its APK
 
 - **Tablet offline: the header never showed queued work (`offline-store.ts`, `use-offline.ts`).** Each

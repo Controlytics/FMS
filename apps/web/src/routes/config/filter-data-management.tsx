@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
 import { isoToDatetimeInput, toIsoIfNaiveDatetime } from '@/lib/datetime-input';
 import { formatRecordedReading } from '@/lib/format-by-least-count';
+import { formatFilterSet } from '@/lib/filter-set';
 import { ManualEntryBadge } from '@/components/manual-entry-badge';
 
 // Helpers copied from cleaning-cycles/history.tsx + filter-traceability.tsx so
@@ -1579,7 +1580,7 @@ export function FilterDataManagementPage() {
                           </select>
                         ) : (
                           r.filterSet ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">{r.filterSet.replace('_', ' ')}</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">{formatFilterSet(r.filterSet)}</span>
                           ) : (
                             <span className="text-slate-300 text-[12px]">--</span>
                           )

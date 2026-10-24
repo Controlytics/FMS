@@ -525,7 +525,7 @@ describe('queue-change signal', () => {
     await openApp();
     const seen: number[] = [];
     const off = store.onQueueChange(() => { seen.push(idb.rows('operations').length); });
-    const base = { type: 'advance' as const, filterId: 'f-1', filterName: 'F-1', payload: {} };
+    const base = { type: 'advance' as const, filterId: 'f-1', filterName: 'F-1', payload: {}, userId: 'u-1', userName: 'U' };
     await queueOperation(base); await queueOperation(base); await queueOperation(base);
     await settle();
     off();
@@ -542,7 +542,7 @@ describe('queue-change signal', () => {
     await clearAllOperations(); await settle();
     expect(heard).toHaveBeenCalledTimes(3);
     off();
-    await queueOperation({ type: 'advance', filterId: 'f-1', filterName: 'F-1', payload: {} }); await settle();
+    await queueOperation({ type: 'advance', filterId: 'f-1', filterName: 'F-1', payload: {}, userId: 'u-1', userName: 'U' }); await settle();
     expect(heard).toHaveBeenCalledTimes(3);
   });
 

@@ -36,7 +36,7 @@ import { completeCycleTx } from '../filter-operations/cycle-write/complete-cycle
 import { loadLocalContext } from '../filter-operations/local-context.js';
 import { readFilterSetChoice } from '../filter-operations/cycle-write/stage-entry.js';
 import { assertAhuInterlockSatisfied } from '../filter-operations/ahu-completion-gate.js';
-import { prettyStage } from '../filter-operations/stage-interlock.js';
+import { prettyStage, roleDisplayName } from '../filter-operations/stage-interlock.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { getLogger } from '../../lib/logger.js';
 import { collectStageDetails, type StageDetails } from './stage-details.js';
@@ -62,10 +62,10 @@ const SUMMARY_SELECT = {
 } as const;
 
 /** Decider must hold the approval's frozen role (or be SUPER_ADMIN). */
-function assertRoleAllowed(ctx: RequestContext, approverRole: string) {
+async function assertRoleAllowed(ctx: RequestContext, approverRole: string) {
   if (ctx.userRole === 'SUPER_ADMIN') return;
   if (ctx.userRole !== approverRole) {
-    throw new AppError(403, 'WRONG_APPROVER_ROLE', `Only ${approverRole} can act on this approval.`);
+    throw new AppError(403, 'WRONG_APPROVER_ROLE', `Only ${await roleDisplayName(approverRole)} can act on this approval.`);
   }
 }
 
@@ -368,7 +368,7 @@ export const stageApprovalService = {
     const row = await prisma.cleaningStageApproval.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Stage approval not found.');
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
-    assertRoleAllowed(ctx, row.approverRole);
+    await assertRoleAllowed(ctx, row.approverRole);
     await assertDifferentApprover(ctx, row.requestedBy, 'approve');
     // Refuse a stale orphan (filter already advanced past the gate offline).
     await assertFilterStillAtGate(row);
@@ -504,7 +504,7 @@ export const stageApprovalService = {
     const row = await prisma.cleaningStageApproval.findUnique({ where: { id } });
     if (!row) throw new AppError(404, 'NOT_FOUND', 'Stage approval not found.');
     if (row.status !== 'PENDING') throw new AppError(400, 'INVALID_STATUS', 'This stage approval is not pending.');
-    assertRoleAllowed(ctx, row.approverRole);
+    await assertRoleAllowed(ctx, row.approverRole);
     await assertDifferentApprover(ctx, row.requestedBy, 'reject');
     // Refuse a stale orphan — rejecting after the filter advanced past the gate
     // offline would yank an already-progressed filter back to WASH_IN / DRY_IN.

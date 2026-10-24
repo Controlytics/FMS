@@ -44,6 +44,8 @@ export function setup(o: { reauthActions?: string[]; state: unknown; routes?: Mo
     { path: '/api/checklist-profiles', body: { data: [] } },
     { path: '/api/filter-cleaning-profiles', body: { data: [] } },
     { path: '/api/config/action-reauth/my-actions', body: { actions: o.reauthActions ?? [] } },
+    // Role display names (useRoleColors) for the interlock banner; public on the server.
+    { path: '/api/roles/active', body: [] },
     { path: '/api/config/ahu-completion-process/current', body: { mode: 'NONE' } },
     { path: '/api/config/block-change-approval/current', body: { mode: 'CONFIRM' } },
     { path: '/api/config/datetime/current', body: {} },

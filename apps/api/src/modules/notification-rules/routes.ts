@@ -6,7 +6,7 @@ import { type FastifyInstance } from 'fastify';
 import { prisma } from '../../lib/prisma.js';
 import { buildContext } from '../../lib/build-context.js';
 import { auditLog } from '../../lib/audit.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { AppError, NotFoundError } from '../../lib/errors.js';
 import { dispatchNotification } from '../notification-delivery/notification-dispatcher.js';
 import { enforceReauth } from '../../lib/reauth-check.js';
 
@@ -23,16 +23,44 @@ const EVENT_TYPE_META: Record<string, { label: string; module: string; variables
   SYSTEM_ERROR:         { label: 'System Error',          module: 'system',     variables: ['errorType', 'errorMessage', 'timestamp'] },
 };
 
+/**
+ * The event types the application actually sends (every dispatchNotification
+ * call site, grep 2026-10-24): USER_LOGIN + USER_LOCKED (auth.service),
+ * USER_CREATED (user.service), SYSTEM_ERROR (the app.ts error hook). The
+ * DEVICE_* types belonged to the data-ingestion layer removed 2026-06-11..17 and
+ * nothing emits a CHECKLIST_* event, so a rule on any of those six never fired.
+ * They stay in EVENT_TYPE_META so an existing rule still shows its label; the
+ * picker no longer offers them, and a create / edit naming one is refused.
+ * Add a type here only together with the code that dispatches it.
+ */
+export const SENT_EVENT_TYPES: readonly string[] = ['USER_LOGIN', 'USER_CREATED', 'USER_LOCKED', 'SYSTEM_ERROR'];
+
+/** 400 EVENT_TYPE_NOT_SENT when the body names a type nothing sends. Runs before the re-auth gate (D03-09). */
+function assertEventTypesSent(body: { eventType?: string; eventTypes?: string[] } | undefined) {
+  const types = body?.eventTypes?.length ? body.eventTypes : (body?.eventType ? [body.eventType] : []);
+  const unsent = types.filter((t) => !SENT_EVENT_TYPES.includes(t));
+  if (!unsent.length) return;
+  const names = unsent.map((t) => `"${EVENT_TYPE_META[t]?.label ?? t}"`).join(', ');
+  const one = unsent.length === 1;
+  throw new AppError(
+    400,
+    'EVENT_TYPE_NOT_SENT',
+    `${names} ${one ? 'is' : 'are'} never sent by this application, so a rule on ${one ? 'it' : 'them'} would never fire. `
+      + `Choose from: ${SENT_EVENT_TYPES.map((t) => EVENT_TYPE_META[t].label).join(', ')}.`,
+  );
+}
+
 export default async function notificationRulesRoutes(app: FastifyInstance) {
 
-  // GET /api/notification-rules/event-types — available event types
+  // GET /api/notification-rules/event-types — the event types a rule can use
+  // (only those the application sends; see SENT_EVENT_TYPES)
   app.get('/event-types', {
     preHandler: [app.requirePermission('CONFIG_READ')],
     schema: { tags: ['Notification Rules'], summary: 'List available event types' },
   }, async () => {
-    return Object.entries(EVENT_TYPE_META).map(([key, meta]) => ({
+    return SENT_EVENT_TYPES.map((key) => ({
       value: key,
-      ...meta,
+      ...EVENT_TYPE_META[key],
     }));
   });
 
@@ -136,6 +164,7 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    assertEventTypesSent(req.body as any);
     const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
     if (!reauthOk) return;
     const body = req.body as any;
@@ -219,6 +248,9 @@ export default async function notificationRulesRoutes(app: FastifyInstance) {
       },
     },
   }, async (req, reply) => {
+    // An edit that leaves the event types out keeps them (an older rule may still
+    // name a type that is no longer sent); one that names an unsent type is refused.
+    assertEventTypesSent(req.body as any);
     const { ok: reauthOk } = await enforceReauth('MANAGE_NOTIFICATION_RULES', req, reply);
     if (!reauthOk) return;
     const { id } = req.params as { id: string };

@@ -139,6 +139,8 @@ beforeAll(async () => {
   OTHER = await fx.role('OTH', ['STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE']);
   const OPER = await fx.role('OPR', ['FILTER_OPERATE', 'FILTER_BYPASS', 'ASSET_READ']);
   cfg.washOutApproverRole = APR; cfg.dryOutApproverRole = APR;
+  // Refusal text names the role by its display name, not the code (2026-10-24).
+  await prisma.role.update({ where: { name: APR }, data: { displayName: 'Stage Approver' } });
   op = await fx.user('op', OPER);
   apr1 = await fx.user('apr1', APR);
   const apr2 = await fx.user('apr2', APR);
@@ -192,7 +194,7 @@ describe('the operator side: entering a gated stage raises the gate', () => {
     const res = await advance(ctx.f, { targetState: 'DRY_IN', dryerAction: 'SET_DURATION', dryerDurationMinutes: 2 });
     expect(res.statusCode).toBe(423);
     expect(res.json().error).toBe('STAGE_APPROVAL_PENDING');
-    expect(res.json().message).toContain(APR);
+    expect(res.json().message).toBe('Wash Out is awaiting approval from Stage Approver before this filter can continue.');
   });
 });
 
@@ -267,6 +269,7 @@ describe('approve: guards and the decision record', () => {
   it('a decider outside the approval role is refused (WRONG_APPROVER_ROLE)', async () => {
     const res = await signed(`/api/stage-approvals/${ctx.approvalId}/approve`, otherH, APPROVE);
     expect([res.statusCode, res.json().error]).toEqual([403, 'WRONG_APPROVER_ROLE']);
+    expect(res.json().message).toBe('Only Stage Approver can act on this approval.');
   });
 
   it('an unknown approval is 404', async () => {

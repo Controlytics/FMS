@@ -71,6 +71,16 @@ export function isInterlockStage(stateKey: string | null | undefined): stateKey 
   return !!stateKey && Object.prototype.hasOwnProperty.call(INTERLOCK_POINTS, stateKey);
 }
 
+/**
+ * A role code as people read it — its display name from the roles table
+ * ("Shift Officer", not SHIFTOFFICER; 2026-10-24); the code itself when no row
+ * names it. Only for refusal TEXT: the stored / compared approverRole stays the code.
+ */
+export async function roleDisplayName(role: string): Promise<string> {
+  const row = await prisma.role.findUnique({ where: { name: role }, select: { displayName: true } });
+  return row?.displayName || role;
+}
+
 export function getApproverRoleForStage(stageKey: string, config: StageInterlockConfig): string {
   if (stageKey === 'DRY_OUT') return config.dryOutApproverRole;
   return config.washOutApproverRole; // WASH_OUT (and any other point) → wash-out role
@@ -110,10 +120,11 @@ export async function assertStageApprovedToLeave(params: {
       `${prettyStage(fromState)} was rejected by the approver. The filter must restart from ${prettyStage(INTERLOCK_POINTS[fromState].rejectToStateKey)}.`,
     );
   }
+  const approver = await roleDisplayName(getApproverRoleForStage(fromState, config));
   throw new AppError(
     423,
     'STAGE_APPROVAL_PENDING',
-    `${prettyStage(fromState)} is awaiting approval from ${getApproverRoleForStage(fromState, config)} before this filter can continue.`,
+    `${prettyStage(fromState)} is awaiting approval from ${approver} before this filter can continue.`,
   );
 }
 

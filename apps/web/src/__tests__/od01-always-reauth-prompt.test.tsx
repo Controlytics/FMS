@@ -122,8 +122,10 @@ describe('Audit Trail — permanent delete', () => {
       const api = mockApi(auditRoutes({ reauth: [], extra: [reauthRequired('DELETE', '/api/audit/a2')] }));
       renderPage(<AuditTrailPage />, { user, api });
       const row = (await screen.findByText('Failed login attempt for "intruder"')).closest('tr') as HTMLElement;
-      prompt.mockReturnValue('Test data from OQ run');
+      // The reason is typed in the confirm dialog (it was window.prompt until 2026-10-24).
       fireEvent.click(within(row).getByTitle(/^Delete permanently/));
+      fireEvent.change(screen.getByLabelText(/Reason for this change/), { target: { value: 'Test data from OQ run' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Delete 1 Record' }));
       await cancelThePrompt();
       onlyTheRefusedCall(api, 'DELETE', '/api/audit/a2');
       expect(screen.queryByText('Delete Failed')).toBeNull();

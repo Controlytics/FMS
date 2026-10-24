@@ -4,6 +4,7 @@ import useSWR, { mutate } from 'swr';
 import { apiClient } from '../../lib/api-client';
 import { useAuth } from '../../hooks/use-auth';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { useRoleColors } from '../../hooks/use-role-colors';
 import { useOffline } from '../../hooks/use-offline';
 import { useReauth, isReauthCancelled } from '../../hooks/use-reauth';
 import { useToast } from '@/hooks/use-toast';
@@ -112,6 +113,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
 } = {}) {
   const { user, isLoading: authLoading } = useAuth();
   const { formatTime, formatDate } = useDatetimeFormat();
+  // Approver role display names for the interlock wording ("Shift Officer", not SHIFTOFFICER).
+  const { roleLabels } = useRoleColors();
   const { online, pendingCount, executeOrQueue, cacheFilterData, getOfflineFilters, cache, getCache } = useOffline();
   const reauth = useReauth();
   // ─── D1/D2/D4 Day 3b — useFilterOperationsCore is now authoritative ──────
@@ -408,12 +411,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
   // Global RFID-burst capture. UKB-mode readers inject keystrokes into the
   // focused app at 3-100ms intervals (way faster than human typing). We catch
   // those bursts at document level, build the tag string, and route it to the
-  // scan input. Debug log captures every keydown so operators can verify keys
-  // are actually arriving (toggle via tap on the small ⓘ in the header).
-  const [rfidDebug, setRfidDebug] = useState<string[]>([]);
-  const [rfidDebugVisible, setRfidDebugVisible] = useState(false);
-  const pushDebug = (s: string) => setRfidDebug(prev => [s, ...prev].slice(0, 25));
-
+  // scan input. (The on-screen RFID keystroke debug overlay was removed
+  // 2026-10-24, operator request: its floating button covered the dryer Submit.)
   useEffect(() => {
     let buffer = '';
     let lastKeyTime = 0;
@@ -431,10 +430,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
       const now = Date.now();
       const gap = lastKeyTime === 0 ? -1 : now - lastKeyTime;
       lastKeyTime = now;
-
-      if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Tab') {
-        pushDebug(`key="${e.key}" gap=${gap}ms target=${(e.target as HTMLElement)?.tagName ?? '?'}`);
-      }
 
       // 2026-07-10: leave keystrokes destined for ANOTHER editable field alone
       // (checklist question inputs, remarks textarea, search boxes, selects).
@@ -468,7 +463,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
           e.preventDefault();
           if (buffer.length >= 4) {
             const toSubmit = buffer;
-            pushDebug(`SUBMIT: "${toSubmit}" (len ${toSubmit.length})`);
             setScanValue('');
             if (view === 'stage') {
               // Pass buffer directly — scanValue state hasn't committed yet.
@@ -511,7 +505,6 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
         flushTimer = setTimeout(() => {
           if (buffer.length >= 4) {
             const toSubmit = buffer;
-            pushDebug(`AUTO-FLUSH: "${toSubmit}" (len ${toSubmit.length})`);
             setScanValue('');
             if (view === 'stage') addToQueueRef.current(toSubmit);
           }
@@ -1355,7 +1348,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
             const held = blockingInterlock(fresh);
             if (held) {
               noteInterlock(held);
-              failed.push(interlockRefusalLine(item.filterName, held));
+              failed.push(interlockRefusalLine(item.filterName, held, roleLabels));
               continue;
             }
             if (fresh) {
@@ -3560,32 +3553,7 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
           <span className="text-base leading-none">🛡️</span>
           <div>
             <div className="font-semibold">{interlockBannerTitle(interlock)}</div>
-            <div className="text-amber-700 mt-0.5 text-[13px]">{interlockBannerDetail(interlock)}</div>
-          </div>
-        </div>
-      )}
-      {/* RFID debug overlay — shows every keydown the WebView receives so
-          operators can verify whether UKB-mode keystrokes are arriving.
-          Tap the floating button bottom-right to toggle. */}
-      <button
-        onClick={() => setRfidDebugVisible(v => !v)}
-        className="fixed bottom-4 right-4 z-[60] w-10 h-10 rounded-full bg-slate-800/80 text-white text-xs font-bold shadow-lg active:bg-slate-700"
-        title="Toggle RFID debug"
-      >
-        {rfidDebugVisible ? '✕' : 'ⓘ'}
-      </button>
-      {rfidDebugVisible && (
-        <div className="fixed bottom-16 right-4 z-[60] w-80 max-h-96 bg-slate-900/95 text-emerald-300 text-[11px] font-mono rounded-xl shadow-2xl border border-slate-700 overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 bg-slate-800/60">
-            <span className="text-slate-300 font-bold">RFID DEBUG ({rfidDebug.length})</span>
-            <button onClick={() => setRfidDebug([])} className="text-amber-400 underline">clear</button>
-          </div>
-          <div className="overflow-y-auto p-2 space-y-0.5">
-            {rfidDebug.length === 0 ? (
-              <div className="text-slate-500 italic">Waiting for keystrokes… trigger the RFID reader now.</div>
-            ) : (
-              rfidDebug.map((line, i) => <div key={i}>{line}</div>)
-            )}
+            <div className="text-amber-700 mt-0.5 text-[13px]">{interlockBannerDetail(interlock, roleLabels)}</div>
           </div>
         </div>
       )}

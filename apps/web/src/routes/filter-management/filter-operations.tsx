@@ -8,6 +8,7 @@ import { isReauthError } from '../../lib/report-export-log';
 import { callCompletesStageWork } from '@digilog/shared';
 import { ReauthDialog } from '../../components/reauth-dialog';
 import { useDatetimeFormat } from '../../hooks/use-datetime-format';
+import { useRoleColors } from '../../hooks/use-role-colors';
 import { StageScanDialog } from './components/stage-scan-dialog';
 import { CleaningReasonDialog } from './components/cleaning-reason-dialog';
 import { EquipmentDialog } from './components/equipment-dialog';
@@ -107,6 +108,8 @@ export function FilterOperationsPage() {
   const [searchParams] = useSearchParams();
   const ahuIdFilter = searchParams.get('ahuId');
   const { formatDateTime, formatDate, formatTime } = useDatetimeFormat();
+  // Approver role display names for the interlock banner ("Shift Officer", not SHIFTOFFICER).
+  const { roleLabels } = useRoleColors();
   const reauth = useReauth();
   // ─── D1/D2/D4 Day 4 — useFilterOperationsCore is now authoritative ──────
   // AHU completion pre-flight for the hook's OWN dialog-first deferral
@@ -2342,7 +2345,7 @@ export function FilterOperationsPage() {
               <div className="text-amber-700 mt-0.5">
                 {interlock.status === 'REJECTED'
                   ? 'This stage was rejected — the filter has been sent back for re-cleaning.'
-                  : `${interlock.approverRole ?? 'An approver'} must verify the filter details and approve before this filter can continue. You'll be notified once it's released.`}
+                  : `${(interlock.approverRole && roleLabels[interlock.approverRole]) || interlock.approverRole || 'An approver'} must verify the filter details and approve before this filter can continue. You'll be notified once it's released.`}
               </div>
             </div>
           </div>

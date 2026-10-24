@@ -464,9 +464,9 @@ describe('Audit Trail — dialogs and sort indicators', () => {
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(6));
     fireEvent.click(screen.getAllByRole('checkbox')[1]);
     fireEvent.click(screen.getByRole('button', { name: /Delete Permanently/ }));
-    expect(screen.getByText('Delete Audit Records')).toBeInTheDocument();
+    expect(screen.getByText('Delete Audit Record')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByText('Delete Audit Records')).toBeNull();
+    expect(screen.queryByText('Delete Audit Record')).toBeNull();
     expect(api.calls('POST', '/api/audit/bulk-delete')).toHaveLength(0);
   });
 

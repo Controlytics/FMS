@@ -92,6 +92,10 @@ export function AuditTrailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showHardDeleteConfirm, setShowHardDeleteConfirm] = useState(false);
+  // One row's Redact / Delete opens the same confirm dialog as the bulk actions;
+  // the reason is typed there (window.prompt dropped a short reason silently).
+  const [singleAction, setSingleAction] = useState<{ id: string; mode: 'redact' | 'delete' } | null>(null);
+  const [singleBusy, setSingleBusy] = useState(false);
   const [hardDeleting, setHardDeleting] = useState(false);
   const [sortBy, setSortBy] = useState<'timestamp' | 'action' | 'userId' | 'userRole'>('timestamp');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -176,14 +180,13 @@ export function AuditTrailPage() {
   // Delta-audit 2026-05-20 §C1 / May 16 §1.2: audit DELETE replaced with REDACT.
   // REDACT preserves checksum + chain link, NULLs the payload, stamps redactedAt/By.
   // Per 21 CFR §11.10(e) the chain MUST remain intact — physical deletion broke it.
-  // Operator must supply a reason (>= 5 chars).
-  const redactSingleAudit = (id: string) => {
-    const reason = window.prompt('Reason for redacting this audit record (min 5 characters):');
-    if (!reason || reason.trim().length < 5) return;
+  // Operator must supply a reason (>= 5 chars), typed in AuditDeleteDialog.
+  const redactSingleAudit = (id: string, reason: string) => {
+    setSingleBusy(true);
     reauth.execute(
       'REDACT_AUDIT_RECORD',
       async (password?: string) => {
-        const body = { reason: reason.trim() };
+        const body = { reason };
         if (password) await api.postWithReauth(`/api/audit/${id}/redact`, body, password);
         else await apiClient.post(`/api/audit/${id}/redact`, body);
       },
@@ -194,27 +197,30 @@ export function AuditTrailPage() {
             next.delete(id);
             return next;
           });
+          setSingleAction(null);
+          setSingleBusy(false);
           mutate();
         },
         // A failed §11 redaction must never pass silently — the operator has to
         // know the payload is still there.
-        onError: (err: any) => toast.error('Redaction Failed', err?.message ?? 'The audit record was not redacted.'),
+        onError: (err: any) => {
+          toast.error('Redaction Failed', err?.message ?? 'The audit record was not redacted.');
+          setSingleBusy(false);
+        },
         // A dismissed password prompt is not a failure: nothing was sent (D2,
         // 2026-10-22). Without onCancel, useReauth routes the cancel into onError.
-        onCancel: () => {},
+        onCancel: () => setSingleBusy(false),
       },
     );
   };
 
-  const bulkRedactAudit = () => {
+  const bulkRedactAudit = (reason: string) => {
     if (redactTargetIds.length === 0) return;
-    const reason = window.prompt(`Reason for redacting ${redactTargetIds.length} audit records (min 5 characters):`);
-    if (!reason || reason.trim().length < 5) return;
     setDeleting(true);
     reauth.execute(
       'BULK_REDACT_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: redactTargetIds, reason: reason.trim() };
+        const body = { ids: redactTargetIds, reason };
         if (password) await api.postWithReauth('/api/audit/bulk-redact', body, password);
         else await apiClient.post('/api/audit/bulk-redact', body);
       },
@@ -236,14 +242,13 @@ export function AuditTrailPage() {
 
   // PHYSICAL hard-delete (audit.delete). Unlike redact, this removes the row and
   // BREAKS the hash chain — verify-chain will report the trail invalid downstream.
-  // Requires a reason (>= 5 chars) + reauth (DELETE_AUDIT_RECORD).
-  const hardDeleteSingleAudit = (id: string) => {
-    const reason = window.prompt('This PERMANENTLY deletes the record and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):');
-    if (!reason || reason.trim().length < 5) return;
+  // Requires a reason (>= 5 chars, typed in AuditDeleteDialog) + reauth (DELETE_AUDIT_RECORD).
+  const hardDeleteSingleAudit = (id: string, reason: string) => {
+    setSingleBusy(true);
     reauth.execute(
       'DELETE_AUDIT_RECORD',
       async (password?: string) => {
-        const body = { reason: reason.trim() };
+        const body = { reason };
         if (password) await api.deleteWithReauth(`/api/audit/${id}`, password, body);
         else await apiClient.delete(`/api/audit/${id}`, body);
       },
@@ -254,23 +259,26 @@ export function AuditTrailPage() {
             next.delete(id);
             return next;
           });
+          setSingleAction(null);
+          setSingleBusy(false);
           mutate();
         },
-        onError: (err: any) => toast.error('Delete Failed', err?.message ?? 'The audit record was not deleted.'),
-        onCancel: () => {},
+        onError: (err: any) => {
+          toast.error('Delete Failed', err?.message ?? 'The audit record was not deleted.');
+          setSingleBusy(false);
+        },
+        onCancel: () => setSingleBusy(false),
       },
     );
   };
 
-  const bulkHardDeleteAudit = () => {
+  const bulkHardDeleteAudit = (reason: string) => {
     if (selectedTargetIds.length === 0) return;
-    const reason = window.prompt(`This PERMANENTLY deletes ${selectedCount} record(s) and breaks the tamper-evident hash chain.\nReason for deletion (min 5 characters):`);
-    if (!reason || reason.trim().length < 5) return;
     setHardDeleting(true);
     reauth.execute(
       'BULK_DELETE_AUDIT_RECORDS',
       async (password?: string) => {
-        const body = { ids: selectedTargetIds, reason: reason.trim() };
+        const body = { ids: selectedTargetIds, reason };
         if (password) await api.postWithReauth('/api/audit/bulk-delete', body, password);
         else await apiClient.post('/api/audit/bulk-delete', body);
       },
@@ -541,7 +549,7 @@ export function AuditTrailPage() {
           canDestroy={canDestroy}
           canRedact={canRedact}
           canHardDelete={canHardDelete}
-          onHardDeleteRecord={hardDeleteSingleAudit}
+          onHardDeleteRecord={(id: string) => setSingleAction({ id, mode: 'delete' })}
           selectedIds={selectedIds}
           toggleSelect={toggleSelect}
           toggleSelectAll={toggleSelectAll}
@@ -556,7 +564,7 @@ export function AuditTrailPage() {
           templates={templates}
           ACTION_COLORS={ACTION_COLORS}
           onViewRecord={setSelectedRecord}
-          onDeleteRecord={redactSingleAudit}
+          onDeleteRecord={(id: string) => setSingleAction({ id, mode: 'redact' })}
           canEdit={isSuperAdmin}
           onEditRecord={setEditRecord}
         />
@@ -646,6 +654,20 @@ export function AuditTrailPage() {
         mode="delete"
       />
 
+      {/* One row's Redact / Delete Permanently — same dialog, same reason rule */}
+      <AuditDeleteDialog
+        open={singleAction !== null}
+        selectedCount={1}
+        deleting={singleBusy}
+        onClose={() => { if (!singleBusy) setSingleAction(null); }}
+        onConfirm={(reason) => {
+          if (!singleAction) return;
+          if (singleAction.mode === 'delete') hardDeleteSingleAudit(singleAction.id, reason);
+          else redactSingleAudit(singleAction.id, reason);
+        }}
+        mode={singleAction?.mode ?? 'redact'}
+      />
+
       <ReauthDialog
         open={reauth.isOpen}
         password={reauth.password}
@@ -653,7 +675,7 @@ export function AuditTrailPage() {
         isVerifying={reauth.isVerifying}
         onPasswordChange={reauth.setPassword}
         onConfirm={reauth.confirm}
-        onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); }}
+        onCancel={() => { reauth.cancel(); setDeleting(false); setHardDeleting(false); setSingleBusy(false); }}
         actionLabel={reauth.pendingActionLabel ?? 'Audit Trail action'}
       />
     </div>

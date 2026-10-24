@@ -1,6 +1,7 @@
 /** Cleaning Stage Interlock — approver-side types + helpers. */
 import { formatRecordedReading } from './format-by-least-count';
 import { fmtMinutes } from './cleaning-cycle-report';
+import { formatFilterSet } from './filter-set';
 
 export interface StageApprovalDetails {
   filterName: string | null;
@@ -105,7 +106,7 @@ export function detailRows(d: StageApprovalDetails): { label: string; value: str
     { label: 'Micron Size', value: d.micronSize ?? '—' },
     { label: 'Filter Type', value: d.filterType ?? '—' },
     { label: 'Filter Dimensions', value: d.filterDimensions ?? '—' },
-    { label: 'Filter Set', value: d.filterSet ?? '—' },
+    { label: 'Filter Set', value: formatFilterSet(d.filterSet) },
   ];
 }
 

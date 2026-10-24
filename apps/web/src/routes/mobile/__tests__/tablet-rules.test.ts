@@ -130,6 +130,12 @@ describe('OQ-02 — interlock wording', () => {
     expect(interlockBannerTitle(pending)).not.toMatch(/QA/);
     expect(interlockRefusalLine('F-01', pending)).toBe('F-01: Wash Out is awaiting approval from SHIFTOFFICER before this filter can continue.');
   });
+  it('shows the role by its display name when the roles table names it (2026-10-24)', () => {
+    const labels = { SHIFTOFFICER: 'Shift Officer' };
+    expect(interlockBannerDetail(pending, labels)).toBe('Shift Officer must verify and approve before this filter can continue.');
+    expect(interlockRefusalLine('F-01', pending, labels)).toBe('F-01: Wash Out is awaiting approval from Shift Officer before this filter can continue.');
+    expect(interlockBannerDetail(pending, { QA: 'Quality Assurance' })).toContain('SHIFTOFFICER'); // unnamed role → code
+  });
   it('rejected reads as rejected', () => {
     expect(interlockRefusalLine('F-01', { ...pending, status: 'REJECTED' })).toMatch(/rejected/);
   });

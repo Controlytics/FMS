@@ -110,7 +110,7 @@ describe('Filters page — Structure tab (hierarchy diagram)', () => {
     const pf1Node = screen.getByRole('button', { name: /PF-001/ });
     expect(pf1Node).toHaveTextContent('Wash In');
     expect(pf1Node).toHaveTextContent('E200AA');
-    expect(pf1Node).toHaveTextContent('SET A');
+    expect(pf1Node).toHaveTextContent('Set A');
     expect(screen.getByRole('button', { name: /HF-007/ })).toHaveTextContent('CUSTOM STATE');
     expect(screen.getByRole('button', { name: /PF-002/ })).toHaveTextContent('To Be Cleaned');
 

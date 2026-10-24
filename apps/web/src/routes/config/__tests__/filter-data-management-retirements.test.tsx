@@ -33,7 +33,7 @@ describe('Filter Data Management — access', () => {
     expect(screen.getByText('Records').previousElementSibling).toHaveTextContent('2');
     // Original parent + set badge / placeholders, formatted retirement time in UTC.
     expect(within(row('FLT-001')).getByText('AHU-01')).toBeInTheDocument();
-    expect(within(row('FLT-001')).getByText('SET A')).toBeInTheDocument();
+    expect(within(row('FLT-001')).getByText('Set A')).toBeInTheDocument();
     expect(within(row('FLT-001')).getByText('2026-07-15 09:30')).toBeInTheDocument();
     expect(within(row('FLT-002')).getAllByText('--')).toHaveLength(2);
     // Retirements tab has no status filter, only the date range.
