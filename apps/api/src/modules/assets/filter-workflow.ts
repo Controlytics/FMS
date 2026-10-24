@@ -21,6 +21,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { assertPmRole, normalizeRoles, type PmWorkflowConfig } from '../pm-schedules/pm-workflow.js';
+import type { RequestContext } from '../../types/context.js';
+import { isSuperAdminOwnWork } from '../../lib/super-admin-own-work.js';
 
 export { assertPmRole };
 
@@ -39,14 +41,31 @@ export async function getFilterWorkflowConfig(): Promise<PmWorkflowConfig> {
 }
 
 /**
- * The status a newly created filter should carry.
+ * The status a newly created (or re-submitted) filter should carry.
  *
  * APPROVED when the workflow is off, so creation behaves exactly as it did
  * before this feature existed. Non-filter assets (Block / Area / AHU) never
  * call this — they keep the column's APPROVED default.
+ *
+ * APPROVED too for a Super Admin's own filter (operator decision 2026-10-24,
+ * lib/super-admin-own-work.ts): its own work is not held for review. The caller
+ * records the skip (`filterReviewSkippedBySuperAdmin` → FILTER_REVIEW on the
+ * audit row); no reviewer / approver attribution is invented.
  */
-export function initialApprovalStatus(cfg: PmWorkflowConfig): FilterApprovalStatus {
-  return cfg.workflowEnabled ? 'PENDING_REVIEW' : 'APPROVED';
+export function initialApprovalStatus(
+  cfg: PmWorkflowConfig,
+  ctx: Pick<RequestContext, 'userRole' | 'isOfflineReplay'>,
+): FilterApprovalStatus {
+  if (!cfg.workflowEnabled) return 'APPROVED';
+  return isSuperAdminOwnWork(ctx) ? 'APPROVED' : 'PENDING_REVIEW';
+}
+
+/** The review step was on but a Super Admin's own filter skipped it — record FILTER_REVIEW. */
+export function filterReviewSkippedBySuperAdmin(
+  cfg: PmWorkflowConfig,
+  ctx: Pick<RequestContext, 'userRole' | 'isOfflineReplay'>,
+): boolean {
+  return cfg.workflowEnabled && isSuperAdminOwnWork(ctx);
 }
 
 /**

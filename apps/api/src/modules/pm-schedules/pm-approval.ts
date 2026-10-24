@@ -17,6 +17,8 @@ import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import { checkPmEnabled } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from './pm-workflow.js';
 import { assertSeparation, assertBatchSeparation } from './pm-separation-guard.js';
+import { pmReviewSkippedBySuperAdmin } from './pm-submission.js';
+import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 const MS_DAY = 86400000;
 function windowsFor(planned: Date, tol: number) {
@@ -389,7 +391,11 @@ export async function resubmitEntry(
 ) {
   const { cfg, entry, planned, tol } = await assertCanResubmit(entryId, data);
   const { windowStart, windowEnd } = windowsFor(planned, tol);
-  const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
+  // A Super Admin's own re-submission is not held (2026-10-24): approved at once,
+  // with the same fields a Super Admin's new visit gets (submissionApprovalFields),
+  // recorded PM_REVIEW. Everyone else goes back to the start of the flow.
+  const saOwn = pmReviewSkippedBySuperAdmin(ctx);
+  const nextStatus = saOwn ? 'APPROVED' : cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
   const updated = await prisma.pmScheduleEntry.update({
     where: { id: entryId },
@@ -398,7 +404,9 @@ export async function resubmitEntry(
       approvalStatus: nextStatus,
       approvalRemarks: null,
       reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
-      approvedBy: null, approvedByName: null, approvedAt: null,
+      ...(saOwn
+        ? { approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date() }
+        : { approvedBy: null, approvedByName: null, approvedAt: null }),
       rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionStage: null,
       submittedBy: ctx.userSub, submittedByName: ctx.userId,
       // The resubmitted date IS the proposal; a staged edit left by a review
@@ -409,7 +417,7 @@ export async function resubmitEntry(
   const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
   const qnn = await mintQnn('RESUBMIT', entry, ahuName, ctx, 'Resubmitted');
 
-  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_RESUBMITTED', targetType: 'pm_schedule_entry', targetId: entryId, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_RESUBMITTED', targetType: 'pm_schedule_entry', targetId: entryId, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol, approvalStatus: nextStatus, ...superAdminExemptionFields(saOwn ? ['PM_REVIEW'] : []) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
 }
 
@@ -445,6 +453,29 @@ export async function editApprovedEntry(
   data: { plannedDate: string; toleranceDays?: number },
 ) {
   const { cfg, entry, planned } = await assertCanEditApproved(entryId, data);
+  // A Super Admin's own change is not held (2026-10-24): it goes live at once —
+  // the same write approveEntries() makes when a staged change is approved, with
+  // the separation rule already checked by assertCanEditApproved — recorded
+  // PM_REVIEW. Everyone else's change is staged and goes through the flow.
+  if (pmReviewSkippedBySuperAdmin(ctx)) {
+    const tol = data.toleranceDays ?? entry.toleranceDays;
+    const { windowStart, windowEnd } = windowsFor(planned, tol);
+    const applied = await prisma.pmScheduleEntry.update({
+      where: { id: entryId },
+      data: {
+        plannedDate: planned, toleranceDays: tol, windowStart, windowEnd,
+        pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null, pendingEditAt: null,
+        approvalStatus: 'APPROVED',
+        approvedBy: ctx.userSub, approvedByName: ctx.userId, approvedAt: new Date(),
+        reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
+        submittedBy: ctx.userSub, submittedByName: ctx.userId,
+      },
+    });
+    const ahuName = (await ahuNameByEntry([entry as any])).get(entry.id) ?? '?';
+    const qnn = await mintQnn('EDIT', entry, ahuName, ctx, 'Edited (applied at once, Super Admin)');
+    await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'PM_SCHEDULE_EDIT_REQUESTED', targetType: 'pm_schedule_entry', targetId: entryId, beforeValue: { plannedDate: entry.plannedDate, toleranceDays: entry.toleranceDays }, afterValue: { plannedDate: data.plannedDate, toleranceDays: tol, appliedAtOnce: true, ...superAdminExemptionFields(['PM_REVIEW']) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+    return { ...applied, qnn };
+  }
   const nextStatus = cfg.workflowEnabled ? 'PENDING_REVIEW' : 'PENDING';
 
   const updated = await prisma.pmScheduleEntry.update({

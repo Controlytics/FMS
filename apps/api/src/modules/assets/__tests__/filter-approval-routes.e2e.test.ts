@@ -209,7 +209,7 @@ describe('filter approval — reject and resubmit', () => {
     expect(noPw.status).toBe(401);
     const res = await up.call('POST', `/api/assets/instances/${id}/resubmit`, { pw: PASSWORD });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ resubmitted: own.n('RS-A') });
+    expect(res.body).toEqual({ resubmitted: own.n('RS-A'), approvalStatus: 'PENDING_REVIEW' });
     expect(await stateOf(id)).toMatchObject({
       approvalStatus: 'PENDING_REVIEW', submittedBy: up.id, submittedByName: up.username,
       reviewedBy: null, reviewRemarks: null, rejectedBy: null, rejectionRemarks: null, rejectedAt: null, approvedBy: null,

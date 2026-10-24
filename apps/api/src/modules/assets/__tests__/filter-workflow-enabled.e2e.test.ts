@@ -187,3 +187,42 @@ describe('workflow on — each step is decided by its configured role', () => {
     expect(byApprover.status).toBe(200);
   });
 });
+
+// 2026-10-24 (operator: a Super Admin's own work is not held, lib/super-admin-own-work.ts).
+describe('workflow on — a Super Admin\'s own filter is approved at once, recorded FILTER_REVIEW', () => {
+  beforeAll(() => { wf.current = { workflowEnabled: true, uploadRole: [up.role], reviewRole: rv.role, approvalRole: ap.role }; });
+
+  it('typed and generic create: APPROVED, no invented review/approval attribution; the audit row says the review was skipped', async () => {
+    const typedRes = await sa.call('POST', '/api/hierarchy/filters', { body: { name: own.n('SA-TYPED'), ahuId } });
+    expect(typedRes.status).toBe(201);
+    const t = await stateOf(typedRes.body.data.id);
+    expect(t).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: null, reviewedBy: null, approvedBy: null });
+    const [ta] = await auditFor(t!.id, 'ASSET_CREATED');
+    expect(ta.afterValue).toMatchObject({ superAdminExemptGates: ['FILTER_REVIEW'] });
+
+    const gen = await sa.call('POST', '/api/assets/instances', { body: { name: own.n('SA-GENERIC'), templateId: filterTpl, parentId: ahuId } });
+    expect(gen.status).toBe(201);
+    expect(gen.body.data).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: null });
+    const [ga] = await auditFor(gen.body.data.id, 'ASSET_CREATED');
+    expect(ga.afterValue).toMatchObject({ superAdminExemptGates: ['FILTER_REVIEW'] });
+  });
+
+  it('the upload role\'s filter at the same moment still goes to review, and records no skip', async () => {
+    const res = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('UP-STILL-REVIEWED'), ahuId } });
+    expect(res.status).toBe(201);
+    expect((await stateOf(res.body.data.id))!.approvalStatus).toBe('PENDING_REVIEW');
+    const [a] = await auditFor(res.body.data.id, 'ASSET_CREATED');
+    expect(a.afterValue).not.toHaveProperty('superAdminExemptGates');
+  });
+
+  it('a Super Admin re-submitting a rejected filter sends it straight to APPROVED, recorded FILTER_REVIEW', async () => {
+    const created = await up.call('POST', '/api/hierarchy/filters', { body: { name: own.n('SA-RJ'), ahuId } });
+    const id = created.body.data.id;
+    expect((await sa.call('POST', '/api/assets/instances/reject', { body: { filterIds: [id], remarks: 'wrong size' } })).status).toBe(200);
+    const res = await sa.call('POST', `/api/assets/instances/${id}/resubmit`);
+    expect(res.status).toBe(200);
+    expect((await stateOf(id))!.approvalStatus).toBe('APPROVED');
+    const [a] = await auditFor(id, 'FILTER_RESUBMITTED');
+    expect(a.afterValue).toMatchObject({ superAdminExemptGates: ['FILTER_REVIEW'] });
+  });
+});

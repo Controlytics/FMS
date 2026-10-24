@@ -14,6 +14,12 @@
  *     decision). Computed in current-state.ts from this module's primitives.
  *
  * No runtime effect until config `stage-interlock.enabled` is turned on.
+ *
+ * A Super Admin's OWN online entry into a gated stage raises no approval and is
+ * not held (operator decision 2026-10-24, lib/super-admin-own-work.ts): the
+ * entry event records `superAdminExemptGates: ['INTERLOCK_ENTRY']`, and the leave
+ * gate honours that marker on the CURRENT entry — so it is keyed on who entered,
+ * never on who leaves. An operator's held filter still needs a real approval.
  */
 import type { RequestContext } from '../../types/context.js';
 import { prisma } from '../../lib/prisma.js';
@@ -21,6 +27,7 @@ import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import type { BatchReadCache } from './batch-cache.js';
 import { getModuleLogger } from '../../lib/logger.js';
+import { recordsSuperAdminExemption } from '../../lib/super-admin-own-work.js';
 
 const interlockLog = getModuleLogger('filter-operations');
 
@@ -95,10 +102,26 @@ export function getLatestApproval(cycleId: string, stageKey: string) {
 }
 
 /**
+ * Was the CURRENT entry into this gated stage a Super Admin's own, which raised no
+ * approval (`superAdminExemptGates: ['INTERLOCK_ENTRY']` on the entry event)? The
+ * entry is the latest STATE_TRANSITION / BYPASS_DEVIATION into the stage — the
+ * same event the self-heal attributes an approval to (current-state.ts).
+ */
+export async function entryExemptedBySuperAdmin(cycleId: string, stageKey: string): Promise<boolean> {
+  const entry = await prisma.filterEvent.findFirst({
+    where: { cycleId, eventType: { in: ['STATE_TRANSITION', 'BYPASS_DEVIATION'] }, toState: stageKey },
+    orderBy: { performedAt: 'desc' },
+    select: { attributes: true },
+  });
+  return recordsSuperAdminExemption(entry?.attributes, 'INTERLOCK_ENTRY');
+}
+
+/**
  * Gate: an operator may LEAVE an interlock stage only if the LATEST approval for
- * (cycle, stage) is APPROVED. Throws 423 otherwise. No-op when interlock is
- * disabled, fromState is not a gated stage, or it's an in-place transition
- * (target === from, e.g. the dryer SET_DURATION/SUBMIT_READINGS at DRY_IN).
+ * (cycle, stage) is APPROVED, or the current entry into it was a Super Admin's
+ * own (no approval was raised; 2026-10-24). Throws 423 otherwise. No-op when
+ * interlock is disabled, fromState is not a gated stage, or it's an in-place
+ * transition (target === from, e.g. the dryer SET_DURATION/SUBMIT_READINGS at DRY_IN).
  */
 export async function assertStageApprovedToLeave(params: {
   cycleId: string;
@@ -113,6 +136,9 @@ export async function assertStageApprovedToLeave(params: {
   if (!config.enabled) return;
   const latest = await getLatestApproval(cycleId, fromState);
   if (latest?.status === 'APPROVED') return;
+  // Checked before an older attempt's REJECTED: a rejection sends the filter back,
+  // so a REJECTED row can only predate the entry the filter sits on now.
+  if (await entryExemptedBySuperAdmin(cycleId, fromState)) return;
   if (latest?.status === 'REJECTED') {
     throw new AppError(
       423,

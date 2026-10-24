@@ -246,6 +246,8 @@ const WorkflowToggle = ({ on, onClick, hint, disabled }: { on: boolean; onClick:
         {on ? 'Uploads must be reviewed, then approved.' : 'Uploads are approved in a single step.'}
         {hint && <span className="ml-1 text-slate-400">{hint}</span>}
       </span>
+      {/* 2026-10-24 (operator): a Super Admin's own work is not held for review. */}
+      {on && <span className="block text-[11px] text-slate-400">What a Super Admin submits itself is approved at once (recorded on the audit trail).</span>}
     </div>
     <Switch on={on} onClick={onClick} label="Review & approval workflow" disabled={disabled} />
   </div>
@@ -483,6 +485,8 @@ export function RoleAssignmentsPage() {
                         ? 'Wash Out and Dry Out pause for an approver signature before the operator can advance.'
                         : 'Off — cleaning advances without a QA approval gate.'}
                     </span>
+                    {/* 2026-10-24 (operator): a Super Admin's own cleaning is not held. */}
+                    {on && <span className="block text-[11px] text-slate-400">A cleaning a Super Admin performs itself is not paused (recorded on the audit trail).</span>}
                   </div>
                   <Switch on={on} onClick={() => patch(ik, 'enabled', !on)} label="Stage interlock" />
                 </div>

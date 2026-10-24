@@ -31,6 +31,7 @@ import * as executor from '@digilog/shared';
 import { computeChecksum, describeSkippedChecklists } from '../helpers.js';
 import { completeCycleTx } from './complete-cycle.js';
 import { decideStageEntry } from './stage-entry.js';
+import { superAdminExemptionFields, type SuperAdminExemptGate } from '../../../lib/super-admin-own-work.js';
 import { lockAndVerifyFilterState } from './locking.js';
 import { validateAdvanceBlock } from '../filter-resolver.js';
 import {
@@ -78,6 +79,13 @@ export interface AdvancePlan {
    * re-auth is a visible fact in the §11 record, not a silent one.
    */
   replayExemptGates: string[];
+  /**
+   * Gates a Super Admin's OWN online work skipped (2026-10-24,
+   * lib/super-admin-own-work.ts): the QA interlock, the AHU gate. Written on the
+   * event (`attributes.superAdminExemptGates`) and the audit row like the replay
+   * list; the leave gate reads INTERLOCK_ENTRY from the entry event.
+   */
+  superAdminExemptGates: SuperAdminExemptGate[];
 }
 
 export type AdvancePrep =
@@ -128,6 +136,8 @@ export async function prepareAdvance(
   // Gates skipped because this is a replay — recorded, never silent.
   const replayExemptGates: string[] = [];
   if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
+  // Gates a Super Admin's own online work skipped — recorded the same way.
+  const superAdminExemptGates: SuperAdminExemptGate[] = [];
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, rawCycle: cycle, filterCurrentCycleId } = await loadLocalContext(filterId, ctx);
@@ -460,6 +470,7 @@ export async function prepareAdvance(
     composedWithChecklist: opts.composedWithChecklist === true,
     filterSet: data.filterSet,
     replayExemptGates,
+    superAdminExemptGates,
   });
 
   // 2026-10-12: a DISABLED checklist is skipped, not asked. Name each one this
@@ -493,6 +504,9 @@ export async function prepareAdvance(
     ...(offlineTime ? { __offlineEntry: true } : {}),
     // 2026-09-25: which gates this replay skipped (see AdvancePlan.replayExemptGates).
     ...(replayExemptGates.length ? { replayExemptGates } : {}),
+    // 2026-10-24: gates a Super Admin's own online work skipped (INTERLOCK_ENTRY is
+    // also what lets the filter leave the gated stage later).
+    ...superAdminExemptionFields(superAdminExemptGates),
   }, clientOpId);
 
   // Dryer-readings submission is recorded as a STATE_TRANSITION row but
@@ -552,6 +566,7 @@ export async function prepareAdvance(
       interlockApproverRole,
       completesCycle,
       replayExemptGates,
+      superAdminExemptGates,
     },
   };
 }
@@ -658,6 +673,7 @@ export async function executeAdvanceTx(tx: TxClient, plan: AdvancePlan): Promise
     afterValue: {
       state: targetState,
       ...(plan.replayExemptGates?.length ? { offlineReplay: true, replayExemptGates: plan.replayExemptGates } : {}),
+      ...superAdminExemptionFields(plan.superAdminExemptGates ?? []),
     },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   }, tx);

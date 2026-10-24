@@ -20,7 +20,7 @@ export const ahuCompletionProcessDef: ModuleConfigDefinition = {
       options: [
         { value: 'NONE', label: 'None — no check (default)' },
         { value: 'POPUP', label: 'Popup — warn but allow' },
-        { value: 'INTERLOCK', label: 'Interlock — block until all AHU filters reach final stage' },
+        { value: 'INTERLOCK', label: 'Interlock — block until all AHU filters reach final stage (a Super Admin is warned, not blocked)' },
       ],
     },
   ],

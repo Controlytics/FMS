@@ -18,7 +18,7 @@ export const pmScheduleApprovalDef: ModuleConfigDefinition = {
       key: 'workflowEnabled',
       type: 'boolean',
       label: 'Enable Review + Approval Workflow',
-      description: 'When ON, an uploaded PM schedule must be reviewed and then approved before it generates tasks. When OFF, uploads behave as before (single approval step). Turn ON only after the review screens are available.',
+      description: 'When ON, an uploaded PM schedule must be reviewed and then approved before it generates tasks. When OFF, uploads behave as before (single approval step). Turn ON only after the review screens are available. Visits a Super Admin uploads, adds, re-submits or edits itself are approved at once (recorded on the audit trail).',
       group: 'Workflow',
       default: false,
     },

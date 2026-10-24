@@ -36,6 +36,7 @@ import {
   collectFilterApprovalDetails,
   requestStageApprovalTx,
   notifyStageApprovalRequested,
+  entryExemptedBySuperAdmin,
 } from './stage-interlock.js';
 import type { FilterOperationsService } from './filter-operations.service.js';
 import { createBatchReadCache, type BatchReadCache } from './batch-cache.js';
@@ -183,11 +184,19 @@ export async function getCurrentStateImpl(
   const interlockStateKey = filter.currentLifecycleState;
   const interlockGatedHere = interlockConfig.enabled && isInterlockStage(interlockStateKey);
   let interlockLatest: { id: string; status: string } | null = null;
+  // 2026-10-24: the current entry into the gated stage was a Super Admin's own —
+  // it raised no approval and is not held (lib/super-admin-own-work.ts). The SAME
+  // check the leave gate makes (entryExemptedBySuperAdmin), so the tape, the
+  // banner and the server cannot disagree.
+  let entryExemptBySuperAdmin = false;
   if (interlockGatedHere && currentCycle) {
     const stageKey = interlockStateKey as string;
     const cycleId = currentCycle.id;
     const row = await memo(latestApprovalKey(cycleId, stageKey), () => getLatestApproval(cycleId, stageKey));
     interlockLatest = row ? { id: row.id, status: row.status } : null;
+    if (interlockLatest?.status !== 'APPROVED') {
+      entryExemptBySuperAdmin = await memo(`sa-exempt-entry:${cycleId}:${stageKey}`, () => entryExemptedBySuperAdmin(cycleId, stageKey));
+    }
 
     // Self-heal: a filter parked at a gated stage with NO approval means the
     // interlock was enabled AFTER it advanced into the stage (advance.ts never
@@ -204,7 +213,8 @@ export async function getCurrentStateImpl(
     // it backfilled here it would re-create the exact PENDING approval that
     // advance.ts intentionally skipped for offline work, leaving a stuck request
     // after the filter has already moved past the gated stage.
-    if (!interlockLatest && !ctx.isOfflineReplay) {
+    // Never for a Super Admin's own entry either: it raised no approval on purpose.
+    if (!interlockLatest && !ctx.isOfflineReplay && !entryExemptBySuperAdmin) {
       const performer = await resolveStagePerformer(currentCycle.id, stageKey);
       // OFFLINE EXEMPTION (2026-07-10, per user): never self-heal an approval for a
       // filter that reached this gated stage OFFLINE. Closes the sync-window race
@@ -237,7 +247,7 @@ export async function getCurrentStateImpl(
       }
     }
   }
-  const interlockBlocksLeaving = interlockGatedHere && interlockLatest?.status !== 'APPROVED';
+  const interlockBlocksLeaving = interlockGatedHere && !entryExemptBySuperAdmin && interlockLatest?.status !== 'APPROVED';
   const interlock = interlockGatedHere
     ? {
         gatedStage: true,

@@ -34,6 +34,7 @@ import { prisma } from '../../../lib/prisma.js';
 import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
+import { invalidateRolePermsCache } from '../../../plugins/rbac.js';
 import { randomUUID } from 'node:crypto';
 import { computeAhuCompletionStatus, computeAhuBatchStatus, computeAhuSetAvailability, assertAhuInterlockSatisfied, resolveAhuId } from '../ahu-completion-gate.js';
 import filterOperationsRoutes from '../routes.js';
@@ -44,6 +45,10 @@ import filterOperationsRoutes from '../routes.js';
 const SUFFIX = Date.now().toString(36).slice(-4).toUpperCase();
 const AHU_GATE_USERNAME = `AHUGT${SUFFIX}`.slice(0, 16).toUpperCase();
 const AHU_GATE_PASSWORD = 'AhuGate@Test#999';
+// Task 5 drives submit-checklist as an OPERATOR (2026-10-24): a Super Admin's own
+// completion is no longer held by the AHU interlock (lib/super-admin-own-work.ts).
+const AHU_OP_USERNAME = `AHUOP${SUFFIX}`.slice(0, 16).toUpperCase();
+const AHU_OP_ROLE = `AHU_OPR_${SUFFIX}`.slice(0, 20);
 
 // ── Local app builder ───────────────────────────────────────────────────────
 async function buildAhuApp(): Promise<FastifyInstance> {
@@ -126,6 +131,21 @@ describe('AHU Completion Process — config endpoint + reader', () => {
         forcePasswordChange: false,
         isTemporaryPassword: false,
         createdBy: 'ahu-gate-test',
+      },
+    });
+
+    await prisma.role.upsert({
+      where: { name: AHU_OP_ROLE },
+      update: { permissions: ['FILTER_OPERATE', 'ASSET_READ'], isActive: true },
+      create: { name: AHU_OP_ROLE, displayName: AHU_OP_ROLE, hierarchyLevel: 1, permissions: ['FILTER_OPERATE', 'ASSET_READ'], isSystem: false, isActive: true, createdBy: 'ahu-gate-test' },
+    });
+    invalidateRolePermsCache(AHU_OP_ROLE);
+    await prisma.user.upsert({
+      where: { username: AHU_OP_USERNAME },
+      update: { passwordHash, role: AHU_OP_ROLE, status: 'ENABLED', forcePasswordChange: false, isTemporaryPassword: false, failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null },
+      create: {
+        username: AHU_OP_USERNAME, fullName: 'AHU Gate Test Operator', email: `${AHU_OP_USERNAME.toLowerCase()}@ahugate-test.local`,
+        passwordHash, role: AHU_OP_ROLE, status: 'ENABLED', forcePasswordChange: false, isTemporaryPassword: false, createdBy: 'ahu-gate-test',
       },
     });
 
@@ -622,7 +642,7 @@ describe('AHU Completion Status — computeAhuCompletionStatus', () => {
       await app5.register(filterOperationsRoutes, { prefix: '/api/filters' });
       await app5.ready();
 
-      const token = await loginAs(app5, AHU_GATE_USERNAME, AHU_GATE_PASSWORD);
+      const token = await loginAs(app5, AHU_OP_USERNAME, AHU_GATE_PASSWORD);
       authHeaders5 = { authorization: `Bearer ${token}` };
     }, 30_000);
 
@@ -1121,6 +1141,29 @@ describe('AHU completion — NONE / POPUP / INTERLOCK with 10 filters (CWH)', ()
     await setMode('INTERLOCK');
     // fids[9] restored to done above → all 10 completed.
     await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false })).resolves.toEqual({ exempt: false });
+  });
+
+  // 2026-10-24 (operator: Super Admin's own work is not held): the roster is still
+  // evaluated, and `exempt` says whether the gate WOULD have refused, so the caller
+  // records exactly the skip that happened.
+  it('INTERLOCK + a Super Admin own completion: not refused; exempt only when a sibling is pending', async () => {
+    await setMode('INTERLOCK');
+    await setIdle(fids[9]);
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false, superAdminOwnWork: true })).resolves.toEqual({ exempt: true });
+    // everyone else is still refused at the same moment
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false }))
+      .rejects.toMatchObject({ statusCode: 422, code: 'AHU_INTERLOCK_PENDING' });
+    await setDone(fids[9]);
+    await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false, superAdminOwnWork: true })).resolves.toEqual({ exempt: false });
+  });
+
+  it('NONE / POPUP + a Super Admin: nothing to skip (exempt false)', async () => {
+    await setIdle(fids[9]);
+    for (const mode of ['NONE', 'POPUP'] as const) {
+      await setMode(mode);
+      await expect(assertAhuInterlockSatisfied({ filterId: fids[0], isOfflineReplay: false, superAdminOwnWork: true })).resolves.toEqual({ exempt: false });
+    }
+    await setDone(fids[9]);
   });
 
   it('INTERLOCK: 422 details carry the AHU name + full 10-filter roster + the pending one', async () => {

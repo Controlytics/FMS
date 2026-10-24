@@ -31,7 +31,7 @@ export const filterApprovalDef: ModuleConfigDefinition = {
       key: 'workflowEnabled',
       type: 'boolean',
       label: 'Enable Review + Approval Workflow',
-      description: 'When ON, a newly created or bulk-uploaded filter must be reviewed and then approved before it can be operated — it is visible in the Filters list but cannot start a cleaning cycle. When OFF, new filters are usable immediately, as before.',
+      description: 'When ON, a newly created or bulk-uploaded filter must be reviewed and then approved before it can be operated — it is visible in the Filters list but cannot start a cleaning cycle. When OFF, new filters are usable immediately, as before. A filter a Super Admin creates or re-submits itself is approved at once (recorded on the audit trail).',
       group: 'Workflow',
       // Defaults OFF so shipping this changes nothing until an admin turns it
       // on — matching how pm-schedule-approval shipped.

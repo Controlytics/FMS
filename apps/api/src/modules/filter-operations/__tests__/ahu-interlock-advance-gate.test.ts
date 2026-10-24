@@ -29,7 +29,10 @@
  * - Real Fastify (`inject()`), real Prisma, real auth, against
  *   `digilog_test_db` (forced by vitest.env.ts). Pattern copied from
  *   `terminal-checklist-advance-persistence.test.ts`.
- * - Unique SUPER_ADMIN per file so the shared-`admin` login race can't touch us.
+ * - Unique user per file so the shared-`admin` login race can't touch us. The
+ *   performer is an OPERATOR role (2026-10-24): a Super Admin's own completion is
+ *   no longer held by the AHU interlock (lib/super-admin-own-work.ts); one test
+ *   below drives that as a Super Admin.
  * - Reauth satisfied with `_currentPassword` in the body — NOT the
  *   offline-replay grant, which would set `isOfflineReplay=true` and take the
  *   exempt path through the gate. This test is the ONLINE operator.
@@ -54,10 +57,13 @@ import { prisma } from '../../../lib/prisma.js';
 import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
+import { invalidateRolePermsCache } from '../../../plugins/rbac.js';
 import { randomUUID } from 'node:crypto';
 
 const SUFFIX = Date.now().toString(36).slice(-4).toUpperCase();
 const AIA_USERNAME = `AIAG${SUFFIX}`.slice(0, 16).toUpperCase();
+const AIA_SA_USERNAME = `AIAS${SUFFIX}`.slice(0, 16).toUpperCase();
+const AIA_ROLE = `AIA_OPR_${SUFFIX}`.slice(0, 20);
 const AIA_PASSWORD = 'AiaGate@Digilog#3';
 const REASON_KEY = 'ROUTINE';
 
@@ -89,6 +95,7 @@ async function buildApp(): Promise<FastifyInstance> {
 describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline)', () => {
   let app: FastifyInstance;
   let authHeaders: Record<string, string>;
+  let saHeaders: Record<string, string>;
 
   let ahuTemplateId = '';
   let filterTemplateId = '';
@@ -128,11 +135,11 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
     return res.json().tapeVersion as number;
   }
 
-  const advance = async (targetState: string) =>
+  const advance = async (targetState: string, headers = authHeaders) =>
     app.inject({
       method: 'POST',
       url: `/api/filters/${filterId}/advance`,
-      headers: authHeaders,
+      headers,
       payload: { targetState, tapeVersion: await freshTape(), _currentPassword: AIA_PASSWORD },
     });
 
@@ -158,10 +165,32 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
 
   beforeAll(async () => {
     const passwordHash = await hashPassword(AIA_PASSWORD);
+    await prisma.role.upsert({
+      where: { name: AIA_ROLE },
+      update: { permissions: ['FILTER_OPERATE', 'ASSET_READ'], isActive: true },
+      create: { name: AIA_ROLE, displayName: AIA_ROLE, hierarchyLevel: 1, permissions: ['FILTER_OPERATE', 'ASSET_READ'], isSystem: false, isActive: true, createdBy: 'aia-test' },
+    });
+    invalidateRolePermsCache(AIA_ROLE);
+    await prisma.user.upsert({
+      where: { username: AIA_SA_USERNAME },
+      update: {
+        passwordHash, role: 'SUPER_ADMIN', status: 'ENABLED',
+        forcePasswordChange: false, isTemporaryPassword: false,
+        failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null,
+      },
+      create: {
+        username: AIA_SA_USERNAME,
+        fullName: 'AHU Interlock Advance Gate Test (Super Admin)',
+        email: `${AIA_SA_USERNAME.toLowerCase()}@aia-test.local`,
+        passwordHash, role: 'SUPER_ADMIN', status: 'ENABLED',
+        forcePasswordChange: false, isTemporaryPassword: false,
+        createdBy: 'aia-test',
+      },
+    });
     await prisma.user.upsert({
       where: { username: AIA_USERNAME },
       update: {
-        passwordHash, role: 'SUPER_ADMIN', status: 'ENABLED',
+        passwordHash, role: AIA_ROLE, status: 'ENABLED',
         forcePasswordChange: false, isTemporaryPassword: false,
         failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null,
       },
@@ -169,7 +198,7 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
         username: AIA_USERNAME,
         fullName: 'AHU Interlock Advance Gate Test',
         email: `${AIA_USERNAME.toLowerCase()}@aia-test.local`,
-        passwordHash, role: 'SUPER_ADMIN', status: 'ENABLED',
+        passwordHash, role: AIA_ROLE, status: 'ENABLED',
         forcePasswordChange: false, isTemporaryPassword: false,
         createdBy: 'aia-test',
       },
@@ -293,6 +322,7 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
     app = await buildApp();
     const token = await loginAs(app, AIA_USERNAME, AIA_PASSWORD);
     authHeaders = { authorization: `Bearer ${token}` };
+    saHeaders = { authorization: `Bearer ${await loginAs(app, AIA_SA_USERNAME, AIA_PASSWORD)}` };
   }, 60_000);
 
   afterAll(async () => {
@@ -311,6 +341,9 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
         await prisma.filterCleaningProfile.delete({ where: { id } }).catch(() => undefined);
       }
       if (checklistProfileId) await prisma.checklistProfile.delete({ where: { id: checklistProfileId } }).catch(() => undefined);
+      await prisma.session.deleteMany({ where: { user: { username: { in: [AIA_USERNAME, AIA_SA_USERNAME] } } } }).catch(() => undefined);
+      await prisma.user.deleteMany({ where: { username: { in: [AIA_USERNAME, AIA_SA_USERNAME] } } }).catch(() => undefined);
+      await prisma.role.delete({ where: { name: AIA_ROLE } }).catch(() => undefined);
       for (const id of [filterTemplateId, ahuTemplateId].filter(Boolean)) {
         await prisma.assetTemplate.delete({ where: { id } }).catch(() => undefined);
       }
@@ -363,6 +396,22 @@ describe('AHU INTERLOCK is enforced on the advance path (checklist-less pipeline
 
     const details = await prisma.filterDetails.findUnique({ where: { assetInstanceId: filterId } });
     expect(details!.currentLifecycleState).toBe('S1');
+  });
+
+  // 2026-10-24 (operator: a Super Admin's own work is not held): the same refused
+  // advance, performed by a Super Admin, completes — and says so on the record.
+  it('INTERLOCK: a Super Admin\'s own completing advance is not held; the skip is recorded (AHU_COMPLETION)', async () => {
+    await setMode('INTERLOCK');
+    await siblingPending();
+    await startAndParkAtS1();
+
+    const res = await advance('S2', saHeaders);
+    expect(res.statusCode).toBe(200);
+    expect((await prisma.cleaningCycle.findUnique({ where: { id: cycleId } }))!.status).toBe('COMPLETED');
+    const entry = await prisma.filterEvent.findFirst({ where: { cycleId, eventType: 'STATE_TRANSITION', toState: 'S2' } });
+    expect((entry!.attributes as any).superAdminExemptGates).toEqual(['AHU_COMPLETION']);
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'STATE_TRANSITION', targetId: filterId }, orderBy: { chainPosition: 'desc' } });
+    expect(audit!.afterValue).toMatchObject({ state: 'S2', superAdminExemptGates: ['AHU_COMPLETION'] });
   });
 
   it('INTERLOCK: the same advance succeeds and completes the cycle once the sibling is done', async () => {

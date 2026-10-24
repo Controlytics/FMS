@@ -450,10 +450,16 @@ export async function findProfilesWithoutFinalChecklist(): Promise<
  *  - isOfflineReplay is true (best-effort offline; D2 decision)
  *  - mode is not INTERLOCK
  *  - the filter has no AHU parent
+ *
+ * `superAdminOwnWork` (2026-10-24, lib/super-admin-own-work.ts): a Super Admin
+ * completing its own cycle is not held either. The roster is still evaluated,
+ * and `exempt` is true only when the gate WOULD have refused, so the caller
+ * records exactly the skip that happened.
  */
 export async function assertAhuInterlockSatisfied(params: {
   filterId: string;
   isOfflineReplay: boolean;
+  superAdminOwnWork?: boolean;
   set?: FilterSetChoice;
 }): Promise<{ exempt: boolean }> {
   // 2026-09-25: a replay is still exempt, but the caller now learns WHETHER
@@ -470,6 +476,7 @@ export async function assertAhuInterlockSatisfied(params: {
 
   const { allAtFinal, pending, ahuName, filters } = await computeAhuCompletionStatus(ahuId, params.filterId, params.set);
   if (!allAtFinal) {
+    if (params.superAdminOwnWork) return { exempt: true };
     throw new AppError(
       422,
       'AHU_INTERLOCK_PENDING',

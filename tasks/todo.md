@@ -1,3 +1,29 @@
+# SUPER ADMIN — "own work not held" (operator 2026-10-24)
+
+Operator: "remove all interlocks or anything to super admin" → chose ONLY tier 1 of 4 (AskUserQuestion):
+Super Admin's OWN work is not held by the stage interlock, the AHU interlock, or a review step.
+NOT chosen (unchanged): SA approving its own work (SoD stays), SA without passwords (OD-01 stays),
+data-integrity refusals, SA-protecting rules (kill switch, lockout exemptions, rate limit, single session).
+
+Rule: `isSuperAdminOwnWork(ctx)` = role SUPER_ADMIN and not an offline replay (replay is already exempt).
+Every skipped gate is RECORDED: `superAdminExemptGates` on the event attributes + audit afterValue
+(same pattern as `replayExemptGates`). The stage interlock is keyed on WHO ENTERED the gated stage:
+an operator's held filter still needs a real approval, whoever scans it next. Call shape unchanged
+for every client (bare entry into a final gated stage + checklist after; stageLookup untouched).
+
+- [x] Stage interlock: decideStageEntry (no PENDING, INTERLOCK_ENTRY / INTERLOCK_TERMINAL recorded),
+      advance / bypass / submit-checklist write the list, leave gate + submit-checklist honour the entry
+      marker, current-state: no self-heal + blocksLeaving false for an SA-exempt entry
+- [x] AHU interlock: assertAhuInterlockSatisfied exempts SA (recorded AHU_COMPLETION); web/tablet
+      pre-flight treats INTERLOCK as POPUP for SA (warning, not a block)
+- [x] Filter create / bulk upload / resubmit: APPROVED at once for SA when the workflow is on (audit FILTER_REVIEW)
+- [x] PM: upload / add visit / create schedule, resubmit, edit-approved → applied + APPROVED for SA (PM_REVIEW)
+- [x] Replacement schedule upload / resubmit → APPROVED for SA (REPLACEMENT_REVIEW)
+- [x] Tests: e2e per gate (SA skipped + recorded; operator unchanged; SA scanning an operator's held
+      filter still refused), web pre-flight test
+- [x] Docs: CLAUDE.md note, CHANGELOG; full API + web suites; live check; commit
+- [ ] Operator: push; rebuild Setup + APK (1.2.3 again or 1.2.4); refresh the 1.1.0 manual chapters that changed
+
 # USER MANUALS (operator 2026-10-23) — Word + PDF, separate demo DB, all at once (no sample chapter)
 
 Two manuals: (1) Super Admin manual; (2) one manual for ADMIN / MANAGER / QA / SHIFTOFFICER /
@@ -12,9 +38,9 @@ port; digilog_db untouched. Generator outside git like the install guide.
 - [x] Demo data through the app (seed-demo.js)
 - [x] Screenshot + annotation harness (lib/capture.js, lib/tablet.js, trim-images.py)
 - [x] User manual (6 roles): 16 chapters, 103 figures, 111 pages, every page checked; in Downloads
-- [ ] Super Admin manual: capture + write (scope = every "set by the Super Admin" promise in the user manual)
-- [ ] Generate SA docx/pdf, check every page, copy to Downloads, memory
-- [ ] Product fixes found while writing (UNCOMMITTED, not in Setup 1.2.3 / APK): My Tasks future visits
+- [x] Super Admin manual: capture + write (scope = every "set by the Super Admin" promise in the user manual)
+- [x] Generate SA docx/pdf, check every page, copy to Downloads, memory (both as "FMS 1.1.0 - …")
+- [x] Product fixes found while writing (committed 671788a 2026-10-24; still NOT in Setup 1.2.3 / APK): My Tasks future visits
       shown Overdue (pm-due-tasks.ts); Edit User showed the wrong role (users/edit.tsx); audit detail
       checksum always empty (audit/routes.ts list schema). CHANGELOG done.
       Operator decides: rebuild (1.2.3 again or 1.2.4) and commit. PDF-logo fix 5104af8 is in the same boat.

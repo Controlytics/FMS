@@ -34,6 +34,7 @@ import {
 } from '../stage-interlock.js';
 import { completeCycleTx } from './complete-cycle.js';
 import { decideStageEntry } from './stage-entry.js';
+import { superAdminExemptionFields, type SuperAdminExemptGate } from '../../../lib/super-admin-own-work.js';
 import { prepareChecklist, executeChecklistTx } from './submit-checklist.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 
@@ -57,6 +58,8 @@ export async function bypassImpl(
   assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
   const replayExemptGates: string[] = [];
   if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
+  // Gates a Super Admin's own online work skipped (2026-10-24) — recorded the same way.
+  const superAdminExemptGates: SuperAdminExemptGate[] = [];
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
   const { ctx: localCtx, cp, filterCurrentCycleId, rawCycle: cycle } = await loadLocalContext(filterId, ctx);
@@ -131,6 +134,7 @@ export async function bypassImpl(
     composedWithChecklist: carriesChecklist,
     filterSet: data.filterSet,
     replayExemptGates,
+    superAdminExemptGates,
   });
   // The carried checklist belongs to the stage the bypass moves TO; every
   // checklist gate runs here, before anything is written. It completes the cycle
@@ -151,6 +155,7 @@ export async function bypassImpl(
       ...(parameters ?? {}),
       ...(offlineTime ? { __offlineEntry: true } : {}),
       ...(replayExemptGates.length ? { replayExemptGates } : {}),
+      ...superAdminExemptionFields(superAdminExemptGates),
     }, clientOpId),
     deviationDetails: { type: 'BYPASS', fromState, toState: targetState, justification },
     remarks: justification,
@@ -211,6 +216,7 @@ export async function bypassImpl(
       afterValue: {
         state: targetState, justification,
         ...(replayExemptGates.length ? { offlineReplay: true, replayExemptGates } : {}),
+        ...superAdminExemptionFields(superAdminExemptGates),
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);

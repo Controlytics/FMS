@@ -13,7 +13,7 @@ import { mockApi, type MockApi } from '@/test-utils/page-harness';
 import { useFieldLabels } from '../use-field-labels';
 import { useDatetimeFormat } from '../use-datetime-format';
 import { useHierarchy } from '../use-hierarchy';
-import { useAhuCompletionMode } from '../use-ahu-completion-mode';
+import { useAhuCompletionMode, useAhuCompletionModeForOwnWork } from '../use-ahu-completion-mode';
 import { usePmFiltersEnabled } from '../use-pm-filters-enabled';
 import { useReplacementFiltersEnabled } from '../use-replacement-filters-enabled';
 
@@ -275,6 +275,36 @@ describe('useAhuCompletionMode', () => {
     expect(result.current).toBe('NONE');
     await waitFor(() => expect(api.requests).toHaveLength(1));
     expect(result.current).toBe('NONE');
+  });
+});
+
+// 2026-10-24 (operator: a Super Admin's own work is not held): the cleaning pages
+// read the mode for the signed-in user's own completion.
+describe('useAhuCompletionModeForOwnWork', () => {
+  const run = async (mode: string, role: string) => {
+    api = mockApi([
+      { path: '/api/config/ahu-completion-process/current', body: { mode } },
+      { path: '/api/auth/me', body: { id: 'u1', username: 'u1', role } },
+    ]);
+    const { result } = renderHook(() => useAhuCompletionModeForOwnWork(), { wrapper });
+    await waitFor(() => expect(api.requests.map((r) => r.path).sort()).toEqual(['/api/auth/me', '/api/config/ahu-completion-process/current']));
+    return result;
+  };
+
+  it('INTERLOCK reads as POPUP for a Super Admin (a warning, not a block)', async () => {
+    const result = await run('INTERLOCK', 'SUPER_ADMIN');
+    await waitFor(() => expect(result.current).toBe('POPUP'));
+    noConsoleNoise();
+  });
+
+  it('every other role keeps the configured mode, and a Super Admin keeps POPUP / NONE', async () => {
+    const operator = await run('INTERLOCK', 'OPERATOR');
+    await waitFor(() => expect(operator.current).toBe('INTERLOCK'));
+    const popup = await run('POPUP', 'SUPER_ADMIN');
+    await waitFor(() => expect(popup.current).toBe('POPUP'));
+    const none = await run('NONE', 'SUPER_ADMIN');
+    await waitFor(() => expect(none.current).toBe('NONE'));
+    noConsoleNoise();
   });
 });
 

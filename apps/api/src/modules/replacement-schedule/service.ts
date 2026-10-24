@@ -13,6 +13,7 @@ import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn } from '../pm-schedules/pm-workflow.js';
+import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 export interface RowError { row: number; column?: string; value?: string; error: string; }
 export interface UploadOutcome {
@@ -281,8 +282,11 @@ export async function processUpload(
 
   // Workflow ON → uploads land in PENDING_REVIEW (review + approval required
   // before they become due tasks). OFF → APPROVED immediately (current behaviour).
+  // A Super Admin's own upload is not held (2026-10-24, lib/super-admin-own-work.ts):
+  // APPROVED like workflow OFF, recorded REPLACEMENT_REVIEW on the audit row.
   // `wf` is fetched once at the top of this function (see the uploadRole guard).
-  const approvalStatus = wf.workflowEnabled ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
+  const reviewSkipped = wf.workflowEnabled && isSuperAdminOwnWork(ctx);
+  const approvalStatus = wf.workflowEnabled && !reviewSkipped ? 'PENDING_REVIEW' as const : 'APPROVED' as const;
 
   const schedule = await prisma.$transaction(async (tx) => {
     // Append (2026-06-15, user request): a new upload ADDS to the existing
@@ -320,6 +324,7 @@ export async function processUpload(
       // Detail drill-down: which AHUs/filters were in this upload batch (titled
       // values so each token is self-explanatory, matching the workflow rows).
       ahus: toCreate.map((c) => `AHU: ${c.ahuName}${c.filterSize ? ` · Size: ${c.filterSize}` : ''}${c.filterMicron ? ` · Micron: ${c.filterMicron}µ` : ''} · Qty: ${c.qty}`),
+      ...superAdminExemptionFields(reviewSkipped ? ['REPLACEMENT_REVIEW'] : []),
     },
     reason: `Uploaded replacement schedule with ${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'}`,
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
@@ -329,7 +334,7 @@ export async function processUpload(
   await generateQnn('UPLOAD', {
     scheduleId: schedule.id,
     subject: 'Replacement Schedule',
-    message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${wf.workflowEnabled ? ' — pending review' : ''}`,
+    message: `Uploaded replacement schedule (${toCreate.length} entr${toCreate.length === 1 ? 'y' : 'ies'})${approvalStatus === 'PENDING_REVIEW' ? ' — pending review' : ''}`, // the real status: a Super Admin's own upload is approved at once (2026-10-24)
   }, ctx);
 
   for (const c of toCreate) results.push({ row: c.rowNumber, status: 'success', ahuName: c.ahuName });

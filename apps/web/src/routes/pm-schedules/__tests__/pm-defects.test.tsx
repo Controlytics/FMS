@@ -474,7 +474,10 @@ describe('D03-04 — the upload result names the next step the configured workfl
 
   it('the label rule itself, including a workflow config that has not loaded', () => {
     expect(pmImportedLabel(undefined, false)).toBe('Imported');
-    expect(pmImportedLabel({ workflowEnabled: true, reviewRole: '  ', approvalRole: 'QA' } as any, true)).toBe('Imported (pending review)');
-    expect(pmImportedLabel(WF_ON as any, true)).toBe('Imported (pending review by MANAGER)');
+    expect(pmImportedLabel({ workflowEnabled: true, reviewRole: '  ', approvalRole: 'QA' } as any, false)).toBe('Imported (pending review)');
+    expect(pmImportedLabel(WF_ON as any, false)).toBe('Imported (pending review by MANAGER)');
+    // 2026-10-24: a Super Admin's own upload is approved directly, workflow on or off.
+    expect(pmImportedLabel(WF_ON as any, true)).toBe('Imported (approved)');
+    expect(pmImportedLabel(undefined, true)).toBe('Imported (approved)');
   });
 });

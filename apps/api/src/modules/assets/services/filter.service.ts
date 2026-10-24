@@ -10,7 +10,8 @@ import { sanitizeAuditValue } from '../../../lib/audit-diff.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../../lib/errors.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
 import { identifierService } from './identifier.service.js';
-import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole } from '../filter-workflow.js';
+import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, filterReviewSkippedBySuperAdmin } from '../filter-workflow.js';
+import { superAdminExemptionFields } from '../../../lib/super-admin-own-work.js';
 
 export interface CreateFilterTypedInput extends FilterFieldInput {
   name: string;
@@ -57,7 +58,7 @@ export const filterService = {
 
     const filterSetEnum: 'SET_A' | 'SET_B' | undefined =
       input.filterSet === 'A' ? 'SET_A' : input.filterSet === 'B' ? 'SET_B' : undefined;
-    const approvalStatus = initialApprovalStatus(wf);
+    const approvalStatus = initialApprovalStatus(wf, ctx);
 
     const filter = await prisma.$transaction(async (tx) => {
       const f = await tx.filter.create({
@@ -112,7 +113,11 @@ export const filterService = {
     await auditLog({
       userId: ctx.userId, userRole: ctx.userRole,
       action: 'ASSET_CREATED', targetType: 'asset_instance', targetId: filter.id,
-      afterValue: { name, ahuId: input.ahuId, filterSet: filterSetEnum, kind: 'FILTER' },
+      afterValue: {
+        name, ahuId: input.ahuId, filterSet: filterSetEnum, kind: 'FILTER',
+        // A Super Admin's own filter skipped the review step (2026-10-24) — say so.
+        ...superAdminExemptionFields(filterReviewSkippedBySuperAdmin(wf, ctx) ? ['FILTER_REVIEW'] : []),
+      },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent, sessionId: ctx.sessionId,
     });
 

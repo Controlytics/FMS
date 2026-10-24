@@ -303,16 +303,28 @@ describe('resubmit + reviewer edit', () => {
   it('workflow ON: resubmit → PENDING_REVIEW with recomputed window, cleared sign-offs, QNN + audit', async () => {
     const rej = await entry(hier!.ahuId, { approvalStatus: 'REJECTED', rejectedBy: ids.rev, rejectionStage: 'REVIEW', reviewedBy: ids.rev, approvalRemarks: 'x' });
     const date = iso(day(20));
-    const res = await authPost(app, `${R}/entries/${rej}/resubmit`, tok.up, { scheduleDate: date, toleranceDays: 2, qty: 5 }, PW);
+    // An uploader role, not a Super Admin (2026-10-24: a Super Admin's own resubmit is approved at once — next test).
+    const res = await authPost(app, `${R}/entries/${rej}/resubmit`, tok.badrev, { scheduleDate: date, toleranceDays: 2, qty: 5 }, PW);
     expect(res.statusCode).toBe(200);
     expect(res.json().qnn).toMatch(/^QN-/);
     const e = await get(rej);
-    expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', qty: 5, toleranceDays: 2, rejectedBy: null, reviewedBy: null, approvalRemarks: null, rejectionStage: null, submittedBy: ids.up });
+    expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', qty: 5, toleranceDays: 2, rejectedBy: null, reviewedBy: null, approvalRemarks: null, rejectionStage: null, submittedBy: ids.badrev });
     expect(iso(e!.windowStart)).toBe(iso(day(18)));
     expect(iso(e!.windowEnd)).toBe(iso(day(22)));
     const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetId: rej } });
     expect(a!.afterValue).toMatchObject({ scheduleDate: date, toleranceDays: 2 });
+    expect(a!.afterValue).not.toHaveProperty('superAdminExemptGates');
     expect((await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: rej, action: 'RESUBMIT' } }))!.message).toMatch(/^Resubmitted — /);
+  });
+
+  // 2026-10-24 (operator: a Super Admin's own work is not held).
+  it('workflow ON: a Super Admin\'s own resubmit is approved at once, recorded REPLACEMENT_REVIEW', async () => {
+    const rej = await entry(hier!.ahuId, { approvalStatus: 'REJECTED', rejectedBy: ids.rev, rejectionStage: 'REVIEW', reviewedBy: ids.rev });
+    const res = await authPost(app, `${R}/entries/${rej}/resubmit`, tok.up, { scheduleDate: iso(day(40)) }, PW);
+    expect(res.statusCode).toBe(200);
+    expect(await get(rej)).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: ids.up, reviewedBy: null, approvedBy: null });
+    const a = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetId: rej } });
+    expect(a!.afterValue).toMatchObject({ superAdminExemptGates: ['REPLACEMENT_REVIEW'] });
   });
 
   it('workflow OFF: resubmit goes straight to APPROVED and keeps the entry tolerance/qty when omitted', async () => {

@@ -34,6 +34,35 @@ clean-machine install, Super Admin probe session and the performance / endurance
   allowed list, before the password is asked (D03-09); an edit that leaves the types out keeps them. Their
   labels stay, so an existing rule still renders, and the editor marks such a type "(never sent - remove it)".
   The Prisma enum is unchanged (no migration).
+- **A Super Admin's own work is not held (operator decision; `lib/super-admin-own-work.ts`).** The operator
+  asked to "remove all interlocks or anything to super admin" and chose, of four options, only "own work not
+  held" (not: approving its own work, not: no passwords). One rule, `isSuperAdminOwnWork(ctx)` (SUPER_ADMIN,
+  online). Every skipped gate is recorded as `superAdminExemptGates` on the event + audit row:
+  - QA stage interlock: a Super Admin's own entry into Wash Out / Dry Out raises no approval
+    (`INTERLOCK_ENTRY`; a final gated stage completes on its entry or its checklist, `INTERLOCK_TERMINAL`).
+    Keyed on who ENTERED (`entryExemptedBySuperAdmin`, read by the leave gate, submit-checklist and
+    current-state): an operator's held filter is still refused to a Super Admin until approved. Call shape
+    and `stageLookup` unchanged, so no client needed to learn who is signed in.
+  - AHU interlock: `assertAhuInterlockSatisfied({ superAdminOwnWork })` passes and reports `exempt` only when
+    it would have refused (`AHU_COMPLETION`); the cleaning pages read INTERLOCK as POPUP for a Super Admin
+    (`useAhuCompletionModeForOwnWork`; the config page still shows the setting).
+  - Review steps: filters (create, bulk upload, resubmit → APPROVED, `FILTER_REVIEW`; no reviewer / approver
+    invented; the resubmit response now carries `approvalStatus` and the Filters page says "approved"), PM
+    (upload, add visit, create, resubmit → APPROVED with the Super Admin as approver, as workflow OFF already
+    did; edit-approved goes live at once, `PM_REVIEW`; the PM page hints / toasts follow), replacement
+    schedules (upload, resubmit → APPROVED, `REPLACEMENT_REVIEW`). The "(pending review)" text on PM and
+    replacement QNNs now follows the real status, not the workflow switch.
+  - Config page help text on the five gates says so.
+  - Tests: new `super-admin-own-work.e2e.test.ts` (9); SUPER_ADMIN column in the pipeline-shape matrix
+    (+44); Super Admin cases in the AHU, filter-workflow, PM upload / visits / workflow and replacement
+    suites. `pipeline-shape-matrix`, `advance-with-checklist-atomic`, `ahu-interlock-advance-gate` and the
+    AHU e2e's checklist-route section had driven the gated flows AS a Super Admin for convenience; they now
+    run as an operator role, which is what they test. Five tests that pinned "even for a Super Admin" were
+    rewritten to the new rule, each with a non-Super-Admin case kept.
+- Test fix: `deployment-check-branches.test.ts` restored the environment with `process.env = {...}`, which
+  swaps Node's env object for a plain one: every later `process.env.TZ = …` in the same single-fork run did
+  nothing, so `pin-time-zone.ts` failed "still Asia/Calcutta" in `date-range-guard` / `pm-import-guards`
+  whenever they ran after it (order-dependent, green alone). Restored in place now (both sites).
 - Test fix: `offline-store.idb.test.ts` (from `671788a`) queued ops without an owner and failed `tsc`
   (vitest does not type-check); the ops now carry `userId` / `userName`.
 

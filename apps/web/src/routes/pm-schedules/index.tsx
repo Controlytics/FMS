@@ -83,7 +83,10 @@ export function rejectToastText(ids: string[], entries: Array<{ id: string; pend
   return plain === 0 ? kept : `${plain} entry(s) rejected. ${kept}`;
 }
 
-export function pmSubmissionText(wf: PmWorkflowConfig | undefined): { title: string; phrase: string } {
+export function pmSubmissionText(wf: PmWorkflowConfig | undefined, isSuperAdmin = false): { title: string; phrase: string } {
+  // A Super Admin's own re-submission / change is not held (2026-10-24, server
+  // pm-submission.ts): it is approved at once, whatever the workflow says.
+  if (isSuperAdmin) return { title: 'Approved', phrase: 'approved at once (a Super Admin change needs no review)' };
   if (!wf) return { title: 'Submitted', phrase: 'submitted to the PM approval workflow' };
   if (wf.workflowEnabled) {
     const role = wf.reviewRole?.trim();
@@ -94,14 +97,15 @@ export function pmSubmissionText(wf: PmWorkflowConfig | undefined): { title: str
 
 /** OQ-08: what happens to uploaded rows - same server rules as above. */
 export function pmUploadHint(wf: PmWorkflowConfig | undefined, isSuperAdmin: boolean): string {
+  // pm-submission.ts: a SUPER_ADMIN upload is approved directly, workflow on or off (2026-10-24).
+  if (isSuperAdmin) return 'entries you upload are approved directly';
   if (!wf) return 'entries go through the PM approval workflow';
   if (wf.workflowEnabled) {
     const role = wf.reviewRole?.trim();
     const approver = wf.approvalRole?.trim();
     return `entries go to review${role ? ` by ${role}` : ''}, then approval${approver ? ` by ${approver}` : ''}`;
   }
-  // pm-import.ts: with the workflow off a SUPER_ADMIN upload is approved directly.
-  return isSuperAdmin ? 'entries you upload are approved directly' : 'entries go to Pending for approval';
+  return 'entries go to Pending for approval';
 }
 
 /**
@@ -110,12 +114,13 @@ export function pmUploadHint(wf: PmWorkflowConfig | undefined, isSuperAdmin: boo
  * workflow, while the same dialog said entries go to review first.
  */
 export function pmImportedLabel(wf: PmWorkflowConfig | undefined, isSuperAdmin: boolean): string {
+  if (isSuperAdmin) return 'Imported (approved)'; // approved directly, workflow on or off (2026-10-24)
   if (!wf) return 'Imported';
   if (wf.workflowEnabled) {
     const role = wf.reviewRole?.trim();
     return `Imported (pending review${role ? ` by ${role}` : ''})`;
   }
-  return isSuperAdmin ? 'Imported (approved)' : 'Imported (pending approval)';
+  return 'Imported (pending approval)';
 }
 
 const REJECTION_STAGE: Record<string, string> = { REVIEW: 'review', APPROVAL: 'approval' };
@@ -220,7 +225,7 @@ export function PmScheduleListPage() {
   const workflowOn = wfConfig?.workflowEnabled ?? false;
   const isApprover = wfKnown && (isSuperAdmin || (workflowOn ? user?.role === wfConfig?.approvalRole : perms.includes('PM_APPROVE')));
   const canReview = wfKnown && (isSuperAdmin || (workflowOn ? user?.role === wfConfig?.reviewRole : perms.includes('PM_REVIEW')));
-  const submission = pmSubmissionText(wfConfig);
+  const submission = pmSubmissionText(wfConfig, isSuperAdmin);
   // Audit 2026-05-09 fix: PM schedule DELETE was an orphan endpoint
   // (BE supports it with reauth, no FE caller). Surface a delete button
   // per AHU group; backend pm-schedule-crud.ts:138 returns 409 if any
@@ -708,7 +713,12 @@ export function PmScheduleListPage() {
       if (password) await apiClient.putWithReauth(`/api/pm-schedules/entries/${id}/edit`, body, password);
       else await apiClient.put(`/api/pm-schedules/entries/${id}/edit`, body);
     }, {
-      onSuccess: () => { toast.success('Edit Submitted', `Change ${submission.phrase}. The current date stays active until the change is approved.`); setEditingId(null); refreshAll(); setProcessing(false); },
+      onSuccess: () => {
+        // A Super Admin's own change is live at once (2026-10-24); anyone else's is staged.
+        if (isSuperAdmin) toast.success('Edit applied', 'The new date is in force now (a Super Admin change needs no review).');
+        else toast.success('Edit Submitted', `Change ${submission.phrase}. The current date stays active until the change is approved.`);
+        setEditingId(null); refreshAll(); setProcessing(false);
+      },
       onError: (e: any) => { toast.error('Error', e?.message ?? 'Failed'); setProcessing(false); },
       onCancel: () => setProcessing(false),
     });

@@ -208,14 +208,28 @@ describe('POST /visits — adding a visit', () => {
     expect(all.map((x) => [x.version, x.status, x.entries.length])).toEqual([[1, 'ARCHIVED', 1], [2, 'ACTIVE', 1]]);
   });
 
-  it('workflow ON: the new visit goes to review (PENDING_REVIEW) — even for a Super Admin', async () => {
+  it('workflow ON: a non-Super-Admin\'s new visit goes to review (PENDING_REVIEW)', async () => {
     cfg.set('pm-schedule-approval', { workflowEnabled: true, uploadRole: '', reviewRole: 'R', approvalRole: 'A' });
-    const res = await post('/visits', 'sa', visit(ahuWf, `${YEAR}-04-04`, 2));
+    const res = await post('/visits', 'upl', visit(ahuWf, `${YEAR}-04-04`, 2));
     expect(res.statusCode).toBe(201);
     const { entries } = await entriesOf(ahuWf);
-    expect(entries[0]).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: u.sa.id, submittedByName: u.sa.username, approvedBy: null, approvedAt: null });
-    const qnn = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: entries[0].id } });
+    const e = entries.find((x: any) => iso(x.plannedDate) === `${YEAR}-04-04`)!;
+    expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: u.upl.id, submittedByName: u.upl.username, approvedBy: null, approvedAt: null });
+    const qnn = await prisma.qualityNotification.findFirst({ where: { pmScheduleEntryId: e.id } });
     expect(qnn?.message).toContain('(pending review)');
+  });
+
+  // 2026-10-24 (operator: a Super Admin's own work is not held). Until then this
+  // went to review "even for a Super Admin".
+  it('workflow ON: a Super Admin\'s own new visit is approved at once, recorded PM_REVIEW', async () => {
+    cfg.set('pm-schedule-approval', { workflowEnabled: true, uploadRole: '', reviewRole: 'R', approvalRole: 'A' });
+    const res = await post('/visits', 'sa', visit(ahuWf, `${YEAR}-09-09`, 2));
+    expect(res.statusCode).toBe(201);
+    const { entries } = await entriesOf(ahuWf);
+    const e = entries.find((x: any) => iso(x.plannedDate) === `${YEAR}-09-09`)!;
+    expect(e).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: u.sa.id, approvedBy: u.sa.id, reviewedBy: null });
+    const audit = await prisma.auditTrail.findFirst({ where: { action: 'CREATED', targetId: e.id }, orderBy: { chainPosition: 'desc' } });
+    expect(audit?.afterValue).toMatchObject({ approvalStatus: 'APPROVED', superAdminExemptGates: ['PM_REVIEW'] });
   });
 
   it('signed: with CREATE_PM_SCHEDULE re-auth on, the right password adds the visit and the audit row links the signature', async () => {

@@ -12,6 +12,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { requireDecisionRemarks } from '../../lib/decision-remarks.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn, newQnnBatchRef, qnnBatchTag, type QnnAction } from '../pm-schedules/pm-workflow.js';
+import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 const MS_DAY = 86400000;
 const windowsFor = (planned: Date, tol: number) => ({
@@ -163,18 +164,21 @@ export async function resubmitEntry(ctx: RequestContext, entryId: string, data: 
   if (isNaN(planned.getTime())) throw new AppError(400, 'INVALID_DATE', 'Invalid date');
   const tol = data.toleranceDays ?? entry.toleranceDays;
   const { windowStart, windowEnd } = windowsFor(planned, tol);
+  // A Super Admin's own re-submission is not held (2026-10-24): APPROVED like
+  // workflow OFF, recorded REPLACEMENT_REVIEW.
+  const reviewSkipped = cfg.workflowEnabled && isSuperAdminOwnWork(ctx);
   const updated = await prisma.replacementScheduleEntry.update({
     where: { id: entryId },
     data: {
       scheduleDate: planned, toleranceDays: tol, windowStart, windowEnd, ...(data.qty != null ? { qty: data.qty } : {}),
-      approvalStatus: cfg.workflowEnabled ? 'PENDING_REVIEW' : 'APPROVED',
+      approvalStatus: cfg.workflowEnabled && !reviewSkipped ? 'PENDING_REVIEW' : 'APPROVED',
       approvalRemarks: null, reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
       approvedBy: null, approvedByName: null, approvedAt: null, rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionStage: null,
       submittedBy: ctx.userSub, submittedByName: ctx.userId,
     },
   });
   const qnn = await mintQnn('RESUBMIT', entry, ctx, 'Resubmitted');
-  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetType: 'replacement_schedule_entry', targetId: entryId, afterValue: { ...entryDetail(entry), scheduleDate: data.scheduleDate, toleranceDays: tol }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
+  await auditLog({ userId: ctx.userId, userRole: ctx.userRole, action: 'REPLACEMENT_SCHEDULE_RESUBMITTED', targetType: 'replacement_schedule_entry', targetId: entryId, afterValue: { ...entryDetail(entry), scheduleDate: data.scheduleDate, toleranceDays: tol, ...superAdminExemptionFields(reviewSkipped ? ['REPLACEMENT_REVIEW'] : []) }, ipAddress: ctx.ipAddress, userAgent: ctx.userAgent });
   return { ...updated, qnn };
 }
 

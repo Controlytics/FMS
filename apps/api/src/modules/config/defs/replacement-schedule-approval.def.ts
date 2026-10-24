@@ -26,7 +26,7 @@ export const replacementScheduleApprovalDef: ModuleConfigDefinition = {
       key: 'workflowEnabled',
       type: 'boolean',
       label: 'Enable Review + Approval Workflow',
-      description: 'When ON, an uploaded replacement schedule must be reviewed and then approved before its entries become due tasks. When OFF, uploads are auto-approved. Leave unset to inherit the PM Schedule Workflow toggle.',
+      description: 'When ON, an uploaded replacement schedule must be reviewed and then approved before its entries become due tasks. When OFF, uploads are auto-approved. Leave unset to inherit the PM Schedule Workflow toggle. A schedule a Super Admin uploads or re-submits itself is approved at once (recorded on the audit trail).',
       group: 'Workflow',
       // No default on purpose: an unseeded (absent) value inherits the PM
       // toggle in getReplacementWorkflowConfig, so enabling the RS workflow is

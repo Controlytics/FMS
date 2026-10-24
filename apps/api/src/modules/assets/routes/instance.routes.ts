@@ -648,7 +648,7 @@ export default async function instanceRoutes(app: FastifyInstance) {
     preHandler: [app.requireAnyPermission('ASSET_CREATE', 'FILTER_CREATE', 'FILTER_BULK_UPLOAD')],
     schema: {
       tags: ['Entities'],
-      summary: 'Resubmit a rejected filter (REJECTED → PENDING_REVIEW)',
+      summary: 'Resubmit a rejected filter (REJECTED → PENDING_REVIEW; own Super Admin resubmit → APPROVED)',
       params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
       response: { 200: { type: 'object', additionalProperties: true }, ...errorResponses },
     },

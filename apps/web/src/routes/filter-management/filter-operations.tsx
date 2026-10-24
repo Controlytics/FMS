@@ -68,7 +68,7 @@ import {
 // a single-filter checklist submit goes through core.submitChecklist.
 import { useFilterOperationsCore } from '@/lib/filter-ops/use-core';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
-import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
+import { useAhuCompletionModeForOwnWork } from '../../hooks/use-ahu-completion-mode';
 import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from './components/remaining-filters-dialog';
 import { AhuSetChooserDialog, type FilterSetChoice } from './components/ahu-set-chooser-dialog';
@@ -121,7 +121,8 @@ export function FilterOperationsPage() {
   });
   const { online, pendingCount, syncing, executeOrQueue, manualSync, clearQueue, cache, getCache } = useOffline();
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
-  const ahuMode = useAhuCompletionMode();
+  // A Super Admin's own completion is not held by the AHU interlock (2026-10-24): INTERLOCK reads as POPUP for them.
+  const ahuMode = useAhuCompletionModeForOwnWork();
   // No 30 s refresh (D03-06): this ~2.8 s list only feeds the legacy offline
   // store (the page reads the typed hierarchy below). Loaded once; a sync drain
   // revalidates it (mutate in useFilterOperationsOfflineCache).
@@ -2341,7 +2342,7 @@ export function FilterOperationsPage() {
           <div className="mx-4 mb-2 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2">
             <svg className="w-5 h-5 mt-0.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
             <div className="text-sm text-amber-800">
-              <div className="font-semibold">{interlockStageLabel(interlock.stageKey)} is awaiting QA approval.</div>
+              <div className="font-semibold">{interlockStageLabel(interlock.stageKey)} is awaiting approval.</div>
               <div className="text-amber-700 mt-0.5">
                 {interlock.status === 'REJECTED'
                   ? 'This stage was rejected — the filter has been sent back for re-cleaning.'

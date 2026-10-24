@@ -31,7 +31,8 @@ import { getDatetimeConfig, formatDateWith } from '../../lib/format-datetime.js'
 import { checkPmEnabled, readPmSettings, assertLiveAhu, assertPmYear } from './pm-shared.js';
 import { getPmWorkflowConfig, assertPmRole, generateQnn } from './pm-workflow.js';
 import { assertSeparation } from './pm-separation-guard.js';
-import { submissionApprovalFields } from './pm-submission.js';
+import { submissionApprovalFields, pmReviewSkippedBySuperAdmin } from './pm-submission.js';
+import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 import { nextScheduleVersion } from './pm-schedule-version.js';
 
 const DAY_MS = 86_400_000;
@@ -147,6 +148,7 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
         name: `${ahu.name} ${data.plannedDate}`, ahuName: ahu.name, entityId: ahu.id,
         scheduleId: sid, year, plannedDate: data.plannedDate, toleranceDays,
         approvalStatus: created.approvalStatus, scheduleCreated: !existing,
+        ...superAdminExemptionFields(pmReviewSkippedBySuperAdmin(ctx) ? ['PM_REVIEW'] : []),
       },
       ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
     }, tx);
@@ -156,7 +158,8 @@ export async function addVisit(ctx: RequestContext, data: AddVisitInput) {
 
   // One QNN per entry, as the upload mints (after commit — generateQnn writes
   // through its own connection, exactly as on the upload path).
-  const pendingSuffix = wf.workflowEnabled ? ' (pending review)' : '';
+  // The real status, not the switch: a Super Admin's own visit is approved at once (2026-10-24).
+  const pendingSuffix = entry.approvalStatus === 'PENDING_REVIEW' ? ' (pending review)' : '';
   const qnn = await generateQnn('UPLOAD', {
     pmScheduleEntryId: entry.id,
     scheduleId,

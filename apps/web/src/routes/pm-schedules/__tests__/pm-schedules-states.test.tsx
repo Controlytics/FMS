@@ -89,6 +89,11 @@ describe('OQ-08 / OQ-09 — messages follow the configured flow, never "QA appro
     expect(pmUploadHint(WF_OFF, false)).toBe('entries go to Pending for approval');
     expect(pmUploadHint(WF_OFF, true)).toBe('entries you upload are approved directly');
   });
+  it('a Super Admin\'s own upload / change is approved directly with the workflow ON too (2026-10-24)', () => {
+    expect(pmUploadHint(WF_ON, true)).toBe('entries you upload are approved directly');
+    expect(pmSubmissionText(WF_ON, true)).toEqual({ title: 'Approved', phrase: 'approved at once (a Super Admin change needs no review)' });
+    expect(pmSubmissionText(WF_ON, false).title).toBe('Sent for review');
+  });
   it('workflow config unknown: no specific claim', () => {
     expect(pmSubmissionText(undefined).phrase).not.toMatch(/QA|review by|approval by/);
   });

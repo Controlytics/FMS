@@ -21,7 +21,11 @@
  *    the operator chose (`completionFilterSet`), which the approval honours.
  *
  * Every replay exemption is pushed onto the caller's `replayExemptGates`, which
- * the caller writes onto the event and audit row.
+ * the caller writes onto the event and audit row. A Super Admin's own online
+ * entry (2026-10-24, lib/super-admin-own-work.ts) skips the QA interlock and the
+ * AHU gate the same way, recorded on `superAdminExemptGates`. The call SHAPE is
+ * unchanged (a final gated stage is still entered bare, its checklist after), so
+ * no client has to know who is signed in.
  */
 import type { LocalContext } from '@digilog/shared';
 import * as executor from '@digilog/shared';
@@ -36,6 +40,7 @@ import {
   type StageInterlockConfig,
 } from '../stage-interlock.js';
 import { assertAhuInterlockSatisfied, type FilterSetChoice } from '../ahu-completion-gate.js';
+import { isSuperAdminOwnWork, type SuperAdminExemptGate } from '../../../lib/super-admin-own-work.js';
 
 export interface StageEntryDecision {
   leadsToEnd: boolean;
@@ -69,9 +74,12 @@ export async function decideStageEntry(p: {
   /** The request body's filterSet — the operator's AHU-completion scope. */
   filterSet: unknown;
   replayExemptGates: string[];
+  /** Gates a Super Admin's own online work skipped (lib/super-admin-own-work.ts); the caller writes it on the event + audit row. */
+  superAdminExemptGates: SuperAdminExemptGate[];
 }): Promise<StageEntryDecision> {
-  const { ctx, filterId, localCtx, cp, targetState, targetStage, dryerAction, interlockConfig, replayExemptGates } = p;
+  const { ctx, filterId, localCtx, cp, targetState, targetStage, dryerAction, interlockConfig, replayExemptGates, superAdminExemptGates } = p;
   const composed = p.composedWithChecklist === true;
+  const saOwnWork = isSuperAdminOwnWork(ctx);
   const set = readFilterSetChoice(p.filterSet);
 
   // Does the target stage lead to END (walking through CHECKLIST nodes)?
@@ -132,7 +140,9 @@ export async function decideStageEntry(p: {
   //    ending at a gated stage could never complete. A composed entry keeps the
   //    422 below; an offline replay is never gated (completes, recorded).
   const workDoneByThisCall = executor.callCompletesStageWork(targetState, dryerAction);
-  const approvalCompletesStage = finalStageAwaitsQa && !ctx.isOfflineReplay && !composed;
+  // A Super Admin's own entry raises no approval, so nothing but the entry (or the
+  // checklist after it) can finish the stage.
+  const approvalCompletesStage = finalStageAwaitsQa && !ctx.isOfflineReplay && !composed && !saOwnWork;
 
   const completesCycle = leadsToEnd && !hasMoreStages && !hasPendingChecklistAfterTarget
     && workDoneByThisCall && !approvalCompletesStage;
@@ -146,14 +156,17 @@ export async function decideStageEntry(p: {
   // 2026-10-22 (the bare entry raises the approval, which completes the cycle).
   // Offline replay is exempt (offline work is never gated), and recorded.
   if (finalStageAwaitsQa && cycleWillComplete) {
-    if (!ctx.isOfflineReplay) {
+    if (saOwnWork) {
+      superAdminExemptGates.push('INTERLOCK_TERMINAL');
+    } else if (!ctx.isOfflineReplay) {
       throw new AppError(
         422,
         'INTERLOCK_TERMINAL_STAGE',
         `This cleaning cycle would complete directly out of ${prettyStageLabel(targetState)}, but the QA stage interlock is enabled for that stage — a filter cannot complete a cycle without the required QA approval. An administrator must add a stage after ${prettyStageLabel(targetState)} or disable the stage interlock.`,
       );
+    } else {
+      replayExemptGates.push('INTERLOCK_TERMINAL');
     }
-    replayExemptGates.push('INTERLOCK_TERMINAL');
   }
 
   // AHU completion interlock (2026-08-10): when THIS call completes the cycle.
@@ -161,16 +174,21 @@ export async function decideStageEntry(p: {
   // write, so a 422 aborts cleanly; offline replay is exempt inside the assert.
   // The operator's runtime filter-set choice scopes the roster.
   if (completesCycle) {
-    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
-    if (ahuGate?.exempt) replayExemptGates.push('AHU_COMPLETION');
+    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, superAdminOwnWork: saOwnWork, set });
+    if (ahuGate?.exempt) (saOwnWork ? superAdminExemptGates : replayExemptGates).push('AHU_COMPLETION');
   }
 
   // Raise the gate on entry (atomic with the state change, in the caller's tx).
   // Offline: never — a PENDING approval for offline work would be a stuck
   // request no operator can clear; recorded instead.
-  const enteringInterlock = finalStageAwaitsQa && !cycleWillComplete && !ctx.isOfflineReplay;
+  // A Super Admin's own entry: never either (2026-10-24) — recorded, and the leave
+  // gate reads that record on this entry (entryExemptedBySuperAdmin).
+  const enteringInterlock = finalStageAwaitsQa && !cycleWillComplete && !ctx.isOfflineReplay && !saOwnWork;
   if (ctx.isOfflineReplay && finalStageAwaitsQa && !cycleWillComplete) {
     replayExemptGates.push('INTERLOCK_ENTRY');
+  }
+  if (saOwnWork && finalStageAwaitsQa && !cycleWillComplete) {
+    superAdminExemptGates.push('INTERLOCK_ENTRY');
   }
   let interlockSnapshot: FilterApprovalDetails | null = null;
   const interlockApproverRole = enteringInterlock ? getApproverRoleForStage(targetState, interlockConfig) : null;

@@ -56,7 +56,7 @@ import { useFilterOperationsCore, type AdvanceOutcome } from '@/lib/filter-ops/u
 import { blockingInterlock, interlockBannerTitle, interlockBannerDetail, interlockRefusalLine, INTERLOCK_REFUSAL_CODES, type StageInterlockState } from './stage-interlock-notice';
 import { useTabletAccess } from './use-tablet-access';
 // Task 7 — AHU completion pre-flight (Remaining Filters dialog).
-import { useAhuCompletionMode } from '../../hooks/use-ahu-completion-mode';
+import { useAhuCompletionModeForOwnWork } from '../../hooks/use-ahu-completion-mode';
 // 2026-08-10: DRY_IN instrument auto-fetch, shared with the desktop drying panel.
 import { checkAhuCompletionBatch, checkAhuHasBothSets, isTerminalChecklist, isCompletingAdvance, isTerminalTargetWithChecklist } from '../../lib/filter-ops/ahu-completion-check';
 import { RemainingFiltersDialog } from '../filter-management/components/remaining-filters-dialog';
@@ -129,7 +129,8 @@ export function MobileOperationsPage({ initialStageKey, initialBlockId, overlayB
       gateAhuBeforeDeferredChecklist([filterId], targetState),
   });
   // Task 7: AHU completion mode (NONE / POPUP / INTERLOCK) from config.
-  const ahuMode = useAhuCompletionMode();
+  // A Super Admin's own completion is not held by the AHU interlock (2026-10-24): INTERLOCK reads as POPUP for them.
+  const ahuMode = useAhuCompletionModeForOwnWork();
 
   // Tablet access control — which features are allowed for this role.
   // OQ-04 (2026-10-19): the SAME hook and rule as mobile-wrapper.tsx

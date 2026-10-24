@@ -882,12 +882,17 @@ export function FilterListPage() {
   // dialog first; this only moves the state (no reauth on the endpoint).
   const handleResubmitFilter = (f: any) => {
     // RESUBMIT_FILTER is a configurable re-auth row (2026-09-24).
+    // The API answers with the status the filter now has: a Super Admin's own
+    // resubmission is approved at once (2026-10-24), everyone else's goes back to review.
+    let status: string | undefined;
     reauth.execute('RESUBMIT_FILTER', async (password?: string) => {
-      if (password) await api.postWithReauth(`/api/assets/instances/${f.id}/resubmit`, {}, password);
-      else await api.post(`/api/assets/instances/${f.id}/resubmit`, {});
+      const res: any = password
+        ? await api.postWithReauth(`/api/assets/instances/${f.id}/resubmit`, {}, password)
+        : await api.post(`/api/assets/instances/${f.id}/resubmit`, {});
+      status = res?.approvalStatus;
     }, {
       onSuccess: () => {
-        toast.success(`${f.name} resubmitted`, 'It is back in Pending Review.');
+        toast.success(`${f.name} resubmitted`, status === 'APPROVED' ? 'It is approved: a resubmission by the Super Admin needs no review.' : 'It is back in Pending Review.');
         mutate('/api/hierarchy/tree');
         mutate(`/api/assets/instances/${f.id}`);
       },

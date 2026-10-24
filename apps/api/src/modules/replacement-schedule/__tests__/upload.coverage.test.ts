@@ -371,6 +371,23 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     expect(qnn[0].message).toBe('Uploaded replacement schedule (2 entries) — pending review');
   });
 
+  // 2026-10-24 (operator: a Super Admin's own work is not held, lib/super-admin-own-work.ts).
+  it('workflow ON, Super Admin uploader: entries APPROVED at once, the audit row records REPLACEMENT_REVIEW, the QNN does not say "pending review"', async () => {
+    await setApproval({ workflowEnabled: true, uploadRole: [], reviewRole: '', approvalRole: '' });
+    try {
+      const res = await send('', tok.sa, await xlsx([[1, AHU, '5', '300x300x50', 1, FUTURE]]), { fileName: `cvo-${S}-sa.xlsx`, pw: PW });
+      expect(res.json()).toMatchObject({ success: true, created: 1 });
+      const e = await prisma.replacementScheduleEntry.findFirst({ where: { scheduleId: res.json().scheduleId } });
+      expect(e).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: ids.sa, reviewedBy: null, approvedBy: null });
+      const audit = await prisma.auditTrail.findFirst({ where: { action: 'REPLACEMENT_SCHEDULE_UPLOADED', targetId: res.json().scheduleId } });
+      expect(audit!.afterValue).toMatchObject({ entries: 1, superAdminExemptGates: ['REPLACEMENT_REVIEW'] });
+      const qnn = await prisma.qualityNotification.findFirst({ where: { scheduleId: res.json().scheduleId } });
+      expect(qnn!.message).toBe('Uploaded replacement schedule (1 entry)');
+    } finally {
+      await setApproval({ workflowEnabled: true, uploadRole: [ROLE_UP], reviewRole: '', approvalRole: '' });
+    }
+  });
+
   it('workflow OFF: entries are APPROVED at once; a single entry reads "1 entry"; a blank tolerance is 0 days', async () => {
     await setApproval({ workflowEnabled: false, uploadRole: [], reviewRole: '', approvalRole: '' });
     // A `replacement-schedule` row is planted on purpose: no config def writes

@@ -17,7 +17,8 @@ import { upsertFilterDetails } from '../../../lib/filter-details.js';
 // an active cycle. No circular dependency (helpers.ts imports only prisma + crypto).
 import { computeChecksum } from '../../filter-operations/helpers.js';
 import { getFilterStageRules, classifyMove, moveStartsCycle, INVALID_STAGE_MOVE_MESSAGE } from '../../filter-operations/stage-rules.js';
-import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable } from '../filter-workflow.js';
+import { getFilterWorkflowConfig, initialApprovalStatus, assertPmRole, assertFilterOperable, filterReviewSkippedBySuperAdmin } from '../filter-workflow.js';
+import { superAdminExemptionFields } from '../../../lib/super-admin-own-work.js';
 import { resolveManualCycleReason, breakActiveCycleTx, startManualCycleTx } from '../../filter-operations/manual-cycle.js';
 import { filterInstanceWhere } from '../../filter-operations/filter-resolver.js';
 import { validateAndBuildFilterAttributes, FILTER_ATTRIBUTE_FIELDS, type FilterFieldInput } from './filter-fields.service.js';
@@ -184,7 +185,7 @@ export const instanceService = {
     if (wf?.workflowEnabled) {
       assertPmRole(ctx.userRole, wf.uploadRole, 'create', 'filters');
     }
-    const approvalStatus = wf ? initialApprovalStatus(wf) : 'APPROVED';
+    const approvalStatus = wf ? initialApprovalStatus(wf, ctx) : 'APPROVED';
     const inWorkflow = approvalStatus !== 'APPROVED';
 
     const { instance } = await prisma.$transaction(async (tx) => {
@@ -272,6 +273,8 @@ export const instanceService = {
         ...instance,
         templateKind: template.templateKind,
         ...(parentEntity ? { parentName: parentEntity.name, parentKind: parentEntity.template?.templateKind } : {}),
+        // A Super Admin's own filter skipped the review step (2026-10-24) — say so.
+        ...superAdminExemptionFields(wf && filterReviewSkippedBySuperAdmin(wf, ctx) ? ['FILTER_REVIEW'] : []),
       },
       reason: parentEntity
         ? `${template.templateKind} created under "${parentEntity.name}"`

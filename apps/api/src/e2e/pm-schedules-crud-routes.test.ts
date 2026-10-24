@@ -254,7 +254,8 @@ describe('POST / — create a schedule', () => {
 
     const audit = await latestAudit('CREATED', created.id);
     expect(audit).toMatchObject({ userId: sa.username, userRole: 'SUPER_ADMIN', targetType: 'pm_schedule' });
-    expect(audit?.afterValue).toEqual({ entityId: ahu2Id, year: YEAR, entryCount: 2 });
+    // A Super Admin's own schedule records that it skipped the approval step (2026-10-24).
+    expect(audit?.afterValue).toEqual({ entityId: ahu2Id, year: YEAR, entryCount: 2, superAdminExemptGates: ['PM_REVIEW'] });
     const signature = await prisma.auditTrail.findUnique({ where: { id: audit!.signatureAuditId! } });
     expect(signature?.action).toBe('REAUTH_SUCCESS');
   });

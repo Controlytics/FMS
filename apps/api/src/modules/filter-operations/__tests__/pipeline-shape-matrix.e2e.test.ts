@@ -111,9 +111,17 @@ const OFFLINE_CASES: Array<[cause: string, shape: string, variant: Variant]> = [
 const fx = new FoFixture('FPM');
 let app: FastifyInstance;
 let APR = '';
+/** The CURRENT performer (runCase switches it; every other test runs as the operator). */
 let opH: Record<string, string>;
 let aprH: Record<string, string>;
 let grant = '';
+// 2026-10-24: the performer is an OPERATOR. A Super Admin's own work is no longer
+// held by the QA interlock (lib/super-admin-own-work.ts), so a Super Admin column
+// would not exercise the gate; the SUPER_ADMIN column below drives the same
+// interlock shapes as a Super Admin instead.
+let operatorH: Record<string, string>; let operatorGrant = '';
+let superAdminH: Record<string, string>; let superAdminGrant = '';
+type Actor = 'operator' | 'superAdmin';
 const questionsByProfile = new Map<string, string[]>();
 let ENABLED_CL = '';   // reused by every enabled checklist node (one optional + one required question)
 let DISABLED_CL = '';
@@ -317,7 +325,9 @@ beforeAll(async () => {
     { plugin: filterOperationsRoutes, prefix: '/api/filters' },
     { plugin: stageApprovalRoutes, prefix: '/api/stage-approvals' },
   ]);
-  const op = await fx.user('op', 'SUPER_ADMIN');
+  const OPER = await fx.role('OPR', ['FILTER_OPERATE', 'FILTER_BYPASS', 'ASSET_READ']);
+  const op = await fx.user('op', OPER);
+  const sa = await fx.user('sa', 'SUPER_ADMIN');
   APR = await fx.role('APR', ['STAGE_APPROVAL_VIEW', 'STAGE_APPROVAL_DECIDE']);
   const apr = await fx.user('apr', APR);
   cfg.washOutApproverRole = APR; cfg.dryOutApproverRole = APR;
@@ -325,9 +335,12 @@ beforeAll(async () => {
   ENABLED_CL = on.id; questionsByProfile.set(on.id, on.questionIds);
   const off = await fx.checklist('OFF', [{ question: 'Disabled question', required: true }], false);
   DISABLED_CL = off.id; questionsByProfile.set(off.id, off.questionIds);
-  opH = await fx.login(app, op.username);
+  operatorH = await fx.login(app, op.username);
+  superAdminH = await fx.login(app, sa.username);
   aprH = await fx.login(app, apr.username);
-  grant = await obtainOfflineGrant(app, opH.authorization.slice(7), fx.password);
+  operatorGrant = await obtainOfflineGrant(app, operatorH.authorization.slice(7), fx.password);
+  superAdminGrant = await obtainOfflineGrant(app, superAdminH.authorization.slice(7), fx.password);
+  opH = operatorH; grant = operatorGrant;
 }, 60_000);
 
 afterAll(async () => {
@@ -336,7 +349,17 @@ afterAll(async () => {
   try { await fx.cleanup(); } finally { await app?.close(); }
 }, 120_000);
 
-async function runCase(shape: string, tokens: string[], variant: Variant, offline: boolean, bypass?: { carry: 'rule' | 'never' }) {
+async function runCase(shape: string, tokens: string[], variant: Variant, offline: boolean, bypass?: { carry: 'rule' | 'never' }, actor: Actor = 'operator') {
+  opH = actor === 'superAdmin' ? superAdminH : operatorH;
+  grant = actor === 'superAdmin' ? superAdminGrant : operatorGrant;
+  try {
+    return await runCaseAs(shape, tokens, variant, offline, bypass, actor);
+  } finally {
+    opH = operatorH; grant = operatorGrant;
+  }
+}
+
+async function runCaseAs(shape: string, tokens: string[], variant: Variant, offline: boolean, bypass: { carry: 'rule' | 'never' } | undefined, actor: Actor) {
   cfg.enabled = variant.interlock;
   internalErrors.length = 0;
   const block = await fx.node('BLOCK', 'B');
@@ -368,8 +391,20 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
     const expected = bypass ? [stages[0], last] : stages;
     // The waiting-state checks in drive() really ran where they apply.
     if (last === 'DRY_IN' && !checks.includes('final-dry-in')) problems.push('final Dry In offer never checked');
-    if (variant.interlock && !offline && (last === 'WASH_OUT' || last === 'DRY_OUT') && !checks.includes('final-pending')) {
+    if (variant.interlock && !offline && actor === 'operator' && (last === 'WASH_OUT' || last === 'DRY_OUT') && !checks.includes('final-pending')) {
       problems.push('final gated stage offer never checked');
+    }
+    // A Super Admin's own online work (2026-10-24): no approval was ever raised, and
+    // every entry into a gated stage records the skipped interlock.
+    if (actor === 'superAdmin' && variant.interlock && !offline) {
+      const raised = await prisma.cleaningStageApproval.count({ where: { filterId: f } });
+      if (raised) problems.push(`${raised} approval(s) raised for a Super Admin's own work`);
+      const gatedEntries = events.filter((e) => (e.eventType === 'STATE_TRANSITION' || e.eventType === 'BYPASS_DEVIATION')
+        && (e.toState === 'WASH_OUT' || e.toState === 'DRY_OUT') && isEntryIntoStage(e, e.toState));
+      for (const e of gatedEntries) {
+        const skipped: string[] = (e.attributes as any)?.superAdminExemptGates ?? [];
+        if (!skipped.includes('INTERLOCK_ENTRY') && !skipped.includes('INTERLOCK_TERMINAL')) problems.push(`entry into ${e.toState} did not record the skipped interlock`);
+      }
     }
     if (JSON.stringify(entered) !== JSON.stringify(expected)) problems.push(`entered ${JSON.stringify(entered)} ≠ ${JSON.stringify(expected)}`);
     if (events.filter((e) => e.eventType === 'CYCLE_COMPLETED').length !== 1) problems.push('CYCLE_COMPLETED not exactly once');
@@ -400,7 +435,7 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
   if (internalErrors.length) problems.push(`500: ${internalErrors.map((e) => e.err.message).join('; ')}`);
   results.push({
     shape: bypass ? `${shape} — bypass into ${last}${bypass.carry === 'never' ? ' (old client)' : ''}` : shape,
-    variant: vLabel({ ...variant, offline }),
+    variant: `${actor === 'superAdmin' ? 'SUPER_ADMIN, ' : ''}${vLabel({ ...variant, offline })}`,
     outcome: problems.length ? problems.join(' / ') : 'COMPLETES',
   });
   return problems;
@@ -409,6 +444,15 @@ async function runCase(shape: string, tokens: string[], variant: Variant, offlin
 describe.each(VARIANTS)('pipeline shapes — %o', (variant) => {
   it.each(SHAPES)('%s completes', async (shape, tokens) => {
     expect(await runCase(shape, tokens, variant, false)).toEqual([]);
+  });
+});
+
+// 2026-10-24 (operator: a Super Admin's own work is not held): every shape with the
+// interlock ON, performed by a Super Admin, completes with NO approval raised, the
+// same client steps (call shape unchanged), and the skip recorded on each entry.
+describe.each(VARIANTS.filter((v) => v.interlock))('pipeline shapes — SUPER_ADMIN performer — %o', (variant) => {
+  it.each(SHAPES)('%s completes', async (shape, tokens) => {
+    expect(await runCase(shape, tokens, variant, false, undefined, 'superAdmin')).toEqual([]);
   });
 });
 

@@ -134,6 +134,23 @@ informational, like the existing always-on actions. **2026-07-13 — Home sideba
   keeps it equal to the API's `enforceReauthAlways` call sites — literal, array, ternary and the
   `config/routes.ts` variable form; an unrecognised dynamic call site fails the test). Guard:
   `apps/api/src/e2e/od01-always-reauth.test.ts`. Never move one of these back to `enforceReauth`.
+- 🔴 **A Super Admin's OWN work is not held (operator decision 2026-10-24, tier 1 of 4 offered;
+  `lib/super-admin-own-work.ts`).** One rule, `isSuperAdminOwnWork(ctx)` = role SUPER_ADMIN and not an
+  offline replay (replay is exempt already). Skipped for that work, and ALWAYS recorded as
+  `superAdminExemptGates` on the event attributes + audit afterValue (like `replayExemptGates`):
+  - the QA stage interlock (`INTERLOCK_ENTRY` / `INTERLOCK_TERMINAL`) — keyed on who ENTERED the gated
+    stage (`entryExemptedBySuperAdmin`, the leave gate + current-state read the marker on the current
+    entry): an operator's held filter still needs a real approval, whoever scans it. Call shape unchanged
+    (a final gated stage is still entered bare, checklist after), `stageLookup.interlockGated` untouched;
+  - the AHU interlock (`AHU_COMPLETION`, only when it WOULD have refused); the web/tablet pre-flight reads
+    INTERLOCK as POPUP for a Super Admin (`useAhuCompletionModeForOwnWork`);
+  - the review step: filter create / bulk upload / resubmit (`FILTER_REVIEW`), PM upload / add visit /
+    create / resubmit / edit-approved (`PM_REVIEW`; the edit goes live at once), replacement upload /
+    resubmit (`REPLACEMENT_REVIEW`).
+  NOT changed (the operator kept them): segregation of duties (a Super Admin still cannot approve what it
+  performed), OD-01 always-on passwords, data-integrity refusals, the rules that protect the Super Admin.
+  Guards: `filter-operations/__tests__/super-admin-own-work.e2e.test.ts` + the SUPER_ADMIN column of
+  `pipeline-shape-matrix.e2e.test.ts` (whose operator columns now run as a real operator role).
 - 🔴 **Strict-audit follow-up 2026-09-25** (see CHANGELOG): `audit_trail.signature_audit_id` links a
   signed row to its `REAUTH_SUCCESS` row via `lib/request-store.ts` (AsyncLocalStorage filled by the
   re-auth gate) — it is inside the checksum ONLY when present; never make it an always-present key

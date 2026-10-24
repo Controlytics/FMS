@@ -262,7 +262,8 @@ describe('CSV import (workflow OFF, SUPER_ADMIN auto-approves)', () => {
       where: { action: 'PM_SCHEDULE_IMPORTED', userId: sa.username }, orderBy: { chainPosition: 'desc' },
     });
     expect(row).toMatchObject({ targetType: 'pm_schedule', targetId: 'bulk' });
-    expect(row?.afterValue).toEqual({ imported: 4, skipped: 7, ahuNames: [A, B] });
+    // A Super Admin's own upload records that it skipped the approval step (2026-10-24).
+    expect(row?.afterValue).toEqual({ imported: 4, skipped: 7, ahuNames: [A, B], superAdminExemptGates: ['PM_REVIEW'] });
   });
 
   it('re-uploading the same file adds nothing — every existing visit is reported as left unchanged', async () => {
@@ -329,14 +330,15 @@ describe('approval state depends on who uploads and on the workflow', () => {
     expect(q?.message).toBe(`Uploaded — ${D} (${YEAR}-01-05)`);
   });
 
-  it('workflow ON → PENDING_REVIEW even for SUPER_ADMIN, and the QNN routes to the review role', async () => {
+  it('workflow ON → PENDING_REVIEW for a non-Super-Admin uploader, and the QNN routes to the review role', async () => {
     const reviewRole = fx.roleName('NOTE'); // any role name we own works as the configured reviewer
     cfg.set('pm-schedule-approval', { workflowEnabled: true, uploadRole: '', reviewRole, approvalRole: 'SOME_QA' });
-    const res = await upload('sa', csv(`ahu_name,scheduled_date,tolerance_days\n${D},${YEAR}-03-05,1\n${D},${YEAR}-05-05,1\n`));
+    // A non-Super-Admin uploader (2026-10-24: a Super Admin's own upload is approved at once — next test).
+    const res = await upload('upl', csv(`ahu_name,scheduled_date,tolerance_days\n${D},${YEAR}-03-05,1\n${D},${YEAR}-05-05,1\n`));
     expect(res.json().imported).toBe(2);
     const added = (await entriesOf(dId)).filter((e) => [`${YEAR}-03-05`, `${YEAR}-05-05`].includes(iso(e.plannedDate)));
     expect(added).toHaveLength(2);
-    for (const e of added) expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: sa.id, approvedBy: null });
+    for (const e of added) expect(e).toMatchObject({ approvalStatus: 'PENDING_REVIEW', submittedBy: upl.id, approvedBy: null });
     const qnns = await prisma.qualityNotification.findMany({ where: { pmScheduleEntryId: { in: added.map((e) => e.id) } } });
     for (const q of qnns) {
       expect(q.message).toContain('(pending review)');
@@ -346,6 +348,18 @@ describe('approval state depends on who uploads and on the workflow', () => {
     const notes = await prisma.notification.findMany({ where: { type: 'PM_SCHEDULE_QNN', forRole: reviewRole } });
     expect(notes.length).toBe(2);
     expect(notes[0].message).toMatch(/Action: Uploaded \(UPLOAD\)/);
+  });
+
+  // 2026-10-24 (operator: a Super Admin's own work is not held). Until then a Super
+  // Admin's upload went to review like everyone's when the workflow was ON.
+  it('workflow ON, SUPER_ADMIN uploader → APPROVED at once (no review), recorded PM_REVIEW', async () => {
+    cfg.set('pm-schedule-approval', { workflowEnabled: true, uploadRole: '', reviewRole: fx.roleName('NOTE'), approvalRole: 'SOME_QA' });
+    const res = await upload('sa', csv(`ahu_name,scheduled_date,tolerance_days\n${D},${YEAR}-02-20,1\n`));
+    expect(res.json().imported).toBe(1);
+    const [e] = (await entriesOf(dId)).filter((x) => iso(x.plannedDate) === `${YEAR}-02-20`);
+    expect(e).toMatchObject({ approvalStatus: 'APPROVED', submittedBy: sa.id, approvedBy: sa.id, reviewedBy: null });
+    const row = await prisma.auditTrail.findFirst({ where: { action: 'PM_SCHEDULE_IMPORTED', userId: sa.username }, orderBy: { chainPosition: 'desc' } });
+    expect(row?.afterValue).toMatchObject({ imported: 1, superAdminExemptGates: ['PM_REVIEW'] });
   });
 });
 

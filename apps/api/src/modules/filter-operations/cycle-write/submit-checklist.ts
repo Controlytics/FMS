@@ -43,6 +43,7 @@ import {
 import { completeCycleTx } from './complete-cycle.js';
 import type { FilterOperationsService } from '../filter-operations.service.js';
 import { assertAhuInterlockSatisfied } from '../ahu-completion-gate.js';
+import { isSuperAdminOwnWork, superAdminExemptionFields, type SuperAdminExemptGate } from '../../../lib/super-admin-own-work.js';
 import { getInterlockConfig, isInterlockStage, assertStageApprovedToLeave } from '../stage-interlock.js';
 
 type TxClient = Prisma.TransactionClient;
@@ -69,6 +70,8 @@ export interface ChecklistPlan {
   profileCount: number;
   /** Gates skipped because this write is an offline replay (2026-09-25). */
   replayExemptGates: string[];
+  /** Gates a Super Admin's own online work skipped (2026-10-24, lib/super-admin-own-work.ts). */
+  superAdminExemptGates: SuperAdminExemptGate[];
 }
 
 export type ChecklistPrep =
@@ -111,6 +114,8 @@ export async function prepareChecklist(
   // A request presenting the replay grant must look like a replay (2026-09-25).
   assertOfflineReplayPayload(ctx.isOfflineReplay === true, data);
   const replayExemptGates: string[] = [];
+  // Gates a Super Admin's own online work skipped (2026-10-24) — recorded the same way.
+  const superAdminExemptGates: SuperAdminExemptGate[] = [];
   if (ctx.isOfflineReplay) replayExemptGates.push('REAUTH');
 
   // Phase 8.5 Commit 3: drop pure guards through the shared executor.
@@ -337,8 +342,9 @@ export async function prepareChecklist(
       data.filterSet === 'SET_A' || data.filterSet === 'SET_B' || data.filterSet === 'ALL'
         ? data.filterSet
         : undefined;
-    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, set });
-    if (ahuGate?.exempt) replayExemptGates.push('AHU_COMPLETION');
+    const saOwnWork = isSuperAdminOwnWork(ctx);
+    const ahuGate = await assertAhuInterlockSatisfied({ filterId, isOfflineReplay: ctx.isOfflineReplay === true, superAdminOwnWork: saOwnWork, set });
+    if (ahuGate?.exempt) (saOwnWork ? superAdminExemptGates : replayExemptGates).push('AHU_COMPLETION');
   }
 
   // Record CHECKLIST_COMPLETED event. Attributes shape:
@@ -357,6 +363,7 @@ export async function prepareChecklist(
       ...(clientOpId ? { clientOpId } : {}),
       ...(offlineTime ? { offlinePerformedAt: offlineTime.toISOString() } : {}),
       ...(replayExemptGates.length ? { replayExemptGates } : {}),
+      ...superAdminExemptionFields(superAdminExemptGates),
     },
     remarks: stageKey ? `Checklist completed after ${stageKey}` : 'Checklist completed before the first stage',
   };
@@ -378,6 +385,7 @@ export async function prepareChecklist(
       answerCount: Object.keys(answers ?? {}).length,
       profileCount: checklistsSnapshot.length,
       replayExemptGates,
+      superAdminExemptGates,
     },
   };
 }
@@ -471,6 +479,7 @@ export async function executeChecklistTx(tx: TxClient, plan: ChecklistPlan): Pro
     afterValue: {
       stage: stageKey, answerCount: plan.answerCount, profileCount: plan.profileCount,
       ...(plan.replayExemptGates?.length ? { offlineReplay: true, replayExemptGates: plan.replayExemptGates } : {}),
+      ...superAdminExemptionFields(plan.superAdminExemptGates ?? []),
     },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   }, tx);

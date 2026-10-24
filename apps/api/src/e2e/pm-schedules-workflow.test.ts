@@ -355,7 +355,7 @@ describe('re-submitting a rejected entry', () => {
     expect(iso(e.plannedDate)).toBe(iso(newDate));
     expect(iso(e.windowStart)).toBe(iso(new Date(newDate.getTime() - 2 * DAY)));
     const [audit] = await audits('PM_SCHEDULE_RESUBMITTED', rejected.id);
-    expect(audit.afterValue).toEqual({ plannedDate: iso(newDate), toleranceDays: 2 });
+    expect(audit.afterValue).toEqual({ plannedDate: iso(newDate), toleranceDays: 2, approvalStatus: 'PENDING_REVIEW' });
     expect((await qnnsFor(rejected.id)).at(-1)?.action).toBe('RESUBMIT');
   });
 
@@ -632,5 +632,40 @@ describe('QNN report', () => {
     const dflt = (await call('GET', '/qnn', 'ro')).json();
     expect(dflt).toMatchObject({ page: 1, limit: 50 });
     expect(dflt.data.length).toBe(Math.min(50, dflt.total));
+  });
+});
+
+// 2026-10-24 (operator: a Super Admin's own work is not held, lib/super-admin-own-work.ts).
+// The same calls as above, made by a Super Admin, go live at once — recorded PM_REVIEW.
+describe('a Super Admin\'s own PM change is not held for review', () => {
+  it('re-submitting a rejected entry: APPROVED at once with the Super Admin as submitter and approver, recorded', async () => {
+    const rejected = await entry(s1, 'REJECTED', {
+      submittedBy: u.edt.id, rejectedBy: u.apr.id, rejectedByName: u.apr.username, rejectedAt: new Date(), rejectionStage: 'APPROVAL', approvalRemarks: 'bad date',
+    }, 1);
+    const res = await call('POST', `/entries/${rejected.id}/resubmit`, 'sa', { plannedDate: iso(rejected.plannedDate) });
+    expect(res.statusCode).toBe(200);
+    expect(await get(rejected.id)).toMatchObject({
+      approvalStatus: 'APPROVED', submittedBy: u.sa.id, approvedBy: u.sa.id, reviewedBy: null, rejectedBy: null, rejectionStage: null,
+    });
+    const [audit] = await audits('PM_SCHEDULE_RESUBMITTED', rejected.id);
+    expect(audit.afterValue).toEqual({ plannedDate: iso(rejected.plannedDate), toleranceDays: 1, approvalStatus: 'APPROVED', superAdminExemptGates: ['PM_REVIEW'] });
+  });
+
+  it('editing an approved entry: the new date is live at once (nothing staged), recorded; the separation rule still applies', async () => {
+    const e = await entry(s2, 'APPROVED', { approvedBy: u.apr.id, approvedByName: u.apr.username }, 1);
+    const sibling = await entry(s2, 'APPROVED', {}, 1);
+    const overlap = await call('PUT', `/entries/${e.id}/edit`, 'sa', { plannedDate: iso(sibling.plannedDate), toleranceDays: 1 });
+    expect([overlap.statusCode, overlap.json().error]).toEqual([409, 'PM_VISIT_OVERLAP']);
+
+    const target = new Date(e.plannedDate.getTime() + 2 * DAY);
+    const res = await call('PUT', `/entries/${e.id}/edit`, 'sa', { plannedDate: iso(target), toleranceDays: 1 });
+    expect(res.statusCode).toBe(200);
+    const row = await get(e.id);
+    expect(row).toMatchObject({ approvalStatus: 'APPROVED', approvedBy: u.sa.id, pendingPlannedDate: null, pendingToleranceDays: null, pendingEditBy: null });
+    expect(iso(row.plannedDate)).toBe(iso(target));
+    expect(iso(row.windowStart)).toBe(iso(new Date(target.getTime() - DAY)));
+    const [editAudit] = await audits('PM_SCHEDULE_EDIT_REQUESTED', e.id);
+    expect(editAudit.afterValue).toEqual({ plannedDate: iso(target), toleranceDays: 1, appliedAtOnce: true, superAdminExemptGates: ['PM_REVIEW'] });
+    expect((await qnnsFor(e.id)).at(-1)).toMatchObject({ action: 'EDIT' });
   });
 });

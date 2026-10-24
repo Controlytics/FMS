@@ -325,6 +325,17 @@ describe('Filters page — a REJECTED filter', () => {
     expect(api.calls('POST', '/api/assets/instances/f5/resubmit')[0].json).toEqual({});
   });
 
+  // 2026-10-24: a Super Admin's own resubmission is approved at once; the API says so.
+  it('when the API answers APPROVED the message says it is approved, not back in review', async () => {
+    const api = setupApi({ extra: [{ method: 'POST', path: '/api/assets/instances/f5/resubmit', body: { resubmitted: 'PF-005', approvalStatus: 'APPROVED' } }] });
+    renderFilters(EDITOR, api);
+    await openFiltersTab();
+    fireEvent.click(within(row('PF-005')).getByRole('button', { name: 'Resubmit' }));
+    expect(await screen.findByText('PF-005 resubmitted')).toBeInTheDocument();
+    expect(screen.getByText('It is approved: a resubmission by the Super Admin needs no review.')).toBeInTheDocument();
+    expect(screen.queryByText('It is back in Pending Review.')).toBeNull();
+  });
+
   it('Correct opens the edit dialog prefilled; NA last-cleaning decodes to the NA box', async () => {
     renderFilters(EDITOR, setupApi());
     await openFiltersTab();

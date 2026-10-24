@@ -33,7 +33,7 @@ export const stageInterlockDef: ModuleConfigDefinition = {
       key: 'enabled',
       type: 'boolean',
       label: 'Enable Stage Interlock',
-      description: 'When ON, completing Wash Out and Dry Out pauses the cycle and requires an approver to verify the filter details and sign off before the operator can advance to the next stage.',
+      description: 'When ON, completing Wash Out and Dry Out pauses the cycle and requires an approver to verify the filter details and sign off before the operator can advance to the next stage. A cleaning a Super Admin performs itself is not paused (no approval is raised; the skip is recorded on the audit trail).',
       group: 'General',
       default: false,
     },

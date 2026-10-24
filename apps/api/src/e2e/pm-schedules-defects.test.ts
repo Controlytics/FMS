@@ -55,12 +55,16 @@ beforeAll(async () => {
   ]);
   const note = await fx.role('NOTE', ['DASHBOARD_VIEW']);
   cfg = installConfigOverrides(defaultPmConfig(note));
-  // Three people, so separation of duties never blocks a step under test:
-  // `sa` submits/edits, `rev` reviews, `apr` approves.
+  // Four people, so separation of duties never blocks a step under test:
+  // `sa` submits, `ed` edits / re-submits (a PM editor role, 2026-10-24: a Super
+  // Admin's own edit is applied at once and would skip the staged-change flow these
+  // tests are about), `rev` reviews, `apr` approves.
   for (const key of ['sa', 'rev', 'apr']) {
     const u = await fx.user(key, 'SUPER_ADMIN');
     users[key] = { ...u, token: await fx.login(app, u.username) };
   }
+  const editor = await fx.user('ed', await fx.role('ED', ['PM_READ', 'PM_EDIT_ENTRY', 'PM_RESUBMIT']));
+  users.ed = { ...editor, token: await fx.login(app, editor.username) };
   blockId = await fx.instance('BLOCK', 'BLOCK');
 }, 120_000);
 
@@ -179,7 +183,7 @@ describe('D2 - an approved visit stays in force while a change to its date waits
     const flt = await fx.filter('d2a-f', ahu);
     const s = await fx.schedule(ahu, 2026, users.sa.id, [{ plannedDate: at(-15), toleranceDays: 5, approvalStatus: 'APPROVED' }]);
     const id = s.entryIds[0];
-    expect((await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: iso(at(40)) })).statusCode).toBe(200);
+    expect((await as('ed', 'PUT', `/entries/${id}/edit`, { plannedDate: iso(at(40)) })).statusCode).toBe(200);
     expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).approvalStatus).toBe('PENDING');
 
     const due = (await as('sa', 'GET', '/due')).json();
@@ -199,7 +203,7 @@ describe('D2 - an approved visit stays in force while a change to its date waits
       extra: { approvedBy: users.apr.id, approvedByName: users.apr.username, approvedAt },
     }]);
     const id = s.entryIds[0];
-    await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-03-10' });
+    await as('ed', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-03-10' });
     expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).approvedByName).toBe(users.apr.username);
 
     const res = await as('apr', 'POST', '/entries/reject', { entryIds: [id], remarks: 'keep the original date' });
@@ -218,7 +222,7 @@ describe('D2 - an approved visit stays in force while a change to its date waits
     const live = new Date(Date.UTC(2097, 5, 1));
     const s = await fx.schedule(ahu, 2097, users.sa.id, [{ plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED' }]);
     const id = s.entryIds[0];
-    await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-06-12' });
+    await as('ed', 'PUT', `/entries/${id}/edit`, { plannedDate: '2097-06-12' });
     expect((await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'reject', remarks: 'not this date' })).statusCode).toBe(200);
     const row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
     expect(row).toMatchObject({ approvalStatus: 'APPROVED', pendingPlannedDate: null, reviewedBy: null });
@@ -230,7 +234,7 @@ describe('D2 - an approved visit stays in force while a change to its date waits
     const ahu = await fx.instance('AHU', 'D2d', { parentId: blockId });
     const live = new Date(Date.UTC(2097, 8, 1));
     const s = await fx.schedule(ahu, 2097, users.sa.id, [{ plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED' }]);
-    await as('sa', 'PUT', `/entries/${s.entryIds[0]}/edit`, { plannedDate: '2097-09-08' });
+    await as('ed', 'PUT', `/entries/${s.entryIds[0]}/edit`, { plannedDate: '2097-09-08' });
 
     const dropIt = await as('sa', 'PUT', `/${s.scheduleId}`, { entries: [{ month: 10, plannedDate: '2097-10-15', toleranceDays: 2 }] });
     expect(dropIt.statusCode).toBe(409);
@@ -270,8 +274,8 @@ describe('D3 - bulk approve is all-or-nothing on a separation refusal', () => {
     ]);
     const [a, b] = s.entryIds;
     // Each edit is fine against the OTHER's live date; together they collide.
-    expect((await as('sa', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 9 * DAY)) })).statusCode).toBe(200);
-    expect((await as('sa', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 5 * DAY)) })).statusCode).toBe(200);
+    expect((await as('ed', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 9 * DAY)) })).statusCode).toBe(200);
+    expect((await as('ed', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(bDate.getTime() - 5 * DAY)) })).statusCode).toBe(200);
 
     const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b], comment: 'approved' });
     expect(res.statusCode).toBe(409);
@@ -294,8 +298,8 @@ describe('D3 - bulk approve is all-or-nothing on a separation refusal', () => {
       { plannedDate: new Date(base.getTime() + 30 * DAY), toleranceDays: 2, approvalStatus: 'APPROVED' },
     ]);
     const [a, b] = s.entryIds;
-    await as('sa', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(base.getTime() + 3 * DAY)) });
-    await as('sa', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(base.getTime() + 40 * DAY)) });
+    await as('ed', 'PUT', `/entries/${a}/edit`, { plannedDate: iso(new Date(base.getTime() + 3 * DAY)) });
+    await as('ed', 'PUT', `/entries/${b}/edit`, { plannedDate: iso(new Date(base.getTime() + 40 * DAY)) });
     const res = await as('apr', 'POST', '/entries/approve', { entryIds: [a, b], comment: 'approved' });
     expect(res.statusCode).toBe(200);
     const rows = await prisma.pmScheduleEntry.findMany({ where: { id: { in: [a, b] } } });
@@ -310,7 +314,7 @@ describe('D10 / D11 - a pending edit of an approved visit', () => {
     const live = new Date(Date.UTC(2096, 2, 1));
     const s = await fx.schedule(ahu, 2096, users.sa.id, [{ plannedDate: live, toleranceDays: 2, approvalStatus: 'APPROVED' }]);
     const id = s.entryIds[0];
-    expect((await as('sa', 'PUT', `/entries/${id}/edit`, { plannedDate: '2096-03-10' })).statusCode).toBe(200);
+    expect((await as('ed', 'PUT', `/entries/${id}/edit`, { plannedDate: '2096-03-10' })).statusCode).toBe(200);
     expect((await as('rev', 'PUT', `/entries/${id}/review-edit`, { plannedDate: '2096-03-12' })).statusCode).toBe(200);
 
     let row = await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } });
@@ -335,7 +339,7 @@ describe('D10 / D11 - a pending edit of an approved visit', () => {
       extra: { rejectionStage: 'REVIEW', pendingPlannedDate: new Date(Date.UTC(2096, 5, 10)), pendingToleranceDays: 2 },
     }]);
     const id = s.entryIds[0];
-    expect((await as('sa', 'POST', `/entries/${id}/resubmit`, { plannedDate: '2096-06-20' })).statusCode).toBe(200);
+    expect((await as('ed', 'POST', `/entries/${id}/resubmit`, { plannedDate: '2096-06-20' })).statusCode).toBe(200);
     expect((await prisma.pmScheduleEntry.findUniqueOrThrow({ where: { id } })).pendingPlannedDate).toBeNull();
     await as('rev', 'POST', '/entries/review', { entryIds: [id], action: 'approve', remarks: 'dates checked' });
     expect((await as('apr', 'POST', '/entries/approve', { entryIds: [id], comment: 'approved' })).statusCode).toBe(200);

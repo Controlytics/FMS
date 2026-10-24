@@ -18,7 +18,8 @@ import { prisma } from '../../lib/prisma.js';
 import { AppError } from '../../lib/errors.js';
 import { auditLog } from '../../lib/audit.js';
 import type { RequestContext } from '../../types/context.js';
-import { getFilterWorkflowConfig, assertPmRole } from './filter-workflow.js';
+import { getFilterWorkflowConfig, assertPmRole, initialApprovalStatus, filterReviewSkippedBySuperAdmin } from './filter-workflow.js';
+import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 /** Filters in the workflow, for the Filters page's review actions. */
 export async function listPendingFilters(_ctx: RequestContext, status?: string) {
@@ -241,24 +242,28 @@ export async function assertCanResubmit(ctx: RequestContext, filterId: string) {
   const rows = await loadInState([filterId], ['REJECTED'], 're-submit');
   const cfg = await getFilterWorkflowConfig();
   assertPmRole(ctx.userRole, cfg.uploadRole, 're-submit', 'filters');
-  return rows;
+  return { rows, cfg };
 }
 
 export async function resubmitFilter(ctx: RequestContext, filterId: string) {
-  const rows = await assertCanResubmit(ctx, filterId);
+  const { rows, cfg } = await assertCanResubmit(ctx, filterId);
+  // A Super Admin's own re-submission is not held for review (2026-10-24): it goes
+  // straight to APPROVED, recorded FILTER_REVIEW; everyone else back to review.
+  const reviewSkipped = filterReviewSkippedBySuperAdmin(cfg, ctx);
+  const nextStatus = reviewSkipped ? initialApprovalStatus(cfg, ctx) : 'PENDING_REVIEW';
 
   await prisma.assetInstance.update({
     where: { id: filterId },
     data: {
-      approvalStatus: 'PENDING_REVIEW',
+      approvalStatus: nextStatus,
       submittedBy: ctx.userSub ?? null, submittedByName: ctx.userId ?? null, submittedAt: new Date(),
       reviewedBy: null, reviewedByName: null, reviewedAt: null, reviewRemarks: null,
       approvedBy: null, approvedByName: null, approvedAt: null, approvalRemarks: null,
       rejectedBy: null, rejectedByName: null, rejectedAt: null, rejectionRemarks: null,
     },
   });
-  await auditEach(rows, ctx, 'FILTER_RESUBMITTED', {});
-  return { resubmitted: rows[0].name };
+  await auditEach(rows, ctx, 'FILTER_RESUBMITTED', superAdminExemptionFields(reviewSkipped ? ['FILTER_REVIEW'] : []));
+  return { resubmitted: rows[0].name, approvalStatus: nextStatus };
 }
 
 /** Counts for the Filters page badges. */

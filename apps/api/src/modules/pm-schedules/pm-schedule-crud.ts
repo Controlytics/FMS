@@ -10,7 +10,8 @@ import { checkPmEnabled, isPmEntryInForce, assertLiveAhu, assertPmYear } from '.
 import { assertSetSeparation } from './pm-separation-guard.js';
 import { getPmWorkflowConfig, assertPmRole } from './pm-workflow.js';
 import { nextScheduleVersion } from './pm-schedule-version.js';
-import { submissionApprovalFields } from './pm-submission.js';
+import { submissionApprovalFields, pmReviewSkippedBySuperAdmin } from './pm-submission.js';
+import { superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
 
 export async function getByEntity(_ctx: RequestContext, entityId: string, year?: number) {
   await checkPmEnabled();
@@ -124,7 +125,7 @@ export async function create(ctx: RequestContext, data: any) {
   await auditLog({
     userId: ctx.userId, userRole: ctx.userRole, action: 'CREATED',
     targetType: 'pm_schedule', targetId: schedule.id,
-    afterValue: { entityId, year, entryCount: entries.length },
+    afterValue: { entityId, year, entryCount: entries.length, ...superAdminExemptionFields(pmReviewSkippedBySuperAdmin(ctx) ? ['PM_REVIEW'] : []) },
     ipAddress: ctx.ipAddress, userAgent: ctx.userAgent,
   });
 

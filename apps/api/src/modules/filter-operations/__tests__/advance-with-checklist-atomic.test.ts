@@ -41,7 +41,7 @@
  * Test-infra notes (mirrors terminal-checklist-advance-persistence.test.ts)
  * ------------------------------------------------------------------------
  * - Real Fastify (in-process `inject()`), real Prisma, real auth, against
- *   `digilog_test_db` (vitest.env.ts). Unique SUPER_ADMIN per file so the shared
+ *   `digilog_test_db` (vitest.env.ts). Unique user (operator role) per file so the shared
  *   `admin` login race can't touch us.
  * - `getInterlockConfig` is module-mocked rather than writing the shared
  *   `system_config['stage-interlock']` row — that row is global to the test DB and
@@ -80,10 +80,12 @@ import { prisma } from '../../../lib/prisma.js';
 import { hashPassword } from '../../../lib/password.js';
 import { AppError } from '../../../lib/errors.js';
 import { loginAs } from '../../../e2e/test-helper.js';
+import { invalidateRolePermsCache } from '../../../plugins/rbac.js';
 import { randomUUID } from 'node:crypto';
 
 const SUFFIX = Date.now().toString(36).slice(-4).toUpperCase();
 const AWC_USERNAME = `AWCA${SUFFIX}`.slice(0, 16).toUpperCase();
+const AWC_ROLE = `AWC_OPR_${SUFFIX}`.slice(0, 20);
 const AWC_PASSWORD = 'AwcTest@Digilog#7';
 const REASON_KEY = 'ROUTINE';
 
@@ -209,16 +211,25 @@ describe('POST /:id/advance-with-checklist — atomic advance + checklist', () =
 
   beforeAll(async () => {
     const passwordHash = await hashPassword(AWC_PASSWORD);
+    // An OPERATOR role (2026-10-24): a Super Admin's own entry into a gated stage is
+    // no longer held by the QA interlock (lib/super-admin-own-work.ts), and the
+    // interlock describes below are about the operator's two-step flow.
+    await prisma.role.upsert({
+      where: { name: AWC_ROLE },
+      update: { permissions: ['FILTER_OPERATE', 'ASSET_READ'], isActive: true },
+      create: { name: AWC_ROLE, displayName: AWC_ROLE, hierarchyLevel: 1, permissions: ['FILTER_OPERATE', 'ASSET_READ'], isSystem: false, isActive: true, createdBy: 'awc-test' },
+    });
+    invalidateRolePermsCache(AWC_ROLE);
     await prisma.user.upsert({
       where: { username: AWC_USERNAME },
       update: {
-        passwordHash, role: 'SUPER_ADMIN', status: 'ENABLED', forcePasswordChange: false,
+        passwordHash, role: AWC_ROLE, status: 'ENABLED', forcePasswordChange: false,
         isTemporaryPassword: false, failedLoginAttempts: 0, lockedAt: null, lockoutUntil: null,
       },
       create: {
         username: AWC_USERNAME, fullName: 'Atomic Advance+Checklist Test',
         email: `${AWC_USERNAME.toLowerCase()}@awc-test.local`, passwordHash,
-        role: 'SUPER_ADMIN', status: 'ENABLED', forcePasswordChange: false,
+        role: AWC_ROLE, status: 'ENABLED', forcePasswordChange: false,
         isTemporaryPassword: false, createdBy: 'awc-test',
       },
     });
@@ -278,6 +289,8 @@ describe('POST /:id/advance-with-checklist — atomic advance + checklist', () =
       }
       if (checklistProfileId) await prisma.checklistProfile.delete({ where: { id: checklistProfileId } }).catch(() => undefined);
       if (filterTemplateId) await prisma.assetTemplate.delete({ where: { id: filterTemplateId } }).catch(() => undefined);
+      await prisma.user.deleteMany({ where: { username: AWC_USERNAME } }).catch(() => undefined);
+      await prisma.role.delete({ where: { name: AWC_ROLE } }).catch(() => undefined);
     } catch { /* swallow — cleanup must never mask a real failure */ }
     try { await app.close(); } catch { /* swallow */ }
   }, 30_000);
