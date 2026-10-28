@@ -73,7 +73,8 @@ async function batchCounted() {
   capturing = true;
   try {
     const res = await service.getBatchStates(ctx);
-    return { res, ownedQueries: captured.filter(touchesOwned).length, total: captured.length };
+    const owned = captured.filter(touchesOwned);
+    return { res, ownedQueries: owned.length, ownedTexts: owned.map((q) => q.query), total: captured.length };
   } finally {
     capturing = false;
   }
@@ -289,6 +290,12 @@ describe('P-1 — batch-states parity with current-state', () => {
     const after = await batchCounted();
     // eslint-disable-next-line no-console
     console.log(`[P-1] owned statements: ${before.ownedQueries} -> ${after.ownedQueries} after +6 in-cycle filters (all statements ${before.total} -> ${after.total})`);
-    expect(after.ownedQueries - before.ownedQueries).toBe(0);
+    // On a mismatch, name the statements that only one of the two calls ran.
+    const onlyIn = (a: string[], b: string[]) => {
+      const rest = [...b];
+      return a.filter((q) => { const i = rest.indexOf(q); if (i < 0) return true; rest.splice(i, 1); return false; });
+    };
+    const diff = JSON.stringify({ onlyBefore: onlyIn(before.ownedTexts, after.ownedTexts), onlyAfter: onlyIn(after.ownedTexts, before.ownedTexts) }, null, 1);
+    expect(after.ownedQueries - before.ownedQueries, diff).toBe(0);
   }, 60_000);
 });

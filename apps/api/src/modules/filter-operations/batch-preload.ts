@@ -89,7 +89,7 @@ export async function preloadBatchReads(filterIds: string[], cache: BatchReadCac
   }
 }
 
-type FilterRow = { id: string; filterDetails: { currentLifecycleState: string | null; currentCycleId: string | null } | null };
+type FilterRow = { id: string; filterDetails: { filterProfileId: string | null; currentLifecycleState: string | null; currentCycleId: string | null } | null };
 
 async function preloadCycleReads(filterRows: FilterRow[], cache: BatchReadCache): Promise<void> {
   const cycleIds = [...new Set(filterRows.map((r) => r.filterDetails?.currentCycleId).filter((id): id is string => !!id))];
@@ -99,6 +99,50 @@ async function preloadCycleReads(filterRows: FilterRow[], cache: BatchReadCache)
   const cycles = await prisma.cleaningCycle.findMany({ where: { id: { in: cycleIds } } });
   for (const c of cycles) seed(cache, `cycle:${c.id}`, c);
   const found = new Set(cycles.map((c) => c.id));
+
+  // `norm:<id>` — current-state's profile-sync check resolves the filter's profile
+  // and the cycle's to a CleaningProfile id (a memoised filterProfile.findUnique
+  // per id). Prisma merges findUniques issued in the same tick into one `IN`
+  // query and sends them apart otherwise, so the batch's statement count depended
+  // on timing (the P-1 flake, 2026-10-26). One findMany answers them; an id that is
+  // not a FilterProfile (a cycle's CleaningProfile id) is seeded null, as its
+  // findUnique would return.
+  const profileIds = [...new Set([
+    ...cycles.map((c) => c.profileId),
+    ...filterRows.map((r) => r.filterDetails?.filterProfileId),
+  ].filter((id): id is string => !!id))];
+  if (profileIds.length > 0) {
+    const fps = await prisma.filterProfile.findMany({ where: { id: { in: profileIds } }, select: { id: true, cleaningProfileId: true } });
+    const byId = new Map(fps.map((f) => [f.id, { cleaningProfileId: f.cleaningProfileId }]));
+    for (const id of profileIds) seed(cache, `norm:${id}`, byId.get(id) ?? null);
+  }
+
+  // The cycles' equipment groups, for the same reason: the pinned version
+  // snapshot (`equipment-group-version:<group>:<pin>`, the full row), the live row
+  // with its instruments (`equipment-group:<group>`, read when no snapshot exists)
+  // and its version alone (`equipment-group-live-version:<group>`). Seeded null
+  // when absent, as each findUnique would answer.
+  const groupIds = [...new Set(cycles.map((c) => c.equipmentGroupId).filter((id): id is string => !!id))];
+  if (groupIds.length > 0) {
+    const groups = await prisma.equipmentGroup.findMany({
+      where: { id: { in: groupIds } },
+      include: { instruments: { orderBy: { sortOrder: 'asc' } } },
+    });
+    const groupById = new Map(groups.map((g) => [g.id, g]));
+    for (const id of groupIds) {
+      const g = groupById.get(id) ?? null;
+      seed(cache, `equipment-group:${id}`, g);
+      seed(cache, `equipment-group-live-version:${id}`, g ? { version: g.version } : null);
+    }
+    const pins = [...new Map(cycles
+      .filter((c) => c.equipmentGroupId && c.equipmentGroupVersionPin != null)
+      .map((c) => [`${c.equipmentGroupId}:${c.equipmentGroupVersionPin}`, { groupId: c.equipmentGroupId!, versionNumber: c.equipmentGroupVersionPin! }])).values()];
+    if (pins.length > 0) {
+      const versions = await prisma.equipmentGroupVersion.findMany({ where: { OR: pins } });
+      const versionByKey = new Map(versions.map((v) => [`${v.groupId}:${v.versionNumber}`, v]));
+      for (const p of pins) seed(cache, `equipment-group-version:${p.groupId}:${p.versionNumber}`, versionByKey.get(`${p.groupId}:${p.versionNumber}`) ?? null);
+    }
+  }
 
   // current-state reads these only when the cycle row exists.
   const pairs = filterRows
