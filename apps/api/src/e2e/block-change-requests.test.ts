@@ -12,7 +12,8 @@
  * FILTER fixture, and every request + notification it creates. The shared
  * `block-change-approval` config is only ever touched in its `approvalRole`
  * key (re-read and restored around the one test that needs it); `mode`, which
- * start-cycle reads, is never written.
+ * start-cycle reads, is never written. When the row is missing (a freshly built
+ * test DB) the file creates an empty one and deletes it afterwards.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -43,6 +44,7 @@ const uid: Record<string, string> = {};
 let h: Awaited<ReturnType<typeof createHierarchy>>;
 let filterId = '';
 let reauthAdded: ReauthGrant = [];
+let createdConfigRow = false;
 
 const base = '/api/block-change-requests';
 const req = (method: 'GET' | 'POST', url: string, who: string, payload?: unknown, withPw = true) =>
@@ -80,8 +82,14 @@ beforeAll(async () => {
   h = await createHierarchy(PREFIX);
   filterId = await createFilter(h.ahuId, `${PREFIX}-F`);
   reauthAdded = await addReauth([['REQUEST_BLOCK_CHANGE', ROLE_REQ], ['APPROVE_BLOCK_CHANGE', ROLE_APR], ['REJECT_BLOCK_CHANGE', ROLE_APR]]);
-  // The fixture assumes the row exists (seeded on every install).
-  expect(await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } })).not.toBeNull();
+  // A fresh install gets this row from install-baseline.json, but the plain seed
+  // (dev / test DB) never writes it, so a freshly built digilog_test_db has none.
+  // Bring an empty one when it is missing: no `mode` key reads as CONFIRM, the
+  // same as no row at all, so start-cycle behaves as before.
+  if (!(await prisma.systemConfig.findUnique({ where: { configKey: 'block-change-approval' } }))) {
+    await prisma.systemConfig.create({ data: { configKey: 'block-change-approval', configValue: {}, configType: 'filter-management' } });
+    createdConfigRow = true;
+  }
 }, 120_000);
 
 afterAll(async () => {
@@ -94,6 +102,7 @@ afterAll(async () => {
       ['hierarchy', () => deleteHierarchy(h)],
       ['users', () => deleteUsers(Object.values(uid))],
       ['roles', () => deleteRoles([ROLE_REQ, ROLE_APR, ROLE_NO])],
+      createdConfigRow ? ['block-change-approval row', () => prisma.systemConfig.delete({ where: { configKey: 'block-change-approval' } })] : null,
     ]);
   } finally {
     await app?.close();
