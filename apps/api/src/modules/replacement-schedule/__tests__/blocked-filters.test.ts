@@ -30,15 +30,18 @@ describe('blockedFilterIdsForCleaning / isFilterBlockedForCleaning', () => {
     })).id;
     // AHU must be a REAL AssetInstance: assetInstance.parentId is a self-FK with
     // onDelete:Restrict, so filters can only point at an existing instance. The
-    // AHU rows have parentId=null, so activeFilterIdsByAhu (which selects
+    // AHU rows have parentId=null, so countedFiltersByAhu (which selects
     // parentId IN ahuIds) never counts them — reusing the FILTER template for
     // them is harmless and avoids needing an 'AHU' TemplateKind.
     ahuId = (await prisma.assetInstance.create({ data: { name: `BF-AHU-${S}`, templateId: filterTemplateId } })).id;
     ahuId2 = (await prisma.assetInstance.create({ data: { name: `BF-AHU2-${S}`, templateId: filterTemplateId } })).id;
-    // Two active filters under the overdue AHU.
+    // Two active filters under the overdue AHU, fitted before its window closed:
+    // an overdue row covers only the filters that were in the AHU by then
+    // (evaluateEntries, 2026-10-26).
+    const fitted = dayISO(-60);
     for (let i = 0; i < 2; i++) {
       const f = await prisma.assetInstance.create({
-        data: { name: `BF-F${i}-${S}`, templateId: filterTemplateId, parentId: ahuId, isActive: true, status: 'Active' },
+        data: { name: `BF-F${i}-${S}`, templateId: filterTemplateId, parentId: ahuId, isActive: true, status: 'Active', createdAt: fitted },
       });
       filterIds.push(f.id);
     }
@@ -48,7 +51,7 @@ describe('blockedFilterIdsForCleaning / isFilterBlockedForCleaning', () => {
     })).id;
     // One active filter under a DIFFERENT AHU whose entry is only DUE (not overdue).
     const f2 = await prisma.assetInstance.create({
-      data: { name: `BF-DUE-${S}`, templateId: filterTemplateId, parentId: ahuId2, isActive: true, status: 'Active' },
+      data: { name: `BF-DUE-${S}`, templateId: filterTemplateId, parentId: ahuId2, isActive: true, status: 'Active', createdAt: fitted },
     });
     filterIds.push(f2.id);
 

@@ -34,12 +34,16 @@ const naText = (v: unknown): string => {
 // schedule rows (operator 2026-10-24: it showed the cleaning stage, "To Be
 // Cleaned", which says nothing about replacement). A filter is Completed for a
 // row when the row's `replacements` (server: creditedFiltersByEntry) holds it.
-// An AHU usually has one row per micron, so each row gets its own line.
+// A filter gets a line only for the rows it belongs to (`memberFilterIds`: the
+// row's micron, kept in step with the AHU — 2026-10-26), so a 15 µm filter is
+// not listed as Pending on the 1 µm row.
 function AhuFiltersRow({ ahuId, identMap, entries }: { ahuId: string; identMap: Map<string, string[]>; entries: any[] }) {
   const { formatDate } = useDatetimeFormat();
   const { data, isLoading } = useSWR<any>(ahuId ? `/api/hierarchy/filters?ahuId=${ahuId}` : null);
   const filters: any[] = data?.data ?? [];
   const tasks = entries.filter((e) => e.approvalStatus === 'APPROVED');
+  // Older API (no memberFilterIds): every row of the AHU, as before.
+  const rowsOf = (filterId: string) => tasks.filter((t) => !Array.isArray(t.memberFilterIds) || t.memberFilterIds.includes(filterId));
   const replacementOf = (task: any, filterId: string) =>
     (task.replacements ?? []).find((r: any) => r.filterId === filterId) as { performedAt: string; performedByName?: string | null } | undefined;
   if (isLoading) return <div className="px-8 py-3 text-[12px] text-slate-400">Loading filters…</div>;
@@ -56,6 +60,7 @@ function AhuFiltersRow({ ahuId, identMap, entries }: { ahuId: string; identMap: 
           {filters.map((f) => {
             const attrs = f.attributes ?? {};
             const rfid = (identMap.get(f.id) ?? []).join(', ');
+            const rows = rowsOf(f.id);
             return (
               <tr key={f.id} className="[&>td]:px-2 [&>td]:py-1 text-slate-600">
                 <td className="font-medium text-slate-800">{f.name}{f.filterSet ? <span className="ml-1.5 text-[11px] font-semibold text-indigo-500">Set {String(f.filterSet).replace('SET_', '')}</span> : null}</td>
@@ -63,13 +68,13 @@ function AhuFiltersRow({ ahuId, identMap, entries }: { ahuId: string; identMap: 
                 <td>{naText(attrs.micronSize)}</td>
                 <td>{naText(attrs.filterSize)}</td>
                 <td>
-                  {tasks.length === 0 ? (
+                  {rows.length === 0 ? (
                     <span className="text-slate-400">No approved replacement</span>
-                  ) : tasks.map((task) => {
+                  ) : rows.map((task) => {
                     const done = replacementOf(task, f.id);
                     return (
                       <div key={task.id} className="flex items-center gap-1.5 py-0.5 whitespace-nowrap">
-                        {tasks.length > 1 && (
+                        {rows.length > 1 && (
                           <span className="text-slate-500">Micron {naText(task.filterMicron)} · {formatDate(task.scheduleDate)}:</span>
                         )}
                         {done ? (
@@ -260,7 +265,7 @@ export function ReplacementSchedulePage() {
     const report = await createReport({ reportKey: 'replacement-schedule', title: 'Replacement Schedule', subtitle: `Total: ${all.length} entr${all.length === 1 ? 'y' : 'ies'}`, orientation: 'landscape', formatDateTime: (d: string) => formatDate(d) });
     report.addTable({
       head: ['S.No', 'AHU', 'Micron', 'Filter Dimensions', 'Qty', 'Date', 'Status', 'Uploaded By', 'Reviewed By', 'Approved By'],
-      body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
+      body: all.map((e: any, i: number) => [String(e.slNo ?? i + 1), e.ahuName ?? '-', naText(e.filterMicron), naText(e.filterSize), String(e.currentQty ?? e.qty), e.scheduleDate ? formatDate(e.scheduleDate) : '-', (APPROVAL_CHIP[e.approvalStatus]?.label ?? e.approvalStatus ?? '-'), e.submittedByName ?? '-', e.reviewedByName ?? '-', e.approvedByName ?? '-']),
       columnStyles: { 0: { halign: 'center', cellWidth: 14 } },
     });
     return report;
@@ -482,7 +487,13 @@ export function ReplacementSchedulePage() {
                       <td rowSpan={micronSpan} className="text-center text-slate-700 font-medium align-top bg-slate-50/30">{naText(e.filterMicron)}</td>
                     )}
                     <td className="text-slate-600 max-w-[160px] truncate" title={naText(e.filterSize)}>{naText(e.filterSize)}</td>
-                    <td className="text-center text-slate-700">{e.qty}</td>
+                    <td className="text-center text-slate-700">
+                      {e.currentQty ?? e.qty}
+                      {/* On the same line, so the row keeps the height of its merged AHU / micron cells. */}
+                      {e.currentQty != null && e.currentQty !== e.qty && (
+                        <span className="ml-1 text-[11px] text-slate-400" title="Qty follows the AHU: approved filters of this micron added later join the row, removed ones leave it.">(uploaded {e.qty})</span>
+                      )}
+                    </td>
                     <td className="text-slate-600">{formatDate(e.scheduleDate)}</td>
                     <td className="text-center text-slate-600">{e.toleranceDays}</td>
                     <td><span className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_CHIP[e.computedStatus] ?? STATUS_CHIP.PENDING}`}>{(e.computedStatus ?? 'PENDING').replace(/_/g, ' ')}</span></td>

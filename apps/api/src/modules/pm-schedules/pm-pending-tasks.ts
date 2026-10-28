@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { auditLog } from '../../lib/audit.js';
-import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE, pmWindowBounds } from './pm-shared.js';
+import { resolvePmReasonKeys, loadCountedFilters, PM_ENTRY_IN_FORCE, settlePmVisits } from './pm-shared.js';
 import { toDateColumnDay } from '../../lib/date-range-guard.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
 
@@ -54,12 +54,12 @@ const DAY = 86_400_000;
  * unresolved.
  *
  * "Unresolved" means: the window has closed, the entry has not been written off,
- * and not every counted filter has had a PM-reason cleaning since the window
- * opened. The last test uses the SAME predicate pm-due-tasks.ts and the sweep
- * use to call a task done: if they disagreed, the popup would demand a reason
- * for a task the task list showed as complete, or (D4b, before 2026-10-21) stay
- * silent on a part-done visit, so the next cleaning completed it late AND
- * counted for the current visit.
+ * and the visit is not done. "Done" is settlePmVisits, the SAME rule My Tasks and
+ * the sweep use (2026-10-26: the visit's own filters, kept in step with the AHU,
+ * each PM-cleaned since the window opened): if they disagreed, the popup would
+ * demand a reason for a task the task list showed as complete, or (D4b, before
+ * 2026-10-21) stay silent on a part-done visit, so the next cleaning completed
+ * it late AND counted for the current visit.
  */
 export async function getPendingEarlierPmTasks(
   filterId: string,
@@ -96,36 +96,26 @@ export async function getPendingEarlierPmTasks(
   // satisfied by cleaning its filters, so credit is looked up across them.
   const counted = (await loadCountedFilters([ahuId])).get(ahuId);
   if (!counted || counted.mode === 'DISABLED') return [];
-  const siblingIds = counted.filters.map((f) => f.id);
-  if (siblingIds.length === 0) return [];
+  if (counted.filters.length === 0) return [];
 
-  const pmReasonKeys = await resolvePmReasonKeys();
-  const earliestWindow = pmWindowBounds(entries[0]).opensAt;
-
-  const cycles = await prisma.cleaningCycle.findMany({
-    where: { filterId: { in: siblingIds }, status: 'COMPLETED', completedAt: { gte: earliestWindow } },
-    select: { filterId: true, completedAt: true, cleaningReasonKey: true },
-  });
-  // Latest PM-reason completion per counted filter.
-  const latestPm = new Map<string, Date>();
-  for (const c of cycles) {
-    if (c.completedAt == null || (pmReasonKeys && !pmReasonKeys.has(c.cleaningReasonKey))) continue;
-    const prev = latestPm.get(c.filterId);
-    if (!prev || c.completedAt > prev) latestPm.set(c.filterId, c.completedAt);
-  }
+  const visits = await settlePmVisits(
+    entries.map((e) => ({ id: e.id, ahuId, windowStart: e.windowStart, windowEnd: e.windowEnd })),
+    await resolvePmReasonKeys(),
+    now,
+  );
 
   const pending: PendingPmTask[] = [];
   for (const e of entries) {
-    // Mirrors pm-due-tasks.ts: for a CLOSED window, a PM cleaning on or after
-    // windowStart counts, and the visit is done only when EVERY counted filter
-    // has one (D4b, operator decision 2026-10-21). That upper-boundless rule is
-    // exactly what this gate exists to stop being applied silently — but while
-    // an entry is genuinely satisfied by real cleanings we must not ask.
-    const satisfied = siblingIds.every((id) => {
-      const at = latestPm.get(id);
-      return at != null && at >= pmWindowBounds(e).opensAt;
-    });
-    if (satisfied) continue;
+    // For a CLOSED window a PM cleaning on or after windowStart counts, and the
+    // visit is done only when EVERY one of its filters has one (D4b, operator
+    // decision 2026-10-21). That upper-boundless rule is exactly what this gate
+    // exists to stop being applied silently — but while an entry is genuinely
+    // satisfied by real cleanings we must not ask. A visit left with no filters
+    // of its own (none were in the AHU when its window closed, or they have all
+    // left) is never done, so it is asked about like any unresolved visit: the
+    // written-off reason is its only honest close.
+    const visit = visits.get(e.id);
+    if (!visit || visit.completedAt) continue;
     pending.push({
       entryId: e.id,
       scheduleId: e.scheduleId,

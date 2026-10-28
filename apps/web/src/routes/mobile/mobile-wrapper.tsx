@@ -910,7 +910,9 @@ function MobileShell() {
   // it to the top of the list, and the operator replaces the selection with the
   // button below (one signature for the batch, executeBatchReplTask). Each refusal
   // names the filter: another AHU, already replaced for this task, not approved,
-  // or the task's remaining count reached.
+  // not one of the task's filters (another micron, or added after its window
+  // closed — the server's `toReplaceFilterIds`, 2026-10-26), or the task's
+  // remaining count reached.
   const selectScannedReplTask = () => {
     if (!activeReplTask) return;
     const raw = normalizeRfidScan(replTaskScan.value); // C-07: one scan rule
@@ -932,6 +934,14 @@ function MobileShell() {
     }
     if (!(operableFilters as any[]).some((f: any) => f.id === filter.id)) {
       setReplTaskError(`${name} has not been approved yet, so it cannot be replaced.`);
+      return;
+    }
+    if (Array.isArray(activeReplTask.toReplaceFilterIds) && !activeReplTask.toReplaceFilterIds.includes(filter.id)) {
+      const taskMicron = String(activeReplTask.filterMicron ?? '').trim();
+      const filterMicron = String(filter.attributes?.micronSize ?? '').trim();
+      setReplTaskError(taskMicron && filterMicron.toLowerCase() !== taskMicron.toLowerCase()
+        ? `${name} is micron ${filterMicron || '(not set)'} — this task replaces the micron ${taskMicron} filters of ${activeReplTask.ahuName}.`
+        : `${name} was added to ${activeReplTask.ahuName} after this task's window closed, so it is not part of this task.`);
       return;
     }
     const remaining = activeReplTask.qtyRemaining ?? activeReplTask.qty ?? 0;
@@ -3492,14 +3502,17 @@ function MobileShell() {
                 })()}
               </>
             ) : (() => {
-              // ── Pick-from-list candidates: active filters under this task's AHU
-              // that haven't been replaced yet for THIS task. Per user (2026-06-15):
-              // the task covers the WHOLE AHU (no micron/size filter), and a filter
-              // already swapped under this task (its replacement id is in
-              // replacedNewFilterIds) drops off the list — what's left is exactly the
-              // "still to replace" set. Name search narrows further.
+              // ── Pick-from-list candidates: the filters this task still has to
+              // replace, as the server lists them (`toReplaceFilterIds`, 2026-10-26):
+              // the AHU's filters of the task's micron, kept in step with the AHU,
+              // minus those already replaced for THIS task. The tablet never
+              // re-derives that rule. An older server without the list: the AHU's
+              // filters minus replacedNewFilterIds, as before. Name search narrows further.
               const replacedSet = new Set<string>(activeReplTask.replacedNewFilterIds ?? []);
-              const ahuFilters = (operableFilters as any[]).filter((f: any) => f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
+              const toReplace = Array.isArray(activeReplTask.toReplaceFilterIds) ? new Set<string>(activeReplTask.toReplaceFilterIds) : null;
+              const ahuFilters = (operableFilters as any[]).filter((f: any) => toReplace
+                ? toReplace.has(f.id)
+                : f.parentId === activeReplTask.ahuId && !replacedSet.has(f.id));
               const q = replTaskSearch.trim().toLowerCase();
               const pinRank = new Map(replTaskPinned.filter((id) => replTaskSelected.has(id)).map((id, i) => [id, i]));
               const candidates = (q ? ahuFilters.filter((f: any) => (f.name ?? '').toLowerCase().includes(q)) : ahuFilters)

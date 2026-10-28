@@ -120,6 +120,11 @@ beforeAll(async () => {
   await mk(`cvoR${S}-F5`, { filterSize: '1x1x1' });       // no micron
   await mk(`cvoR${S}-F6`, { micronSize: '10', filterSize: '610x610x150' }); // retired below → not counted
   await prisma.filter.update({ where: { id: filterIds[5] }, data: { status: 'Retired' } as any });
+  // A micron-10 filter still waiting for approval: not counted until approved (2026-10-26).
+  filterIds.push((await prisma.assetInstance.create({ data: {
+    name: `cvoR${S}-F7`, templateId: hier.filterTemplateId, parentId: hier.ahuId, status: 'Active',
+    approvalStatus: 'PENDING_REVIEW', attributes: { micronSize: '10', filterSize: '610x610x150' },
+  } })).id);
   // An orphan filter (no AHU) must not break the per-AHU index.
   filterIds.push((await prisma.filter.create({ data: { ahuId: null, name: `cvoR${S}-ORPHAN`, status: 'Active', attributes: { micronSize: '10', filterSize: '610x610x150' } } as any })).id);
 
@@ -223,23 +228,23 @@ describe('POST /validate — every row rule, reported per row and column', () =>
   beforeAll(async () => {
     const past = '2020-01-01';
     const rows: unknown[][] = [
-      /* r2  */ [1, AHU, '10', '610 X 610 * 150', 2, FUTURE, ''],
+      /* r2  */ [1, AHU, '10', '610 X 610 * 150', 3, FUTURE, ''],
       /* r3  */ [2, '', '10', '610x610x150', 2, FUTURE],
       /* r4  */ [3, `cvoR${S}-NOPE`, '10', '610x610x150', 2, FUTURE],
       /* r5  */ [4, AHU, '10', '610x610x150', '', FUTURE],
       /* r6  */ [5, AHU, '10', '610x610x150', 'abc', FUTURE],
-      /* r7  */ [6, AHU, '10', '610x610x150', 2, ''],
-      /* r8  */ [7, AHU, '10', '610x610x150', 2, '2026-02-30'],
-      /* r9  */ [8, AHU, '10', '610x610x150', 2, past],
-      /* r10 */ [9, AHU, '10', '610x610x150', 2, FUTURE, '-1'],
+      /* r7  */ [6, AHU, '10', '610x610x150', 3, ''],
+      /* r8  */ [7, AHU, '10', '610x610x150', 3, '2026-02-30'],
+      /* r9  */ [8, AHU, '10', '610x610x150', 3, past],
+      /* r10 */ [9, AHU, '10', '610x610x150', 3, FUTURE, '-1'],
       /* r11 */ [10, AHU, '', '', 2, FUTURE],
       /* r12 */ [11, AHU2, '10', '610x610x150', 2, FUTURE],
       /* r13 */ [12, AHU, '99', '610x610x150', 2, FUTURE],
-      /* r14 */ [13, AHU, '10', '1x2x3', 2, FUTURE],
-      /* r15 */ [14, AHU, '10', '610x610x150', 3, FUTURE],
+      /* r14 */ [13, AHU, '10', '1x2x3', 3, FUTURE],
+      /* r15 */ [14, AHU, '10', '610x610x150', 4, FUTURE],
       // ExcelJS cell shapes: rich text AHU, hyperlink micron, formula qty, real Date, tolerance 4.
       /* r16 */ ['x', { richText: [{ text: `cvoR${S}` }, { text: '-AHU' }] }, { text: '5', hyperlink: 'http://x' }, '300x300x50', { formula: '0+1', result: 1 }, new Date(`${FUTURE}T00:00:00Z`), 4],
-      /* r17 */ [16, AHU, '10', { error: '#N/A' }, 2, FUTURE],
+      /* r17 */ [16, AHU, '10', { error: '#N/A' }, 3, FUTURE],
     ];
     const res = await send('/validate', tok.sa, await xlsx(rows));
     expect(res.statusCode).toBe(200);
@@ -249,20 +254,22 @@ describe('POST /validate — every row rule, reported per row and column', () =>
 
   const errs = (row: number) => results.filter((r) => r.row === row && r.status === 'error').map((r) => ({ column: r.column, error: r.error }));
 
-  it('valid rows pass, with dimension separators/case normalised and a real Date / formula / rich text / hyperlink read', () => {
-    expect(results.filter((r) => r.status === 'success').map((r) => [r.row, r.ahuName])).toEqual([[2, AHU], [16, AHU]]);
+  it('valid rows pass, a real Date / formula / rich text / hyperlink read; dimensions are information only (any value, or none)', () => {
+    expect(results.filter((r) => r.status === 'success').map((r) => [r.row, r.ahuName])).toEqual([[2, AHU], [14, AHU], [16, AHU], [17, AHU]]);
   });
 
   it('AHU: required, must exist, must have filters', () => {
     expect(errs(3)).toEqual([{ column: 'AHU Name', error: 'AHU Name is required' }]);
     expect(errs(4)).toEqual([{ column: 'AHU Name', error: `No AHU named "cvoR${S}-NOPE"` }]);
-    expect(errs(12)).toEqual([{ column: 'AHU Name', error: `AHU "${AHU2}" has no filters to replace` }]);
+    expect(errs(12)).toEqual([{ column: 'AHU Name', error: `AHU "${AHU2}" has no approved filters to replace` }]);
   });
 
-  it('Qty: required, whole number >= 1, equal to the matching filter count (retired filters excluded)', () => {
+  // Matched on micron alone (operator 2026-10-26): F1, F2 and F4 (no size) are
+  // micron 10; F6 is retired and F7 awaits approval, so neither counts.
+  it('Qty: required, whole number >= 1, equal to the approved filters of that micron (retired and unapproved excluded)', () => {
     expect(errs(5)).toEqual([{ column: 'Qty', error: 'Qty is required' }]);
     expect(errs(6)).toEqual([{ column: 'Qty', error: 'Qty must be a whole number >= 1' }]);
-    expect(errs(15)).toEqual([{ column: 'Qty', error: `Qty 3 must equal the 2 filter(s) with micron 10 and dimensions 610x610x150 in AHU "${AHU}"` }]);
+    expect(errs(15)).toEqual([{ column: 'Qty', error: `Qty 4 must equal the 3 approved filter(s) with micron 10 in AHU "${AHU}"` }]);
   });
 
   it('Schedule Date: required, a real calendar day, not in the past', () => {
@@ -273,14 +280,13 @@ describe('POST /validate — every row rule, reported per row and column', () =>
 
   it('Tolerance, micron and dimensions', () => {
     expect(errs(10)).toEqual([{ column: 'Tolerance Days', error: 'Tolerance Days must be a whole number >= 0' }]);
-    expect(errs(11)).toEqual([
-      { column: 'Filter Micron', error: 'Filter Micron is required' },
-      { column: 'Filter Dimensions', error: 'Filter Dimensions is required' },
-    ]);
+    expect(errs(11)).toEqual([{ column: 'Filter Micron', error: 'Filter Micron is required' }]);
     expect(errs(13)).toEqual([{ column: 'Filter Micron', error: `Micron "99" not found in AHU "${AHU}"` }]);
-    expect(errs(14)).toEqual([{ column: 'Filter Dimensions', error: `Dimensions "1x2x3" (micron 10) not found in AHU "${AHU}"` }]);
+    // Dimensions are neither required nor checked: a size no filter has passes.
+    expect(errs(14)).toEqual([]);
     // An Excel error cell reads as blank, never as "[object Object]".
-    expect(errs(17)).toEqual([{ column: 'Filter Dimensions', error: 'Filter Dimensions is required' }]);
+    expect(errs(17)).toEqual([]);
+    expect(body.rows[15].filterSize).toBe('');
   });
 
   it('results are sorted by row, failed counts every error, nothing is written, and the parsed rows are echoed', async () => {
@@ -338,7 +344,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
 
   it('workflow ON: entries land PENDING_REVIEW with the ± tolerance window; audited (signed) + QNN minted', async () => {
     const buf = await xlsx([
-      ['7', AHU, '10', '610x610x150', 2, FUTURE, 5],
+      ['7', AHU, '10', '610x610x150', 3, FUTURE, 5],
       ['n/a', AHU, '5', '300x300x50', 1, FUTURE],
     ]);
     const res = await send('', tok.up, buf, { fileName: `cvo-${S}-wf.xlsx`, pw: PW });
@@ -350,7 +356,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     const sch = await prisma.replacementSchedule.findUnique({ where: { id: body.scheduleId }, include: { entries: { orderBy: { filterMicron: 'asc' } } } });
     expect(sch).toMatchObject({ fileName: `cvo-${S}-wf.xlsx`, status: 'ACTIVE', uploadedBy: ids.up, uploadedByName: U.up });
     const [e10, e5] = sch!.entries;
-    expect(e10).toMatchObject({ slNo: 7, ahuId: hier!.ahuId, ahuName: AHU, filterMicron: '10', filterSize: '610x610x150', qty: 2, toleranceDays: 5, approvalStatus: 'PENDING_REVIEW', status: 'PENDING', submittedBy: ids.up });
+    expect(e10).toMatchObject({ slNo: 7, ahuId: hier!.ahuId, ahuName: AHU, filterMicron: '10', filterSize: '610x610x150', qty: 3, toleranceDays: 5, approvalStatus: 'PENDING_REVIEW', status: 'PENDING', submittedBy: ids.up });
     expect(e10.windowStart.toISOString().slice(0, 10)).toBe(addDays(FUTURE, -5));
     expect(e10.windowEnd.toISOString().slice(0, 10)).toBe(addDays(FUTURE, 5));
     expect(e5).toMatchObject({ slNo: null, toleranceDays: 0 });
@@ -359,7 +365,7 @@ describe('POST / — create (all-or-nothing, workflow, re-auth, audit, QNN)', ()
     expect(audit).toBeTruthy();
     expect(audit!.afterValue).toEqual({
       fileName: `cvo-${S}-wf.xlsx`, entries: 2,
-      ahus: [`AHU: ${AHU} · Size: 610x610x150 · Micron: 10µ · Qty: 2`, `AHU: ${AHU} · Size: 300x300x50 · Micron: 5µ · Qty: 1`],
+      ahus: [`AHU: ${AHU} · Size: 610x610x150 · Micron: 10µ · Qty: 3`, `AHU: ${AHU} · Size: 300x300x50 · Micron: 5µ · Qty: 1`],
     });
     expect(audit!.reason).toBe('Uploaded replacement schedule with 2 entries');
     const sig = await prisma.auditTrail.findFirst({ where: { action: 'REAUTH_SUCCESS', userId: U.up }, orderBy: { chainPosition: 'desc' } });
@@ -436,16 +442,18 @@ describe('GET / and GET /export.xlsx', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(res.rawPayload as any);
     const ws = wb.getWorksheet('Replacement Schedule')!;
-    expect(ws.getRow(1).getCell(11).value).toBe('Status');
+    // Qty is the row's Qty today, the uploaded one beside it (2026-10-26).
+    expect([5, 6, 7, 12].map((c) => ws.getRow(1).getCell(c).value)).toEqual(['Qty', 'Uploaded Qty', 'Replaced', 'Status']);
     const rows: any[] = [];
     ws.eachRow((r, n) => { if (n > 1 && r.getCell(2).value === AHU) rows.push(r); });
     expect(rows.length).toBeGreaterThanOrEqual(3);
-    const statuses = rows.map((r) => r.getCell(11).value);
+    const statuses = rows.map((r) => r.getCell(12).value);
     expect(statuses).toEqual(expect.arrayContaining(['To Review', 'Approved']));
     const entry = await prisma.replacementScheduleEntry.findFirst({ where: { ahuId: hier!.ahuId, slNo: 7 } });
     const row7 = rows.find((r) => r.getCell(1).value === 7);
-    expect(row7.getCell(7).value).toBe(formatDateWith(await getDatetimeConfig(), entry!.scheduleDate));
-    expect(row7.getCell(12).value).toBe(U.up);
+    expect(row7.getCell(8).value).toBe(formatDateWith(await getDatetimeConfig(), entry!.scheduleDate));
+    expect(row7.getCell(13).value).toBe(U.up);
+    expect([row7.getCell(5).value, row7.getCell(6).value, row7.getCell(7).value]).toEqual([3, 3, 0]);
   });
 
   it('export renders blanks (never "null") for an entry with no micron / size / uploader name', async () => {
@@ -462,9 +470,9 @@ describe('GET / and GET /export.xlsx', () => {
     let row: any;
     wb.getWorksheet('Replacement Schedule')!.eachRow((r) => { if (r.getCell(2).value === `cvoR${S}-RAWAHU`) row = r; });
     expect(row).toBeTruthy();
-    expect([row.getCell(3).text, row.getCell(4).text, row.getCell(12).text]).toEqual(['', '', '']);
+    expect([row.getCell(3).text, row.getCell(4).text, row.getCell(13).text]).toEqual(['', '', '']);
     expect(typeof row.getCell(1).value).toBe('number');
-    expect([row.getCell(11).value, row.getCell(17).value, row.getCell(18).value, row.getCell(19).value]).toEqual(['Rejected', 'someone', 'REVIEW', 'see notes']);
+    expect([row.getCell(12).value, row.getCell(18).value, row.getCell(19).value, row.getCell(20).value]).toEqual(['Rejected', 'someone', 'REVIEW', 'see notes']);
   });
 
   it('the list and export need REPLACEMENT_SCHEDULE_VIEW', async () => {

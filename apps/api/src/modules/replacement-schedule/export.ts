@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { prisma } from '../../lib/prisma.js';
 import { neutralizeRow } from '../../lib/spreadsheet-safe.js';
 import { getDatetimeConfig, formatDateWith, formatDateTimeWith } from '../../lib/format-datetime.js';
+import { evaluateEntries } from './service.js';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pending', PENDING_REVIEW: 'To Review', PENDING_APPROVAL: 'To Approve',
@@ -19,6 +20,9 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
     include: { schedule: true },
     orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }],
   });
+  // Qty / Replaced are the row's values today (the task rule, evaluateEntries):
+  // the page shows the same. The uploaded Qty stays beside it as the record.
+  const progress = await evaluateEntries(entries);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'DigiLog';
@@ -29,6 +33,7 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
     { header: 'Micron', key: 'micron', width: 12 },
     { header: 'Filter Dimensions', key: 'size', width: 18 },
     { header: 'Qty', key: 'qty', width: 6 },
+    { header: 'Uploaded Qty', key: 'uploadedQty', width: 12 },
     { header: 'Replaced', key: 'replaced', width: 9 },
     { header: 'Schedule Date', key: 'date', width: 14 },
     { header: 'Tolerance (days)', key: 'tol', width: 14 },
@@ -54,8 +59,9 @@ export async function exportEntriesXlsx(): Promise<Buffer> {
       ahu: e.ahuName ?? '',
       micron: e.filterMicron ?? '',
       size: e.filterSize ?? '',
-      qty: e.qty,
-      replaced: e.qtyReplaced,
+      qty: progress.get(e.id)?.currentQty ?? e.qty,
+      uploadedQty: e.qty,
+      replaced: progress.get(e.id)?.replacedFilterIds.length ?? 0,
       date: fmt(e.scheduleDate),
       tol: e.toleranceDays,
       ws: fmt(e.windowStart),

@@ -14,7 +14,7 @@ import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
 import { rangeStartOrThrow, rangeEndOrThrow, toDateColumnDay } from '../../lib/date-range-guard.js';
-import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE, pmWindowBounds, pmWindowPhase } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, PM_ENTRY_IN_FORCE, pmWindowBounds, pmWindowPhase, settlePmVisits } from './pm-shared.js';
 import { getDeviationContextForEntries } from './pm-deviations.js';
 import type { DueFilterRow, DueFilterStatus, DueOverallStatus, DueTaskRow } from './pm-types.js';
 
@@ -205,6 +205,15 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     : [];
   const latestCompletedByFilter = new Map(latestCycles.map(r => [r.filter_id, r.completed_at]));
 
+  // Which filters each visit covers, and which are PM-cleaned for it: THE done
+  // rule (settlePmVisits, 2026-10-26), shared with the gate and the sweep. A
+  // finished visit keeps its filters; an overdue one takes no new ones.
+  const visits = await settlePmVisits(
+    entries.filter(e => ahuById.has(e.schedule.entityId)).map(e => ({ id: e.id, ahuId: e.schedule.entityId, windowStart: e.windowStart, windowEnd: e.windowEnd })),
+    pmReasonKeys,
+    now,
+  );
+
   // Build result rows (types live in pm-types.ts)
   const active: DueTaskRow[] = [];
   const overdue: DueTaskRow[] = [];
@@ -234,6 +243,11 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
     } else if (mode === 'SET_B') {
       childFilters = childFilters.filter(f => f.filterSet === 'SET_B');
     }
+    // Only the visit's own filters (settlePmVisits — the same counted filters,
+    // less any added after it was done or after its window closed).
+    const visit = visits.get(entry.id);
+    const memberById = new Map((visit?.members ?? []).map(m => [m.id, m]));
+    childFilters = childFilters.filter(f => memberById.has(f.id));
 
     // The window runs from local midnight of its first day to the end of its
     // last day (pmWindowBounds). Comparing with the raw DATE values put both
@@ -266,17 +280,11 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
         && (windowClosed ? c.startedAt >= opensAt : c.startedAt < closesAt),
       );
-      // COMPLETED cycle that counts toward this entry: completed on/after the
-      // window opened, and — unless the task is already overdue — on/before it
-      // closed (a late clean is exactly what resolves an overdue task).
-      // Only cleanings done with the PM reason satisfy the PM task; a clean with
-      // any other reason leaves the filter PENDING here.
-      const cleaned = cycles.find(c =>
-        c.completedAt != null
-        && (!pmReasonKeys || pmReasonKeys.has(c.cleaningReasonKey))
-        && c.completedAt >= opensAt
-        && (windowClosed || c.completedAt < closesAt),
-      );
+      // The PM cleaning that counts toward this entry (settlePmVisits): with the
+      // PM reason, on/after the window opened and — unless the task is already
+      // overdue — before it closed (a late clean is exactly what resolves an
+      // overdue task). A filter that replaced a cleaned one keeps that cleaning.
+      const cleanedAt = memberById.get(f.id)?.doneAt ?? null;
 
       // A written-off entry is terminal and OUTRANKS the cleaned computation.
       // Without this the later cleaning that prompted the write-off would also
@@ -285,7 +293,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
       // asserting maintenance that explicitly did not happen.
       let status: DueFilterStatus = 'pending';
       if (entry.skippedAt) status = 'skipped';
-      else if (cleaned) status = 'cleaned_in_window';
+      else if (cleanedAt) status = 'cleaned_in_window';
       else if (inProgress) status = 'in_progress';
 
       return {
@@ -295,7 +303,7 @@ export async function getDueTasks(_ctx: RequestContext, opts?: { from?: string; 
         // Current cleaning lifecycle stage (WASH_IN / WASH_OUT / DRY_IN / …) so
         // the tablet My Tasks view can show which stage each filter is in.
         currentStage: f.currentStage ?? null,
-        lastCycleCompletedAt: cleaned?.completedAt ?? latestCompletedByFilter.get(f.id) ?? null,
+        lastCycleCompletedAt: cleanedAt ?? latestCompletedByFilter.get(f.id) ?? null,
       };
     });
 

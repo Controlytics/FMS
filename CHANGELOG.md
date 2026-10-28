@@ -6,6 +6,58 @@ Release decision: **CONDITIONAL PASS** (test-results/FINAL-RELEASE-DECISION.md).
 clean-machine install, Super Admin probe session and the performance / endurance re-run were NOT run
 ("finish right now"); they are the go-live conditions.
 
+### 2026-10-26 - replacement + PM: Qty follows the AHU (operator rule) - NOT in Setup 1.2.3 or its APK
+
+Operator rule, agreed as a table before any code: a replacement row is matched on **micron only** (filter
+dimensions are information); a filter of that micron **added** to the AHU joins a future, pending or
+in-window row (Qty +1); one **retired or deleted** leaves any unfinished row (Qty −1, an overdue row too, or
+it could never finish); a **replacement** changes nothing (the new filter takes the old one's place); an
+**overdue** row takes no new filter (and never blocks it from cleaning); a **completed** row is frozen. A new
+filter counts once **approved**. PM visits follow the same rule over the AHU's counted filters (no micron).
+
+- **One membership rule (`assets/filter-slots.ts`).** A filter's place in its AHU begins when it is created,
+  moved in or restored (the AHU → filter CONTAINS row), or approved — the latest; a filter made by a
+  replacement inherits the old filter's join time (FILTER_REPLACED links, the same links credit follows).
+  `settleMembers` (pure): an entry's members are the places that joined before its window closed and before
+  it was complete; complete = the earliest moment every member that had joined by then was done. Computed
+  live: no migration, and the uploaded `qty` column stays the approved record.
+- **Replacement (`replacement-schedule/service.ts` `evaluateEntries`).** Before, every row covered EVERY
+  filter of the AHU whatever its micron (2026-06-15): AHU-01 (3 × 1 µm + 3 × 15 µm) needed all 6 replaced per
+  row, its 6 filters were blocked from cleaning by the overdue 1 µm row (now 3), a filter added later reopened
+  finished rows and was blocked by overdue ones, and a filter awaiting approval made a row impossible to finish
+  (counted, but the tablet cannot replace it). The web list (`currentQty`, `memberFilterIds`), the tablet
+  (`toReplaceFilterIds` — the tablet no longer derives the rule), `/due`, the cleaning block, the execute check
+  and the Excel export (Qty today + "Uploaded Qty") all read it. Execute refuses, before the signature, a
+  filter of another micron (409 `FILTER_NOT_IN_TASK_MICRON`) and one that is retired, unapproved or added after
+  the window closed (409 `FILTER_NOT_IN_TASK`). Upload: Qty must equal the approved filters of that micron;
+  Filter Dimensions is optional and unchecked (template notes say so).
+- **PM (`pm-shared.ts` `settlePmVisits`) — My Tasks, the missed-PM gate (and so the tablet's offline cache of
+  it) and the overdue sweep.** A finished visit no longer turns back into pending / overdue when a filter is
+  added; an overdue visit no longer demands a filter fitted after its window closed; a filter PM-cleaned and
+  then replaced keeps that cleaning for its place. The sweep closed a deviation only when every filter id
+  frozen on it at open was cleaned, so one replaced or retired filter kept it open for ever; it now closes when
+  the visit is done (the frozen list remains the fallback for a deviation whose visit no longer exists). A
+  visit left with no filters of its own (none were in the AHU when its window closed, or all have left) is
+  never done: it shows overdue 0/0 and the missed-PM question asks for a written-off reason, its only close.
+- **Not audited per Qty change.** Qty is derived from audited events (filter create / approve / move /
+  retire / delete / replace); no separate audit row is written when it changes.
+- **Limits.** A redacted FILTER_REPLACED row loses its link, so that new filter counts from its own creation;
+  a filter whose micron is edited later is matched on its micron today; the resubmit / reviewer-edit `qty`
+  field still edits only the record column (as before).
+- Tests: `workflow-tasks.coverage.test.ts` "Qty follows the AHU" (8, fail-first) and the two-rows test
+  rewritten for one row per micron; `upload.coverage.test.ts` micron-only; `e2e/pm-visit-follows-ahu.test.ts`
+  (7, 6 fail-first + 1 control); `assets/__tests__/filter-slots.test.ts`; PM fixtures fit their filters two
+  years back (`installedAt`), as do the blocked-filter and start-cycle gate suites; web page + tablet tests for
+  the new fields. Checked in a browser on a throwaway copy of the manuals demo DB (port 3911, dropped after):
+  "4 (uploaded 3)" on one line, a filter listed only on its own micron's row, tablet offers only the row's
+  filters; no console warnings, no failed requests.
+- **P-1 batch-states statement-count flake — root cause fixed (`batch-preload.ts`).** The intermittent "−1 / +1
+  statement" was Prisma merging `findUnique` calls issued in the same tick into one `IN` query and sending
+  them apart otherwise: the shared `norm:` (FilterProfile → CleaningProfile), `equipment-group-version:`,
+  `equipment-group:` and `equipment-group-live-version:` reads. The preload now answers them with one
+  `findMany` each (not-found seeded `null`, as each `findUnique` returns), so the count no longer depends on
+  timing (6/6 runs green; it failed about 1 in 3 before). The test's diagnostics (2026-10-26) named the reads.
+
 ### 2026-10-24 - operator requests - NOT in Setup 1.2.3 (`fe5c6364…`) or its APK
 
 - **Tablet: the RFID debug button is gone (`mobile-operations.tsx`).** The floating ⓘ (bottom right) opened

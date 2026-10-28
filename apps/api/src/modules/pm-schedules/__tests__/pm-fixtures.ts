@@ -168,7 +168,7 @@ export class PmFixture {
   }
 
   async instance(kind: Kind, name: string, opts: {
-    parentId?: string | null; isActive?: boolean; status?: string; customAttributes?: Record<string, unknown>;
+    parentId?: string | null; isActive?: boolean; status?: string; customAttributes?: Record<string, unknown>; createdAt?: Date;
   } = {}): Promise<string> {
     const row = await prisma.assetInstance.create({
       data: {
@@ -178,6 +178,7 @@ export class PmFixture {
         isActive: opts.isActive ?? true,
         status: opts.status ?? 'Active',
         ...(opts.customAttributes ? { customAttributes: opts.customAttributes as any } : {}),
+        ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
       },
     });
     this.instanceIds.push(row.id);
@@ -185,10 +186,19 @@ export class PmFixture {
     return row.id;
   }
 
+  /**
+   * A filter under `ahuId`. It was fitted long ago (`installedAt`, default two
+   * years back) like a real installed filter, so it belongs to every visit the
+   * suites back-date. A visit covers only the filters in the AHU before its
+   * window closed (settlePmVisits, 2026-10-26): pass `installedAt` to add one later.
+   */
   async filter(name: string, ahuId: string, opts: {
-    filterSet?: 'SET_A' | 'SET_B' | null; stage?: string | null; isActive?: boolean; status?: string;
+    filterSet?: 'SET_A' | 'SET_B' | null; stage?: string | null; isActive?: boolean; status?: string; installedAt?: Date;
   } = {}): Promise<string> {
-    const id = await this.instance('FILTER', name, { parentId: ahuId, isActive: opts.isActive, status: opts.status });
+    const id = await this.instance('FILTER', name, {
+      parentId: ahuId, isActive: opts.isActive, status: opts.status,
+      createdAt: opts.installedAt ?? new Date(Date.now() - 2 * 365 * 86_400_000),
+    });
     await prisma.filterDetails.create({
       data: { assetInstanceId: id, filterSet: opts.filterSet ?? null, currentLifecycleState: opts.stage ?? null },
     });

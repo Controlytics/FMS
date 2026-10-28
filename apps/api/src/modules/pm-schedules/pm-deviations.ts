@@ -7,10 +7,15 @@
  *            filters aren't all cleaned → insert ONE deviation (UNIQUE
  *            pm_schedule_entry_id → no daily duplicates). Overdue notification
  *            fires only on first insert, guarded by `notified_at`.
- *   - CLOSE: any OPEN/ACKNOWLEDGED deviation whose filters have SINCE been
- *            cleaned (cycle completed on/after windowStart) → record completion
- *            + fire the completion notification once, guarded by
- *            `completion_notified_at`.
+ *   - CLOSE: any OPEN/ACKNOWLEDGED deviation whose visit has SINCE been done
+ *            → record completion + fire the completion notification once,
+ *            guarded by `completion_notified_at`.
+ *
+ * "Done" is settlePmVisits (pm-shared.ts, 2026-10-26), the rule My Tasks and the
+ * missed-PM gate use: the visit's own filters, kept in step with the AHU (a
+ * replacement takes the old filter's place, a retired filter leaves). The close
+ * used to require every filter id frozen on the deviation at open, so one
+ * replaced or retired filter left the deviation open for ever.
  *
  * "Cleaned" predicate = a COMPLETED CleaningCycle, performed with the configured
  * PM reason, with completedAt >= windowStart (covers in-window AND late cleaning
@@ -31,7 +36,7 @@ import { auditLog } from '../../lib/audit.js';
 import { AppError } from '../../lib/errors.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { formatConfiguredDate } from '../../lib/format-datetime.js';
-import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, loadCountedFilters, PM_ENTRY_IN_FORCE, pmWindowBounds, pmWindowPhase, type CountedAhu } from './pm-shared.js';
+import { checkPmEnabled, resolvePmReasonKeys, readPmSettings, settlePmVisits, PM_ENTRY_IN_FORCE, pmWindowBounds, pmWindowPhase, type CountedAhu, type PmVisitProgress } from './pm-shared.js';
 import { toDateColumnDay, dateColumnDayStart } from '../../lib/date-range-guard.js';
 
 const DAY = 86400000;
@@ -49,6 +54,11 @@ const OPEN_HORIZON_DAYS = 90;
  */
 export function dayDiff(to: Date, from: Date): number {
   return Math.max(0, Math.floor((toDateColumnDay(to).getTime() - from.getTime()) / DAY));
+}
+
+/** The AHU as one visit sees it: only the visit's own filters (settlePmVisits). */
+function visitAhu(visit: PmVisitProgress): CountedAhu {
+  return { ...visit.ahu, filters: visit.members.map((m) => ({ id: m.id, name: m.name })) };
 }
 
 /** Read the configurable overdue-notification role list (default ["ADMIN"]). */
@@ -232,13 +242,17 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
     where: { schedule: { status: 'ACTIVE' }, AND: [PM_ENTRY_IN_FORCE], skippedAt: null, windowEnd: { lt: today, gte: horizon } },
     include: { schedule: true },
   });
-  const counted = await loadCountedFilters([...new Set(candidates.map((e) => e.schedule.entityId))]);
+  const visits = await settlePmVisits(
+    candidates.map((e) => ({ id: e.id, ahuId: e.schedule.entityId, windowStart: e.windowStart, windowEnd: e.windowEnd })),
+    pmReasonKeys,
+    now,
+  );
   for (const entry of candidates) {
-    const ahu = counted.get(entry.schedule.entityId);
-    if (!ahu || ahu.mode === 'DISABLED' || ahu.filters.length === 0) continue;
+    const visit = visits.get(entry.id);
+    if (!visit || visit.ahu.mode === 'DISABLED' || visit.ahu.filters.length === 0) continue;
+    if (visit.completedAt) continue; // PM-cleaned → not an open deviation
+    const ahu = visitAhu(visit);
     const filterIds = ahu.filters.map((f) => f.id);
-    const cleaned = await latestCleanMap(filterIds, pmWindowBounds(entry).opensAt, pmReasonKeys);
-    if (filterIds.every((id) => cleaned.has(id))) continue; // PM-cleaned → not an open deviation
     try {
       const dev = await prisma.deviation.create({
         data: {
@@ -287,7 +301,7 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
   const openEntries = new Map(
     (await prisma.pmScheduleEntry.findMany({
       where: { id: { in: open.map((d) => d.pmScheduleEntryId) } },
-      select: { id: true, plannedDate: true, windowStart: true, windowEnd: true, skippedAt: true, skipReason: true },
+      select: { id: true, plannedDate: true, windowStart: true, windowEnd: true, skippedAt: true, skipReason: true, schedule: { select: { entityId: true } } },
     })).map((e) => [e.id, e]),
   );
   const writtenOff = new Map(
@@ -326,13 +340,29 @@ export async function sweepOverdueDeviations(ctx?: RequestContext): Promise<{ op
         dev = fresh; // the completion test below reads the new window
       }
     }
-    const filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
-    if (!filterIds.length) continue;
     // Local midnight of the window's first day (dateColumnDayStart), not 05:30.
     const since = dateColumnDayStart(dev.windowStart ?? dev.scheduledDate);
-    const cleaned = await latestCleanMap(filterIds, since, pmReasonKeys);
-    if (!filterIds.every((id) => cleaned.has(id))) continue; // not all PM-cleaned yet
-    const latestAt = [...cleaned.values()].reduce((a, b) => (b > a ? b : a));
+    // Done = the visit's rule (settlePmVisits). A deviation whose visit no longer
+    // exists (the reference is soft) falls back to the filters it was opened for.
+    const entry = openEntries.get(dev.pmScheduleEntryId);
+    let filterIds: string[];
+    let latestAt: Date;
+    if (entry) {
+      const visit = (await settlePmVisits(
+        [{ id: entry.id, ahuId: entry.schedule.entityId, windowStart: entry.windowStart, windowEnd: entry.windowEnd }],
+        pmReasonKeys,
+        now,
+      )).get(entry.id);
+      if (!visit?.completedAt) continue; // not done yet (a visit with no filters of its own closes only by write-off)
+      filterIds = [...new Set(visit.members.flatMap((m) => m.lineage))];
+      latestAt = visit.completedAt;
+    } else {
+      filterIds = Array.isArray(dev.filterIds) ? (dev.filterIds as string[]) : [];
+      if (!filterIds.length) continue;
+      const cleaned = await latestCleanMap(filterIds, since, pmReasonKeys);
+      if (!filterIds.every((id) => cleaned.has(id))) continue; // not all PM-cleaned yet
+      latestAt = [...cleaned.values()].reduce((a, b) => (b > a ? b : a));
+    }
     let completedBy = dev.acknowledgedBy ?? null;
     let completedByName = dev.acknowledgedByName ?? null;
     if (!completedBy) {

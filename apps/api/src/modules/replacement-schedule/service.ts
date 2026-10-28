@@ -11,8 +11,10 @@ import { prisma } from '../../lib/prisma.js';
 import { auditLog } from '../../lib/audit.js';
 import { stripHtml } from '../../lib/sanitize.js';
 import { AppError } from '../../lib/errors.js';
-import { toDateColumnDay } from '../../lib/date-range-guard.js';
+import { toDateColumnDay, dateColumnDayStart, dateColumnDayEnd } from '../../lib/date-range-guard.js';
 import { FilterOperationsService } from '../filter-operations/filter-operations.service.js';
+import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
+import { loadFilterSlots, settleMembers, type SlotFilter } from '../assets/filter-slots.js';
 import { getReplacementWorkflowConfig, assertPmRole, generateQnn } from '../pm-schedules/pm-workflow.js';
 import { qnnCount, qnnNextStep } from '../pm-schedules/qnn-message.js';
 import { isSuperAdminOwnWork, superAdminExemptionFields } from '../../lib/super-admin-own-work.js';
@@ -124,35 +126,34 @@ async function buildAhuNameMap(): Promise<Map<string, string[]>> {
 function normMicron(s: unknown): string {
   return stripHtml(String(s ?? '')).trim().toLowerCase();
 }
-// Normalize a free-text filter dimension so 610X510X25 / 200*400*600 / 200×400×600
-// all compare equal: lowercase, drop whitespace, unify X/x/*/× separators to 'x'.
-function normDim(s: unknown): string {
-  return stripHtml(String(s ?? '')).trim().toLowerCase().replace(/\s+/g, '').replace(/[x×*]/g, 'x');
+/** A row covers the AHU's filters of its micron; a row with no micron (uploaded before micron was required) covers them all. */
+function rowCoversMicron(rowMicron: string | null | undefined, filterMicron: string): boolean {
+  const m = normMicron(rowMicron);
+  return !m || m === filterMicron;
 }
 
-interface AhuFilterIndex { total: number; microns: Set<string>; combos: Map<string, number>; }
+type CountedFilter = SlotFilter & { micron: string };
 
-// Index every active (non-retired) filter per AHU: which micron sizes exist, and
-// how many filters per (micron, dimension) combo. Drives the upload validation —
-// a scheduled row is only accepted if a real filter under that AHU matches.
-async function buildAhuFilterIndex(): Promise<Map<string, AhuFilterIndex>> {
-  const filters = await prisma.filter.findMany({
-    where: { isActive: true, status: { notIn: ['Retired', 'Replaced'] } },
-    select: { ahuId: true, attributes: true },
+/**
+ * The approved, live filters under each AHU (COUNTED_FILTER_WHERE — the same
+ * predicate PM and the AHU gate count), with their micron. The upload check and
+ * the task rule both read it, so the Qty an upload is checked against is the Qty
+ * the task then follows. Every AHU when `ahuIds` is omitted.
+ */
+async function countedFiltersByAhu(ahuIds?: string[]): Promise<Map<string, CountedFilter[]>> {
+  const byAhu = new Map<string, CountedFilter[]>();
+  if (ahuIds && ahuIds.length === 0) return byAhu;
+  const rows = await prisma.assetInstance.findMany({
+    where: { ...(ahuIds ? { parentId: { in: ahuIds } } : { parentId: { not: null } }), ...COUNTED_FILTER_WHERE },
+    select: { id: true, parentId: true, attributes: true, createdAt: true, approvedAt: true },
   });
-  const idx = new Map<string, AhuFilterIndex>();
-  for (const f of filters as Array<{ ahuId: string | null; attributes: any }>) {
-    if (!f.ahuId) continue;
-    const attrs = (f.attributes ?? {}) as Record<string, any>;
-    const m = normMicron(attrs.micronSize);
-    const d = normDim(attrs.filterSize);
-    let e = idx.get(f.ahuId);
-    if (!e) { e = { total: 0, microns: new Set<string>(), combos: new Map<string, number>() }; idx.set(f.ahuId, e); }
-    e.total++;
-    if (m) e.microns.add(m);
-    if (m && d) { const k = `${m}|${d}`; e.combos.set(k, (e.combos.get(k) ?? 0) + 1); }
+  for (const r of rows) {
+    if (!r.parentId) continue;
+    const list = byAhu.get(r.parentId) ?? [];
+    list.push({ id: r.id, parentId: r.parentId, createdAt: r.createdAt, approvedAt: r.approvedAt, micron: normMicron((r.attributes as any)?.micronSize) });
+    byAhu.set(r.parentId, list);
   }
-  return idx;
+  return byAhu;
 }
 
 export async function processUpload(
@@ -183,7 +184,7 @@ export async function processUpload(
   if (rows.length > 500) return { results: [{ row: 1, status: 'error', error: 'Maximum 500 rows per upload' }], created: 0, failed: 1 };
 
   const ahuMap = await buildAhuNameMap();
-  const ahuFilterIdx = await buildAhuFilterIndex();
+  const ahuFilters = await countedFiltersByAhu();
   const today = todayLocalDateOnly();
 
   const results: UploadOutcome['results'] = [];
@@ -235,28 +236,24 @@ export async function processUpload(
       else tolerance = t;
     }
 
-    // Filter Micron + Dimensions are required — they're validated against the
-    // AHU's actual filters below.
+    // Filter Micron is required and validated against the AHU's filters below.
+    // Filter Dimensions is information only (operator 2026-10-26: a row is
+    // matched on micron size alone), so it is neither required nor checked.
     if (!micron) rowErrs.push({ row: r.rowNumber, column: 'Filter Micron', value: '', error: 'Filter Micron is required' });
-    if (!size) rowErrs.push({ row: r.rowNumber, column: 'Filter Dimensions', value: '', error: 'Filter Dimensions is required' });
 
-    // Cascade validation against the live filter list (2026-06-15 request):
-    // AHU → has filters → micron exists → (micron, dimension) exists → qty available.
-    // Only runs when the AHU resolved and micron/size/qty are present (otherwise the
-    // field-level errors above already fire).
-    if (ahuId && micron && size && Number.isInteger(qtyN) && qtyN >= 1) {
-      const idx = ahuFilterIdx.get(ahuId);
-      const m = normMicron(micron);
-      const d = normDim(size);
-      if (!idx || idx.total === 0) {
-        rowErrs.push({ row: r.rowNumber, column: 'AHU Name', value: ahuNameRaw, error: `AHU "${ahuNameRaw}" has no filters to replace` });
-      } else if (!idx.microns.has(m)) {
+    // Cascade validation against the live filter list: AHU → has approved filters
+    // → micron exists → Qty equals that micron's filters (the Qty the task then
+    // keeps in step with the AHU). Only runs when the AHU resolved and micron/qty
+    // are present (otherwise the field-level errors above already fire).
+    if (ahuId && micron && Number.isInteger(qtyN) && qtyN >= 1) {
+      const filters = ahuFilters.get(ahuId) ?? [];
+      const avail = filters.filter((f) => rowCoversMicron(micron, f.micron)).length;
+      if (filters.length === 0) {
+        rowErrs.push({ row: r.rowNumber, column: 'AHU Name', value: ahuNameRaw, error: `AHU "${ahuNameRaw}" has no approved filters to replace` });
+      } else if (avail === 0) {
         rowErrs.push({ row: r.rowNumber, column: 'Filter Micron', value: micron, error: `Micron "${micron}" not found in AHU "${ahuNameRaw}"` });
-      } else if (!idx.combos.has(`${m}|${d}`)) {
-        rowErrs.push({ row: r.rowNumber, column: 'Filter Dimensions', value: size, error: `Dimensions "${size}" (micron ${micron}) not found in AHU "${ahuNameRaw}"` });
-      } else {
-        const avail = idx.combos.get(`${m}|${d}`) ?? 0;
-        if (qtyN !== avail) rowErrs.push({ row: r.rowNumber, column: 'Qty', value: r.qty, error: `Qty ${qtyN} must equal the ${avail} filter(s) with micron ${micron} and dimensions ${size} in AHU "${ahuNameRaw}"` });
+      } else if (qtyN !== avail) {
+        rowErrs.push({ row: r.rowNumber, column: 'Qty', value: r.qty, error: `Qty ${qtyN} must equal the ${avail} approved filter(s) with micron ${micron} in AHU "${ahuNameRaw}"` });
       }
     }
 
@@ -360,33 +357,27 @@ export async function processUpload(
  * 2026-10-24: the status here came from `qtyReplaced >= qty` (a counter), while
  * the tablet and the cleaning block use the AHU-filter rule — the page showed
  * CWH/RDU COMPLETED while its filters were blocked from cleaning as MISSED.
- * One rule now (`taskProgress`).
+ * One rule now (`evaluateEntries`). `qty` stays the uploaded (approved) value;
+ * `currentQty` is the row's Qty today (2026-10-26).
  */
 export async function listSchedules() {
-  const today = todayLocalDateOnly();
   const schedules = await prisma.replacementSchedule.findMany({
     orderBy: { createdAt: 'desc' },
     include: { entries: { orderBy: [{ scheduleDate: 'asc' }, { slNo: 'asc' }] } },
   });
-  const entries = schedules.flatMap((s) => s.entries);
-  const [filtersByAhu, credits] = await Promise.all([
-    activeFilterIdsByAhu([...new Set(entries.map((e) => e.ahuId))]),
-    creditedFiltersByEntry(entries.map((e) => e.id)),
-  ]);
+  const progress = await evaluateEntries(schedules.flatMap((s) => s.entries));
   return schedules.map((s) => ({
     ...s,
     entries: s.entries.map((e) => {
-      const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
-      const credited = credits.get(e.id) ?? new Map<string, ReplacementCredit>();
-      const { remaining, computedStatus } = taskProgress(e, ahuFilterIds, new Set(credited.keys()), today);
+      const p = progress.get(e.id)!;
       return {
         ...e,
-        computedStatus,
-        total: ahuFilterIds.length,
-        replaced: ahuFilterIds.length - remaining,
-        replacements: ahuFilterIds
-          .filter((id) => credited.has(id))
-          .map((filterId) => ({ filterId, ...credited.get(filterId)! })),
+        computedStatus: p.computedStatus,
+        currentQty: p.currentQty,
+        total: p.currentQty,
+        replaced: p.replacedFilterIds.length,
+        memberFilterIds: p.memberFilterIds,
+        replacements: p.replacedFilterIds.map((filterId) => ({ filterId, ...p.credits.get(filterId)! })),
       };
     }),
   }));
@@ -414,31 +405,47 @@ export async function assertCanExecuteReplacement(entryId: string, oldFilterId: 
   }
   // The filter must belong to the task's AHU. A scanned tag from another AHU was
   // accepted and replaced, then counted against this AHU's task.
-  const oldFilter = await prisma.assetInstance.findUnique({ where: { id: oldFilterId }, select: { parentId: true, name: true } });
+  const oldFilter = await prisma.assetInstance.findUnique({
+    where: { id: oldFilterId },
+    select: { parentId: true, name: true, attributes: true, approvalStatus: true, isActive: true, status: true },
+  });
   if (!oldFilter) throw new AppError(404, 'NOT_FOUND', 'Filter not found');
   if (oldFilter.parentId !== entry.ahuId) {
     throw new AppError(409, 'FILTER_NOT_IN_TASK_AHU', `Filter "${oldFilter.name}" is not in AHU "${entry.ahuName}" — this task covers that AHU's filters only.`);
   }
 
-  // All-AHU-filters model (2026-06-15, per user): the task targets EVERY active
-  // filter under the AHU and is complete only when none remain unreplaced. The
-  // uploaded qty/qtyReplaced columns are kept for the web schedule trail but no
-  // longer cap the task. `replace()` retires the old filter and creates a new
-  // active one under the same AHU, so a filter counts as "replaced" once its id
-  // appears as a ReplacementExecution.newFilterId for this entry.
-  const before = await ahuReplacementProgress(entry.ahuId, entryId);
-  if (before.total > 0 && before.remaining === 0) {
-    throw new AppError(400, 'ALREADY_COMPLETE', 'Every filter in this AHU has already been replaced for this task');
+  // The row covers its micron's filters in the AHU, kept in step with the AHU
+  // (evaluateEntries, operator rule 2026-10-26); it is complete when every one is
+  // replaced. `replace()` retires the old filter and creates a new one in its
+  // place, which the row is then credited with (creditedFiltersByEntry).
+  const p = (await evaluateEntries([entry])).get(entry.id)!;
+  if (p.computedStatus === 'COMPLETED') {
+    throw new AppError(400, 'ALREADY_COMPLETE', 'Every filter this task covers has already been replaced');
   }
   // A filter this row is already credited with (its own replacement put it in,
   // or replaced that one since) is refused: replacing it again uses a new filter
   // and counts nothing. A tablet's list can be stale — a second tablet on the
   // AHU, or a batch that partly failed (2026-10-24).
-  const credit = (await creditedFiltersByEntry([entryId])).get(entryId)?.get(oldFilterId);
+  const credit = p.credits.get(oldFilterId);
   if (credit) {
     const by = credit.performedByName ? ` by ${credit.performedByName}` : '';
     throw new AppError(409, 'ALREADY_REPLACED_FOR_TASK',
       `Filter "${oldFilter.name}" was already replaced for this task (${credit.performedAt.toISOString().slice(0, 10)}${by}).`);
+  }
+  if (!p.toReplaceFilterIds.includes(oldFilterId)) {
+    const filterMicron = String((oldFilter.attributes as any)?.micronSize ?? '').trim();
+    if (!rowCoversMicron(entry.filterMicron, normMicron(filterMicron))) {
+      throw new AppError(409, 'FILTER_NOT_IN_TASK_MICRON',
+        `Filter "${oldFilter.name}" is micron ${filterMicron || '(not set)'} — this task replaces the micron ${entry.filterMicron} filters of "${entry.ahuName}".`);
+    }
+    if (!oldFilter.isActive || oldFilter.status === 'Retired') {
+      throw new AppError(409, 'FILTER_NOT_IN_TASK', `Filter "${oldFilter.name}" is retired, so it cannot be replaced.`);
+    }
+    if (oldFilter.approvalStatus !== 'APPROVED') {
+      throw new AppError(409, 'FILTER_NOT_IN_TASK', `Filter "${oldFilter.name}" has not been approved yet, so it is not part of this task.`);
+    }
+    throw new AppError(409, 'FILTER_NOT_IN_TASK',
+      `Filter "${oldFilter.name}" was added to "${entry.ahuName}" after this task's window closed, so it is not part of this task.`);
   }
   return { entry, oldFilter };
 }
@@ -462,22 +469,23 @@ export async function executeReplacement(entryId: string, oldFilterId: string, r
     },
   });
 
-  // Recompute AHU progress now that the execution is recorded (old filter retired,
-  // new one active + flagged). Completion is driven by remaining === 0, NOT qty.
-  const after = await ahuReplacementProgress(entry.ahuId, entryId);
+  // Recompute the row now that the execution is recorded (old filter retired, the
+  // new one in its place and credited). COMPLETED is stored: from then on the
+  // row is frozen (a filter added later does not reopen it).
+  const after = (await evaluateEntries([entry])).get(entry.id)!;
   const updated = await prisma.replacementScheduleEntry.update({
     where: { id: entryId },
-    data: { qtyReplaced: { increment: 1 }, status: after.remaining === 0 ? 'COMPLETED' : 'IN_PROGRESS' },
+    data: { qtyReplaced: { increment: 1 }, status: after.computedStatus === 'COMPLETED' ? 'COMPLETED' : 'IN_PROGRESS' },
   });
 
   return {
     success: true,
     newFilterId: (result as any).newFilterId,
     newFilterName: (result as any).newFilterName,
-    total: after.total,
-    replaced: after.total - after.remaining,
+    total: after.currentQty,
+    replaced: after.replacedFilterIds.length,
     qtyReplaced: updated.qtyReplaced,
-    qtyRemaining: after.remaining,
+    qtyRemaining: after.toReplaceFilterIds.length,
     status: updated.status,
   };
 }
@@ -488,9 +496,9 @@ async function activeAhuIds(): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+
 export async function listDueEntries() {
-  const today = todayLocalDateOnly();
-  const todayDate = new Date(`${today}T00:00:00Z`);
+  const todayDate = toDateColumnDay(new Date());
   const entries = await prisma.replacementScheduleEntry.findMany({
     // Only APPROVED entries become due tasks (workflow ON gates this; when OFF,
     // entries default to APPROVED so behaviour is unchanged).
@@ -500,44 +508,89 @@ export async function listDueEntries() {
     where: { approvalStatus: 'APPROVED', windowStart: { lte: todayDate }, windowEnd: { gte: todayDate }, ahuId: { in: await activeAhuIds() } },
     orderBy: [{ windowEnd: 'asc' }],
   });
-  const [filtersByAhu, creditedByEntry] = await Promise.all([
-    activeFilterIdsByAhu([...new Set(entries.map((e) => e.ahuId))]),
-    creditedIdSets(entries.map((e) => e.id)),
-  ]);
+  const progress = await evaluateEntries(entries);
   return entries
     .map((e) => {
-      const { remaining, computedStatus } = taskProgress(e, filtersByAhu.get(e.ahuId) ?? [], creditedByEntry.get(e.id) ?? new Set(), today);
-      return { ...e, computedStatus, qtyRemaining: remaining };
+      const p = progress.get(e.id)!;
+      return { ...e, computedStatus: p.computedStatus, currentQty: p.currentQty, qtyRemaining: p.toReplaceFilterIds.length };
     })
     .filter((e) => e.computedStatus === 'DUE' || e.computedStatus === 'IN_PROGRESS');
 }
 
-// ── All-AHU-filters task model (2026-06-15) ─────────────────────────────────
-// A replacement task covers EVERY active filter under its AHU. A filter counts
-// as replaced once the entry is credited with it: the filter one of its
-// executions installed, or whatever has replaced that one since
-// (creditedFiltersByEntry, 2026-10-24).
+// ── The task rule: Qty follows the AHU (operator 2026-10-26) ────────────────
+// A row covers the AHU's approved filters of its MICRON (dimensions are
+// information only). A filter of that micron added to the AHU joins a row that
+// is not finished and whose window has not closed; a retired or deleted one
+// leaves it; a replacement takes the old filter's place (assets/filter-slots.ts).
+// An overdue row takes no new filters, so it never blocks one; a completed row
+// is frozen. Before this, every row covered EVERY filter of the AHU whatever its
+// micron (2026-06-15), so an AHU with one row per micron needed every filter
+// replaced once per row, and a filter added later re-opened finished rows and
+// was blocked from cleaning by overdue ones.
 
-/** Active FILTER-kind instance ids under one or more AHUs (parentId === ahuId). */
-async function activeFilterIdsByAhu(ahuIds: string[]): Promise<Map<string, string[]>> {
-  const byAhu = new Map<string, string[]>();
-  if (ahuIds.length === 0) return byAhu;
-  const filterTemplates = await prisma.assetTemplate.findMany({
-    where: { templateKind: 'FILTER' }, select: { id: true },
-  });
-  const templateIds = filterTemplates.map((t) => t.id);
-  if (templateIds.length === 0) return byAhu;
-  const filters = await prisma.assetInstance.findMany({
-    where: { parentId: { in: ahuIds }, isActive: true, status: { not: 'Retired' }, templateId: { in: templateIds } },
-    select: { id: true, parentId: true },
-  });
-  for (const f of filters) {
-    if (!f.parentId) continue;
-    const list = byAhu.get(f.parentId) ?? [];
-    list.push(f.id);
-    byAhu.set(f.parentId, list);
+export type ReplacementTaskStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED';
+
+export interface EntryProgress {
+  /** The row's filters (the filter in each place today), frozen once it is complete. */
+  memberFilterIds: string[];
+  replacedFilterIds: string[];
+  toReplaceFilterIds: string[];
+  /** The row's Qty today. The uploaded `qty` column stays the approved record. */
+  currentQty: number;
+  computedStatus: ReplacementTaskStatus;
+  /** The row's credits (creditedFiltersByEntry): filter in place → its replacement. */
+  credits: Map<string, ReplacementCredit>;
+}
+
+type TaskEntry = { id: string; ahuId: string; filterMicron: string | null; windowStart: Date; windowEnd: Date; status: string };
+
+/**
+ * THE task rule for each entry — the web list, the tablet tasks, /due, the
+ * cleaning block, the execute check and the export all read it. Batched: one
+ * filter query, one credit walk and one slot walk for any number of entries.
+ */
+export async function evaluateEntries(entries: TaskEntry[], now: Date = new Date()): Promise<Map<string, EntryProgress>> {
+  const out = new Map<string, EntryProgress>();
+  if (entries.length === 0) return out;
+  const today = toDateColumnDay(now).toISOString().slice(0, 10);
+  const [filtersByAhu, credits] = await Promise.all([
+    countedFiltersByAhu([...new Set(entries.map((e) => e.ahuId))]),
+    creditedFiltersByEntry(entries.map((e) => e.id)),
+  ]);
+  // Join times matter only against a window or a credit; follow replacement
+  // links back as far as the earliest of either.
+  let since = dateColumnDayStart(entries[0].windowStart);
+  for (const e of entries) { const s = dateColumnDayStart(e.windowStart); if (s < since) since = s; }
+  for (const m of credits.values()) for (const c of m.values()) if (c.performedAt < since) since = c.performedAt;
+  const slots = await loadFilterSlots([...filtersByAhu.values()].flat(), since);
+
+  for (const e of entries) {
+    const credited = credits.get(e.id) ?? new Map<string, ReplacementCredit>();
+    const candidates = (filtersByAhu.get(e.ahuId) ?? [])
+      .filter((f) => rowCoversMicron(e.filterMicron, f.micron))
+      .map((f) => ({ id: f.id, joinedAt: slots.get(f.id)!.joinedAt, doneAt: credited.get(f.id)?.performedAt ?? null }));
+    const { members, completedAt } = settleMembers(candidates, dateColumnDayEnd(e.windowEnd));
+    // A stored COMPLETED (executeReplacement, when its replacement finished the
+    // row) is terminal, so a row finished before this rule stays finished.
+    const completed = e.status === 'COMPLETED' || completedAt != null;
+    const replaced = members.filter((m) => m.doneAt != null).map((m) => m.id);
+    const ws = e.windowStart.toISOString().slice(0, 10);
+    const we = e.windowEnd.toISOString().slice(0, 10);
+    let computedStatus: ReplacementTaskStatus;
+    if (completed) computedStatus = 'COMPLETED';
+    else if (today > we) computedStatus = 'MISSED';
+    else if (today >= ws) computedStatus = replaced.length > 0 ? 'IN_PROGRESS' : 'DUE';
+    else computedStatus = 'PENDING';
+    out.set(e.id, {
+      memberFilterIds: members.map((m) => m.id),
+      replacedFilterIds: replaced,
+      toReplaceFilterIds: completed ? [] : members.filter((m) => m.doneAt == null).map((m) => m.id),
+      currentQty: members.length,
+      computedStatus,
+      credits: credited,
+    });
   }
-  return byAhu;
+  return out;
 }
 
 /** The replacement an entry is credited with for one filter in place. */
@@ -604,94 +657,24 @@ export async function creditedFiltersByEntry(entryIds: string[]): Promise<Map<st
   return out;
 }
 
-/** The credited filter ids of each entry, as sets (creditedFiltersByEntry). */
-async function creditedIdSets(entryIds: string[]): Promise<Map<string, Set<string>>> {
-  const credits = await creditedFiltersByEntry(entryIds);
-  return new Map([...credits].map(([entryId, m]) => [entryId, new Set(m.keys())]));
-}
-
-/** Replacement progress for a single entry: total AHU filters vs. how many remain. */
-async function ahuReplacementProgress(ahuId: string, entryId: string): Promise<{ total: number; remaining: number }> {
-  const [byAhu, credited] = await Promise.all([activeFilterIdsByAhu([ahuId]), creditedIdSets([entryId])]);
-  const ids = byAhu.get(ahuId) ?? [];
-  const remaining = unreplacedAhuFilterIds(ids, credited.get(entryId) ?? new Set()).length;
-  return { total: ids.length, remaining };
-}
-
-/** Task status for the all-AHU-filters model (window + dynamic remaining count). */
-function deriveTaskStatus(
-  e: { windowStart: Date; windowEnd: Date },
-  remaining: number,
-  total: number,
-  today: string,
-): string {
-  if (total > 0 && remaining === 0) return 'COMPLETED';
-  const ws = e.windowStart.toISOString().slice(0, 10);
-  const we = e.windowEnd.toISOString().slice(0, 10);
-  if (today > we) return 'MISSED';
-  if (today >= ws && today <= we) return remaining < total ? 'IN_PROGRESS' : 'DUE';
-  return 'PENDING';
-}
-
-/** Remaining count + status of one entry under the task rule (credited ids from creditedFiltersByEntry). */
-function taskProgress(
-  e: { windowStart: Date; windowEnd: Date },
-  ahuFilterIds: string[],
-  credited: Set<string>,
-  today: string,
-): { remaining: number; computedStatus: string } {
-  const remaining = unreplacedAhuFilterIds(ahuFilterIds, credited).length;
-  return { remaining, computedStatus: deriveTaskStatus(e, remaining, ahuFilterIds.length, today) };
-}
-
 /**
- * Shared primitive: active AHU filter ids that have NOT yet been replaced
- * under a given entry. Used by both `blockedEntryFilterIds` (the gate) and
- * `listTaskEntries` (the "replaced X of Y" progress) so the two cannot drift.
+ * Approved entries that can block cleaning: window closed, not stored COMPLETED.
+ * Only a MISSED row blocks; evaluateEntries decides which of these are.
  */
-function unreplacedAhuFilterIds(ahuFilterIds: string[], replacedNewFilterIds: Set<string>): string[] {
-  return ahuFilterIds.filter((id) => !replacedNewFilterIds.has(id));
+function closedOpenEntriesWhere(extra: Record<string, unknown> = {}) {
+  return { approvalStatus: 'APPROVED' as const, status: { not: 'COMPLETED' as const }, windowEnd: { lt: toDateColumnDay(new Date()) }, ...extra };
 }
 
 /**
- * Blocked filter ids for ONE overdue entry: every active AHU filter that has not
- * yet been replaced under it. Returns [] when the entry is not overdue (MISSED),
- * so it composes cleanly with the sweep. Built on `unreplacedAhuFilterIds`, the
- * same primitive `listTaskEntries` uses, so the gate and the "replaced X of Y"
- * progress cannot drift.
- */
-function blockedEntryFilterIds(
-  entry: { windowStart: Date; windowEnd: Date },
-  ahuFilterIds: string[],
-  replacedNewFilterIds: Set<string>,
-  today: string,
-): string[] {
-  const total = ahuFilterIds.length;
-  const unreplaced = unreplacedAhuFilterIds(ahuFilterIds, replacedNewFilterIds);
-  const remaining = unreplaced.length;
-  if (deriveTaskStatus(entry, remaining, total, today) !== 'MISSED') return [];
-  return unreplaced;
-}
-
-/**
- * The full set of filter ids blocked from STARTING a cleaning cycle because
- * their AHU has an overdue (MISSED) replacement entry and they are not yet
- * replaced. Union across all overdue entries.
+ * The full set of filter ids blocked from STARTING a cleaning cycle: the filters
+ * an overdue (MISSED) row still has to replace. A filter added to the AHU after
+ * the row's window closed is not one of them (2026-10-26). Union across rows.
  */
 export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
-  const today = todayLocalDateOnly();
-  const entries = await prisma.replacementScheduleEntry.findMany({
-    where: { approvalStatus: 'APPROVED' },
-  });
-  if (entries.length === 0) return new Set();
-  const ahuIds = [...new Set(entries.map((e) => e.ahuId))];
-  const entryIds = entries.map((e) => e.id);
-  const [filtersByAhu, creditedByEntry] = await Promise.all([activeFilterIdsByAhu(ahuIds), creditedIdSets(entryIds)]);
+  const entries = await prisma.replacementScheduleEntry.findMany({ where: closedOpenEntriesWhere() });
   const blocked = new Set<string>();
-  for (const e of entries) {
-    const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
-    const replaced = creditedByEntry.get(e.id) ?? new Set<string>();
-    for (const id of blockedEntryFilterIds(e, ahuFilterIds, replaced, today)) blocked.add(id);
+  for (const p of (await evaluateEntries(entries)).values()) {
+    if (p.computedStatus === 'MISSED') for (const id of p.toReplaceFilterIds) blocked.add(id);
   }
   return blocked;
 }
@@ -703,59 +686,43 @@ export async function blockedFilterIdsForCleaning(): Promise<Set<string>> {
 export async function isFilterBlockedForCleaning(filterId: string): Promise<boolean> {
   const filter = await prisma.assetInstance.findUnique({ where: { id: filterId }, select: { parentId: true } });
   if (!filter?.parentId) return false;
-  const today = todayLocalDateOnly();
-  const entries = await prisma.replacementScheduleEntry.findMany({
-    where: { approvalStatus: 'APPROVED', ahuId: filter.parentId },
-  });
-  if (entries.length === 0) return false;
-  const [filtersByAhu, creditedByEntry] = await Promise.all([
-    activeFilterIdsByAhu([filter.parentId]),
-    creditedIdSets(entries.map((e) => e.id)),
-  ]);
-  const ahuFilterIds = filtersByAhu.get(filter.parentId) ?? [];
-  for (const e of entries) {
-    const replaced = creditedByEntry.get(e.id) ?? new Set<string>();
-    if (blockedEntryFilterIds(e, ahuFilterIds, replaced, today).includes(filterId)) return true;
+  const entries = await prisma.replacementScheduleEntry.findMany({ where: closedOpenEntriesWhere({ ahuId: filter.parentId }) });
+  for (const p of (await evaluateEntries(entries)).values()) {
+    if (p.computedStatus === 'MISSED' && p.toReplaceFilterIds.includes(filterId)) return true;
   }
   return false;
 }
 
 /**
- * Tablet task list — ALL approved entries (every status), each carrying live
- * AHU-filter progress so the page can group into Pending / Completed and the
- * detail can show "remaining of total". Batched lookups (one filter query, one
- * execution query) keep it to O(1) round-trips regardless of entry count.
- * `qty`/`qtyRemaining` are aliased to total/remaining for the existing FE fields.
+ * Tablet task list — ALL approved entries (every status), each with its progress
+ * so the page can group into Pending / Completed and show "remaining of total".
+ * `toReplaceFilterIds` is the list the operator picks from and `memberFilterIds`
+ * every filter the row covers (2026-10-26), so the tablet never re-derives the
+ * micron rule. `qty`/`qtyRemaining` are aliased to total/remaining for the
+ * existing FE fields.
  */
 export async function listTaskEntries() {
-  const today = todayLocalDateOnly();
   const entries = await prisma.replacementScheduleEntry.findMany({
     // A-F7 (2026-09-25): see listDueEntries — no task for a soft-deleted AHU.
     where: { approvalStatus: 'APPROVED', ahuId: { in: await activeAhuIds() } },
     orderBy: [{ windowEnd: 'asc' }, { slNo: 'asc' }],
   });
   if (entries.length === 0) return [];
-
-  const ahuIds = [...new Set(entries.map((e) => e.ahuId))];
-  const entryIds = entries.map((e) => e.id);
-  const [filtersByAhu, creditedByEntry] = await Promise.all([activeFilterIdsByAhu(ahuIds), creditedIdSets(entryIds)]);
-
+  const progress = await evaluateEntries(entries);
   return entries.map((e) => {
-    const ahuFilterIds = filtersByAhu.get(e.ahuId) ?? [];
-    const newIds = creditedByEntry.get(e.id) ?? new Set<string>();
-    // The AHU's filters credited to this entry (the tablet drops them from its
-    // "to replace" list); a retired filter is never in it.
-    const replacedNewFilterIds = ahuFilterIds.filter((id) => newIds.has(id));
-    const total = ahuFilterIds.length;
-    const remaining = unreplacedAhuFilterIds(ahuFilterIds, newIds).length;
-    const computedStatus = deriveTaskStatus(e, remaining, total, today);
+    const p = progress.get(e.id)!;
+    const total = p.currentQty;
+    const remaining = p.toReplaceFilterIds.length;
     return {
       ...e,
       total,
       remaining,
-      replaced: total - remaining,
-      replacedNewFilterIds,
-      computedStatus,
+      replaced: p.replacedFilterIds.length,
+      // The row's filters credited to it (the tablet drops them from its list).
+      replacedNewFilterIds: p.replacedFilterIds,
+      toReplaceFilterIds: p.toReplaceFilterIds,
+      memberFilterIds: p.memberFilterIds,
+      computedStatus: p.computedStatus,
       // FE-compat aliases (mobile-wrapper reads qty / qtyRemaining).
       qty: total,
       qtyRemaining: remaining,

@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { COUNTED_FILTER_WHERE } from '../assets/filter-workflow.js';
 import { AppError } from '../../lib/errors.js';
 import { dateColumnDayStart, dateColumnDayEnd } from '../../lib/date-range-guard.js';
+import { loadFilterSlots, settleMembers } from '../assets/filter-slots.js';
 
 /**
  * The `pm-schedule-settings` value, unwrapped. Every site stores it flat
@@ -155,6 +156,102 @@ export async function loadCountedFilters(ahuIds: string[]): Promise<Map<string, 
     if (mode === 'SET_A') filters = filters.filter((f) => f.filterSet === 'SET_A');
     else if (mode === 'SET_B') filters = filters.filter((f) => f.filterSet === 'SET_B');
     out.set(a.id, { ahuId: a.id, ahuName: a.name, mode, filters: filters.map((f) => ({ id: f.id, name: f.name })) });
+  }
+  return out;
+}
+
+export interface PmVisitMember {
+  /** The filter in this place today. */
+  id: string;
+  name: string;
+  /** Its PM cleaning for this visit (the earliest since the window opened, on it or a filter it replaced), or null. */
+  doneAt: Date | null;
+  /** This filter, then the filters it replaced (newest first). */
+  lineage: string[];
+}
+
+export interface PmVisitProgress {
+  ahu: CountedAhu;
+  /** The visit's filters (operator rule 2026-10-26): frozen once it is complete. */
+  members: PmVisitMember[];
+  /** When the visit was complete; null while it is not. */
+  completedAt: Date | null;
+}
+
+/**
+ * THE PM "done" rule (2026-10-26) — My Tasks, the missed-PM gate (and so the
+ * tablet's cache of it) and the deviation sweep all read it.
+ *
+ * A visit covers the AHU's counted filters (loadCountedFilters: approved, live,
+ * the AHU's filter-set mode), kept in step with the AHU like a replacement row
+ * (assets/filter-slots.ts): a filter added later joins a visit that is not done
+ * and whose window has not closed; a retired one leaves it; a replacement takes
+ * the old filter's place, so the old filter's PM cleaning still counts for that
+ * place. A visit is done when every member has a PM cleaning since its window
+ * opened (a closed window takes a late one), and a done visit is frozen: a
+ * filter added afterwards does not reopen it. Before this a filter added to an
+ * AHU turned every finished visit back into "pending" or "overdue", and an
+ * overdue visit demanded filters fitted after its window closed.
+ *
+ * `pmReasonKeys`: resolvePmReasonKeys() (null = any reason counts).
+ */
+export async function settlePmVisits(
+  entries: Array<{ id: string; ahuId: string; windowStart: Date; windowEnd: Date }>,
+  pmReasonKeys: Set<string> | null,
+  now: Date = new Date(),
+): Promise<Map<string, PmVisitProgress>> {
+  const out = new Map<string, PmVisitProgress>();
+  if (entries.length === 0) return out;
+  const counted = await loadCountedFilters([...new Set(entries.map((e) => e.ahuId))]);
+  const filterIds = [...counted.values()].flatMap((a) => a.filters.map((f) => f.id));
+  const since = entries.reduce((min, e) => {
+    const { opensAt } = pmWindowBounds(e);
+    return opensAt < min ? opensAt : min;
+  }, pmWindowBounds(entries[0]).opensAt);
+  const rows = filterIds.length
+    ? await prisma.assetInstance.findMany({ where: { id: { in: filterIds } }, select: { id: true, parentId: true, createdAt: true, approvedAt: true } })
+    : [];
+  const slots = await loadFilterSlots(rows, since);
+  const lineageIds = [...new Set([...slots.values()].flatMap((s) => s.lineage))];
+  const cycles = lineageIds.length
+    ? await prisma.cleaningCycle.findMany({
+        where: {
+          filterId: { in: lineageIds }, status: 'COMPLETED', completedAt: { gte: since },
+          ...(pmReasonKeys ? { cleaningReasonKey: { in: [...pmReasonKeys] } } : {}),
+        },
+        select: { filterId: true, completedAt: true },
+      })
+    : [];
+  const completionsByFilter = new Map<string, Date[]>();
+  for (const c of cycles) {
+    if (!c.completedAt) continue;
+    const list = completionsByFilter.get(c.filterId) ?? [];
+    list.push(c.completedAt);
+    completionsByFilter.set(c.filterId, list);
+  }
+
+  for (const e of entries) {
+    const ahu = counted.get(e.ahuId);
+    if (!ahu) continue;
+    const { opensAt, closesAt } = pmWindowBounds(e);
+    // An open window takes cleanings inside it; a closed one also a late one.
+    const windowClosed = now >= closesAt;
+    const candidates = ahu.filters.map((f) => {
+      const slot = slots.get(f.id) ?? { joinedAt: new Date(0), lineage: [f.id] };
+      let doneAt: Date | null = null;
+      for (const id of slot.lineage) {
+        for (const at of completionsByFilter.get(id) ?? []) {
+          if (at >= opensAt && (windowClosed || at < closesAt) && (!doneAt || at < doneAt)) doneAt = at;
+        }
+      }
+      return { id: f.id, name: f.name, joinedAt: slot.joinedAt, doneAt, lineage: slot.lineage };
+    });
+    const { members, completedAt } = settleMembers(candidates, closesAt);
+    out.set(e.id, {
+      ahu,
+      members: members.map(({ id, name, doneAt, lineage }) => ({ id, name, doneAt, lineage })),
+      completedAt,
+    });
   }
   return out;
 }

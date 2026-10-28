@@ -735,7 +735,23 @@ place today. The tablet `/tasks`, the cleaning block (`/blocked-filters`, start-
 check, `/due` and the web list all read it. Never count "newFilterId is still active" again: a second
 replacement of the same slot (another micron row of the AHU, or the Filters page) erased the first row's
 credit, blocked the AHU from cleaning and sent operators to swap filters fitted minutes earlier. Guard:
-`workflow-tasks.coverage.test.ts` "two schedule rows on one AHU".
+`workflow-tasks.coverage.test.ts` "rows on one AHU".
+
+🔴 **Replacement rows and PM visits: Qty follows the AHU (operator rule 2026-10-26).** A replacement row
+covers its MICRON's approved filters in the AHU (dimensions are information only; was every filter of the
+AHU, 2026-06-15); a PM visit covers the AHU's counted filters. ONE membership rule for both
+(`assets/filter-slots.ts`): a filter's place joins the AHU when it is created / moved in / restored (the
+AHU → filter CONTAINS row) or approved, the latest; a filter made by a replacement inherits the old one's join
+time (FILTER_REPLACED links). `settleMembers`: members = places that joined before the window CLOSED and
+before the entry was COMPLETE (the earliest moment every member joined by then was done). So: added → +1 on
+future / pending / in-window entries; retired or deleted → −1 (overdue too); replaced → no change; overdue →
+takes no new filter and never blocks it; completed → frozen. Computed live, no migration: the uploaded `qty`
+column stays the approved record and the API serves `currentQty` (replacement: `evaluateEntries` — list,
+tablet `toReplaceFilterIds`, `/due`, cleaning block, execute, export; PM: `settlePmVisits` — My Tasks, the
+missed-PM gate + tablet cache, the sweep's open AND close). A visit with no filters of its own is never done
+(overdue 0/0; closes only by write-off). Never count "every active filter of the AHU today" again. Guards:
+`workflow-tasks.coverage.test.ts` "Qty follows the AHU", `e2e/pm-visit-follows-ahu.test.ts`,
+`assets/__tests__/filter-slots.test.ts`.
 
 ## Missed-PM gate: "previous scheduled task is pending" (2026-08-27)
 
@@ -782,8 +798,9 @@ windowEnd`). Without the gate, the April cleaning silently marks March done too
 - Files: `pm-schedules/pm-pending-tasks.ts` (detection + write-off),
   `components/pm-pending-tasks-dialog.tsx` (ONE dialog for web + tablet).
 - 🔴 **One "done" rule, one "in force" rule (2026-10-21, operator decisions D2/D4b).** A visit is
-  done only when EVERY counted filter (`loadCountedFilters`, honours `pmFilterSetMode`) has a PM
-  cleaning since its window opened — My Tasks, the sweep and this gate. A visit is an obligation
+  done only when EVERY one of its filters (`settlePmVisits` since 2026-10-26: the counted filters of
+  `loadCountedFilters`, honours `pmFilterSetMode`, kept in step with the AHU — see "Qty follows the
+  AHU") has a PM cleaning since its window opened — My Tasks, the sweep and this gate. A visit is an obligation
   when `PM_ENTRY_IN_FORCE` (`pm-shared.ts`): APPROVED, or an approved visit whose date change awaits
   sign-off. Rejecting such a change discards only the change; the visit stays APPROVED. Never filter
   obligations on `approvalStatus: 'APPROVED'` alone, and use it as `AND: [PM_ENTRY_IN_FORCE]` (it

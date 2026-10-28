@@ -1,3 +1,41 @@
+# REPLACEMENT + PM: Qty follows the AHU (operator 2026-10-26, "go")
+
+Operator rule (agreed table): match on MICRON ONLY (dimensions = info). A filter of that micron
+ADDED → Qty +1 on future / pending / in-window rows; RETIRED or DELETED → Qty −1 (overdue rows too,
+or they could never finish); REPLACED → no change (new filter takes the old one's place). OVERDUE
+rows take no new filters (and never block them). COMPLETED rows are frozen. PM the same, by the AHU's
+counted filters (no micron). A new filter counts once APPROVED.
+
+Design: ONE membership rule, computed live (no migration, no stored Qty change):
+- a filter's SLOT joins the AHU when it is created / moved in / approved (latest); a filter made by a
+  replacement inherits the join time of the filter it replaced (FILTER_REPLACED links, like credit);
+- an entry's members = counted slots that joined before its window closed (local midnight after the
+  last day) AND before it was complete — completion = the earliest moment every member that had
+  joined by then was done (replacement: credited; PM: PM-cleaned since the window opened, any filter
+  of the slot). One pure function (`settleMembers`, assets/filter-slots.ts) for both.
+- uploaded `qty` stays as the approved record; the API serves `currentQty`.
+
+Touchpoints:
+- [x] assets/filter-slots.ts (new): slot join times + lineage, settleMembers (pure, unit-tested)
+- [x] replacement service: members per micron (counted = approved only), listSchedules, listTaskEntries
+      (+ toReplaceFilterIds / memberFilterIds), listDueEntries, blocked set + single check (start-cycle),
+      assertCanExecuteReplacement (other micron / joined late → 409 before signature; ALREADY_COMPLETE
+      per row), executeReplacement completion, upload validation micron-only (dimensions optional)
+- [x] replacement export.ts: current Qty + replaced
+- [x] web replacement-schedule.tsx: Qty column, AHU filter lines only for rows the filter belongs to,
+      PDF export; tablet mobile-wrapper.tsx: list + scan use toReplaceFilterIds
+- [x] PM: settlePmVisits (pm-shared) → My Tasks, missed-PM gate (+ tablet cache map), deviation sweep
+      open + close (close no longer stuck on a replaced / retired filter in dev.filterIds)
+- [x] Tests (fail-first): overdue + new filter; overdue + retire; overdue + replace under task;
+      pending + same / other micron; completed + new filter; PM completed visit + new filter;
+      PM overdue + new filter; sweep closes after a member is replaced. Rewrite all-AHU tests on purpose.
+- [x] tsc (api + web), web build, read-only live-data check (AHU-01 µ1 blocks 3 not 6), browser check on a
+      throwaway demo-DB copy (:3911, dropped); full API + web suites — see the session report
+- [x] Found on the way: start-cycle gate test fixture; P-1 flake root cause (batch-preload, Prisma findUnique batching)
+- [x] APK rebuilt 2026-10-27 (sha 83be0cbf…, blank server address, same signing key) — uncommitted
+- [ ] Operator: commit when asked; push; rebuild Setup
+- [x] Docs: CLAUDE.md replacement section, CHANGELOG, stale "All-AHU-filters" comments, memory
+
 # SUPER ADMIN — "own work not held" (operator 2026-10-24)
 
 Operator: "remove all interlocks or anything to super admin" → chose ONLY tier 1 of 4 (AskUserQuestion):

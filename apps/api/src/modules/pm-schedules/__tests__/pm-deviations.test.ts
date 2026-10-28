@@ -7,7 +7,9 @@ vi.mock('../../../lib/prisma.js', () => ({
     systemConfig: { findUnique: vi.fn() },
     pmScheduleEntry: { findMany: vi.fn() },
     assetInstance: { findMany: vi.fn() },
-    cleaningCycle: { groupBy: vi.fn() },
+    assetRelationship: { findMany: vi.fn() },
+    $queryRaw: vi.fn(),
+    cleaningCycle: { groupBy: vi.fn(), findMany: vi.fn() },
     filterEvent: { findFirst: vi.fn() },
     user: { findUnique: vi.fn() },
     deviation: { create: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -37,8 +39,13 @@ const P = prisma as any;
 // assetInstance.findMany is called twice in loadCountedFilters (Promise.all):
 // once for the AHUs (where.id) and once for child filters (where.parentId).
 // Route by the where shape so order-independence holds.
+// settlePmVisits (the shared done rule) also reads each filter's join time
+// (select createdAt): the filters were fitted long before every window here.
 function wireAhuWithFilters(ahu: { id: string; name: string; mode?: string }, filters: { id: string; name: string; filterSet?: string | null }[]) {
   P.assetInstance.findMany.mockImplementation(async (args: any) => {
+    if (args?.select?.createdAt) {
+      return filters.map((f) => ({ id: f.id, parentId: ahu.id, createdAt: new Date('2020-01-01'), approvedAt: null }));
+    }
     if (args?.where?.parentId) {
       return filters.map((f) => ({ id: f.id, name: f.name, parentId: ahu.id, filterDetails: { filterSet: f.filterSet ?? null } }));
     }
@@ -61,12 +68,22 @@ function wireEntries(rows: any[]) {
   });
 }
 
+// PM cleanings, as both readers ask for them: the visit rule (settlePmVisits,
+// cleaningCycle.findMany) and the fallback for a deviation whose visit is gone
+// (latestCleanMap, cleaningCycle.groupBy).
+function wireCleanings(rows: { filterId: string; _max: { completedAt: Date } }[]) {
+  P.cleaningCycle.groupBy.mockResolvedValue(rows);
+  P.cleaningCycle.findMany.mockResolvedValue(rows.map((r) => ({ filterId: r.filterId, completedAt: r._max.completedAt })));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  P.assetRelationship.findMany.mockResolvedValue([]);
+  P.$queryRaw.mockResolvedValue([]);
   P.systemConfig.findUnique.mockResolvedValue({ configValue: {} }); // → default ['ADMIN']
   wireEntries([]);
   P.deviation.findMany.mockResolvedValue([]);
-  P.cleaningCycle.groupBy.mockResolvedValue([]);
+  wireCleanings([]);
   P.assetInstance.findMany.mockResolvedValue([]);
   P.deviation.update.mockResolvedValue({});
   (resolvePmReasonKeys as any).mockResolvedValue(null); // default: legacy any-reason fallback
@@ -103,7 +120,7 @@ describe('sweepOverdueDeviations — OPEN', () => {
   it('opens a deviation + fires one overdue notification when filters are not all cleaned', async () => {
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }, { id: 'f2', name: 'F2' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([]); // nothing cleaned → overdue
+    wireCleanings([]); // nothing cleaned → overdue
     P.deviation.create.mockResolvedValue({ id: 'dev-1', deviationNumber: 'DEV-000001', scheduledDate: entry.plannedDate, pmScheduleEntryId: 'entry-1' });
 
     const r = await sweepOverdueDeviations();
@@ -121,7 +138,7 @@ describe('sweepOverdueDeviations — OPEN', () => {
   it('is idempotent — a unique-violation (P2002) on create opens nothing and sends no notification', async () => {
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([]);
+    wireCleanings([]);
     P.deviation.create.mockRejectedValue({ code: 'P2002' });
 
     const r = await sweepOverdueDeviations();
@@ -132,7 +149,7 @@ describe('sweepOverdueDeviations — OPEN', () => {
   it('does NOT open a deviation when all counted filters are already cleaned', async () => {
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([{ filterId: 'f1', _max: { completedAt: new Date('2026-05-20') } }]);
+    wireCleanings([{ filterId: 'f1', _max: { completedAt: new Date('2026-05-20') } }]);
 
     const r = await sweepOverdueDeviations();
     expect(r.opened).toBe(0);
@@ -153,24 +170,24 @@ describe('sweepOverdueDeviations — OPEN', () => {
     (resolvePmReasonKeys as any).mockResolvedValue(new Set(['PM']));
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([]);
+    wireCleanings([]);
     P.deviation.create.mockResolvedValue({ id: 'dev-1', deviationNumber: 'DEV-000001', scheduledDate: entry.plannedDate, pmScheduleEntryId: 'entry-1' });
 
     await sweepOverdueDeviations();
     // The DB query itself must carry the reason filter — a non-PM clean can then
     // never land in latestCleanMap and can never suppress the deviation.
-    expect(P.cleaningCycle.groupBy.mock.calls[0][0].where.cleaningReasonKey).toEqual({ in: ['PM'] });
+    expect(P.cleaningCycle.findMany.mock.calls[0][0].where.cleaningReasonKey).toEqual({ in: ['PM'] });
   });
 
   it('applies NO reason filter when no PM reason is configured (legacy fallback)', async () => {
     (resolvePmReasonKeys as any).mockResolvedValue(null);
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([]);
+    wireCleanings([]);
     P.deviation.create.mockResolvedValue({ id: 'dev-1', deviationNumber: 'DEV-1', scheduledDate: entry.plannedDate, pmScheduleEntryId: 'entry-1' });
 
     await sweepOverdueDeviations();
-    expect(P.cleaningCycle.groupBy.mock.calls[0][0].where.cleaningReasonKey).toBeUndefined();
+    expect(P.cleaningCycle.findMany.mock.calls[0][0].where.cleaningReasonKey).toBeUndefined();
   });
 });
 
@@ -186,7 +203,7 @@ describe('sweepOverdueDeviations — blocked re-occurrence (P2002 on a CLOSED de
   beforeEach(() => {
     wireEntries([entry]);
     wireAhuWithFilters({ id: 'ahu-1', name: 'AHU-02' }, [{ id: 'f1', name: 'F1' }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([]); // nothing cleaned → overdue
+    wireCleanings([]); // nothing cleaned → overdue
     P.deviation.create.mockRejectedValue({ code: 'P2002' });
   });
 
@@ -233,7 +250,7 @@ describe('sweepOverdueDeviations — blocked re-occurrence (P2002 on a CLOSED de
       overdueDaysAtOpen: 12, acknowledgedBy: 'u1', acknowledgedByName: 'operator1', completionNotifiedAt: null,
     }]);
     // f9 is PM-cleaned → the open deviation dev-2 closes despite entry-1 blocking.
-    P.cleaningCycle.groupBy.mockResolvedValue([{ filterId: 'f9', _max: { completedAt: new Date('2026-06-03') } }]);
+    wireCleanings([{ filterId: 'f9', _max: { completedAt: new Date('2026-06-03') } }]);
 
     const r = await sweepOverdueDeviations();
     expect(r.blocked).toBe(1);
@@ -248,7 +265,7 @@ describe('sweepOverdueDeviations — CLOSE', () => {
       filterIds: ['f1'], scheduledDate: new Date('2026-05-22'), windowStart: new Date('2026-05-13'),
       overdueDaysAtOpen: 12, acknowledgedBy: 'u1', acknowledgedByName: 'operator1', completionNotifiedAt: null,
     }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([{ filterId: 'f1', _max: { completedAt: new Date('2026-06-03') } }]);
+    wireCleanings([{ filterId: 'f1', _max: { completedAt: new Date('2026-06-03') } }]);
 
     const r = await sweepOverdueDeviations();
     expect(r.closed).toBe(1);
@@ -265,7 +282,7 @@ describe('sweepOverdueDeviations — CLOSE', () => {
       scheduledDate: new Date('2026-05-22'), windowStart: new Date('2026-05-13'), overdueDaysAtOpen: 12,
       acknowledgedBy: null, completionNotifiedAt: null,
     }]);
-    P.cleaningCycle.groupBy.mockResolvedValue([{ filterId: 'f1', _max: { completedAt: new Date('2026-06-03') } }]); // only f1
+    wireCleanings([{ filterId: 'f1', _max: { completedAt: new Date('2026-06-03') } }]); // only f1
     P.filterEvent.findFirst.mockResolvedValue(null);
 
     const r = await sweepOverdueDeviations();

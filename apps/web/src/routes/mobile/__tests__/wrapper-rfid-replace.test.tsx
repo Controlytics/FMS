@@ -648,6 +648,28 @@ describe('Replacement tasks — performing one', () => {
     expect(screen.getByText('2 of 3 filters still to replace')).toBeInTheDocument();
   });
 
+  // 2026-10-26: the server lists the filters the task still has to replace (its
+  // micron, kept in step with the AHU — toReplaceFilterIds). The tablet offers
+  // exactly those and names why a scanned filter of the AHU is not one of them.
+  it('with the server\'s list only the task\'s filters are offered; a scanned filter of another micron, or added after the window closed, is refused by name', async () => {
+    const F106 = { id: 'f106', name: 'F-106', templateId: 'tpl-filter', parentId: 'h1', attributes: { micronSize: '5' } };
+    const F107 = { id: 'f107', name: 'F-107', templateId: 'tpl-filter', parentId: 'h1', attributes: { micronSize: '0.3' } };
+    const { api } = await openTasks({
+      instances: [...INSTANCES, F106, F107],
+      identifiers: [...IDENTIFIERS, tag('i11', 'E200A6', F106), tag('i12', 'E200A7', F107)],
+      replTasks: [{ ...RT_DUE, toReplaceFilterIds: ['f101', 'f102'], memberFilterIds: ['f101', 'f102', 'f999'] }],
+    });
+    fireEvent.click(taskButton('AHU-01'));
+    expect(await screen.findByText('Scan filter to select')).toBeInTheDocument();
+    expect(listed()).toEqual(['F-101', 'F-102']);
+    await scanTag('E200A6');
+    expect(screen.getByText('F-106 is micron 5 — this task replaces the micron 0.3 filters of AHU-01.')).toBeInTheDocument();
+    await scanTag('E200A7');
+    expect(screen.getByText("F-107 was added to AHU-01 after this task's window closed, so it is not part of this task.")).toBeInTheDocument();
+    expect(listed()).toEqual(['F-101', 'F-102']); // nothing selected or pinned
+    expect(api.calls('POST', '/api/replacement-schedules/entries/rt1/execute')).toHaveLength(0);
+  });
+
   // 2026-10-24: the open task is read from the latest /tasks, not the snapshot
   // taken when it was opened. After a batch that partly failed, the snapshot still
   // offered the filter just replaced (the server now refuses it, 409

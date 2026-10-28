@@ -4,6 +4,11 @@
 **Branch:** RFID
 **Status:** IMPLEMENTED 2026-07-16 (commits `60f2c55`..`a236bd7`) — device verification pending
 
+> **Scope superseded 2026-10-26 (operator rule "Qty follows the AHU"):** an overdue row blocks only the
+> filters IT covers — its micron's approved filters that were in the AHU before its window closed
+> (`evaluateEntries`, `replacement-schedule/service.ts`; `assets/filter-slots.ts`). The "whole AHU, any
+> micron" scope below is history. See CHANGELOG 2026-10-26.
+
 > **Implemented.** Server helpers + `/blocked-filters` endpoint + `start-cycle`
 > gate (replay-exempt, via dynamic import to avoid a circular dependency) +
 > `validateOfflineGate.replacementBlocked` + tablet cache/wiring + APK. Full API

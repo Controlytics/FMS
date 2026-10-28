@@ -1,5 +1,8 @@
 # AHU Overdue-Replacement Cleaning Gate — Implementation Plan
 
+> **Scope superseded 2026-10-26:** the blocked set is per row and micron now, not the whole AHU
+> (`evaluateEntries`; CHANGELOG 2026-10-26). `activeFilterIdsByAhu` / `deriveTaskStatus` named below no longer exist.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Block STARTING a new cleaning cycle on any active filter under an AHU whose replacement task is overdue, until that specific filter is replaced — enforced online (authoritative server gate) and offline (cached blocked-filter set on the tablet).

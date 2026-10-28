@@ -91,14 +91,18 @@ describe('POST /:id/start-cycle — AHU overdue-replacement gate', () => {
 
   const createdFilterIds: string[] = [];
 
-  /** A filter bound to the given FilterProfile, parented to `parentId`. */
+  /**
+   * A filter bound to the given FilterProfile, parented to `parentId`. Fitted
+   * before the overdue row's window closed: an overdue row covers only the
+   * filters that were in the AHU by then (evaluateEntries, 2026-10-26).
+   */
   async function makeFilter(parentId: string | undefined, label: string): Promise<string> {
     const id = (await prisma.assetInstance.create({
       data: {
         name: `SCG-${label}-${SUFFIX}`,
         templateId: filterTemplateId,
         ...(parentId ? { parentId } : {}),
-        isActive: true, status: 'Active',
+        isActive: true, status: 'Active', createdAt: dayISO(-60),
       },
     })).id;
     await prisma.filterDetails.create({

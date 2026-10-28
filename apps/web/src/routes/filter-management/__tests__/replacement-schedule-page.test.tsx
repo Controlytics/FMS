@@ -169,6 +169,41 @@ describe('Replacement Schedule page — table', () => {
     expect(within(await screen.findByText('NEW-1').then((el) => el.closest('tr')!)).getByText('No approved replacement')).toBeInTheDocument();
   });
 
+  // 2026-10-26: a row covers its micron's filters, kept in step with the AHU.
+  // The table shows today's Qty (the uploaded one under it when they differ),
+  // the PDF prints today's, and a filter gets a line only for its own rows.
+  it('Qty is today\'s (uploaded shown beside it when different); each filter is listed only on the rows it belongs to', async () => {
+    const rows = [
+      { id: 'q1', ahuName: 'CWH', ahuId: 'cwh', filterMicron: '1', filterSize: '610', qty: 3, currentQty: 4, scheduleDate: '2026-12-01T00:00:00Z', toleranceDays: 7, computedStatus: 'PENDING', approvalStatus: 'APPROVED',
+        memberFilterIds: ['m1', 'm2', 'm3', 'm4'], replacements: [] },
+      { id: 'q2', ahuName: 'CWH', ahuId: 'cwh', filterMicron: '15', filterSize: '610', qty: 2, currentQty: 2, scheduleDate: '2026-12-02T00:00:00Z', toleranceDays: 7, computedStatus: 'PENDING', approvalStatus: 'APPROVED',
+        memberFilterIds: ['x1', 'x2'], replacements: [{ filterId: 'x1', performedAt: '2026-11-20T06:00:00Z' }] },
+    ];
+    const api = setup([
+      { path: /\/api\/hierarchy\/filters\?ahuId=cwh/, body: { data: [
+        { id: 'm1', name: 'CWH-M1', attributes: { micronSize: '1' } },
+        { id: 'x1', name: 'CWH-X1', attributes: { micronSize: '15' } },
+        { id: 'late', name: 'CWH-LATE', attributes: { micronSize: '1' } },
+      ] } },
+    ], {}, { data: [{ id: 's8', uploadedByName: 'uploader', createdAt: '2026-10-01T10:00:00Z', entries: rows }] });
+    renderPage(<ReplacementSchedulePage />, { user: SA, api });
+    const oneMicron = (await screen.findAllByText('PENDING')).map((el) => el.closest('tr')!)[0] as HTMLElement;
+    expect(oneMicron).toHaveTextContent('4');
+    expect(within(oneMicron).getByText('(uploaded 3)')).toBeInTheDocument();
+    expect(screen.getAllByText(/^\(uploaded /)).toHaveLength(1); // the 15 µm row's Qty did not change
+
+    fireEvent.click(screen.getByRole('button', { name: 'CWH' }));
+    expect(await screen.findByText('CWH-M1')).toBeInTheDocument();
+    // One row each: no "Micron … ·" prefix, and the other micron's row is not listed.
+    expect(within(rowOf('CWH-M1')).getByText('Pending')).toBeInTheDocument();
+    expect(within(rowOf('CWH-M1')).queryByText(/^Micron /)).toBeNull();
+    expect(within(rowOf('CWH-X1')).getByText(/^Completed · /)).toBeInTheDocument();
+    expect(within(rowOf('CWH-X1')).queryByText('Pending')).toBeNull();
+    // A filter none of the rows covers (added after its row closed, or another micron).
+    expect(within(rowOf('CWH-LATE')).getByText('No approved replacement')).toBeInTheDocument();
+    expect(api.unmatched).toEqual([]);
+  });
+
   it('with the per-role filter feature off, AHU names are plain text and identifiers are not fetched', async () => {
     const api = setup([], {}, SCHEDULES, false);
     renderPage(<ReplacementSchedulePage />, { user: SA, api });

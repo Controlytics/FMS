@@ -62,8 +62,15 @@ async function newAhu(tag: string) {
   extraAhus.push(id);
   return id;
 }
-async function filterUnder(ahuId: string, tag: string) {
-  const f = await prisma.assetInstance.create({ data: { name: `cvoW${S}-${tag}-00`, templateId: hier!.filterTemplateId, parentId: ahuId, status: 'Active' } });
+// A filter of the entries' micron (10), fitted long ago like a real installed
+// filter: a row covers its micron's filters that were in the AHU before its
+// window closed (evaluateEntries, 2026-10-26). `opts` makes one of another
+// micron, or one added later.
+async function filterUnder(ahuId: string, tag: string, opts: { micron?: string; installedAt?: Date } = {}) {
+  const f = await prisma.assetInstance.create({ data: {
+    name: `cvoW${S}-${tag}-00`, templateId: hier!.filterTemplateId, parentId: ahuId, status: 'Active',
+    attributes: { micronSize: opts.micron ?? '10' }, createdAt: opts.installedAt ?? day(-400),
+  } });
   filterIds.push(f.id);
   return f.id;
 }
@@ -388,7 +395,7 @@ describe('task reads', () => {
     E.review = await entry(ahuT, { approvalStatus: 'PENDING_REVIEW' });
     // qtyReplaced says done, but no filter of the AHU was replaced for it.
     E.counter = await entry(ahuT, { approvalStatus: 'APPROVED', qty: 2, qtyReplaced: 2 });
-    // Progress under the all-AHU-filters model: fA replaced (newFilterId = fA) for E.inprog, both for E.done.
+    // Progress (fA and fB are the micron-10 filters the rows cover): fA replaced (newFilterId = fA) for E.inprog, both for E.done.
     await prisma.replacementExecution.createMany({ data: [
       { entryId: E.inprog, oldFilterId: randomUUID(), newFilterId: fA, performedBy: ids.rpl },
       { entryId: E.done, oldFilterId: randomUUID(), newFilterId: fA, performedBy: ids.rpl },
@@ -587,7 +594,7 @@ describe('POST /entries/:id/execute', () => {
 // the Filters page — took the count away: on CWH/RDU the micron-1 row read 1 of 6
 // after 7 replacements, a filter fitted five minutes earlier was swapped again
 // because the tablet asked for it, and the AHU was blocked from cleaning.
-describe('two schedule rows on one AHU: a replacement stays counted', () => {
+describe('rows on one AHU: one per micron, and a replacement stays counted', () => {
   const exec = (entryId: string, oldFilterId: string) =>
     authPost(app, `${R}/entries/${entryId}/execute`, tok.rpl, { oldFilterId }, PW);
   const tasks = async (ahuId: string) => {
@@ -596,35 +603,52 @@ describe('two schedule rows on one AHU: a replacement stays counted', () => {
     return new Map<string, any>(res.json().data.filter((e: any) => e.ahuId === ahuId).map((e: any) => [e.id, e]));
   };
 
-  it('replacing a filter again for the other row (or from the Filters page) keeps the first row complete; web, tablet and the cleaning block agree', async () => {
+  // 2026-10-24 (credit follows the slot) under the 2026-10-26 rule: a row covers
+  // its micron's filters only. Row A (1 µm, now) and row C (1 µm, later) cover
+  // f1 + f2; row B (15 µm) covers g1 alone.
+  it('a row covers its micron only; replacing a filter again for a later row (or from the Filters page) keeps the first row complete; web, tablet and the cleaning block agree', async () => {
     const ahu = await newAhu('TWO');
-    const f1 = await filterUnder(ahu, 'W1');
-    const f2 = await filterUnder(ahu, 'W2');
+    const f1 = await filterUnder(ahu, 'W1', { micron: '1' });
+    const f2 = await filterUnder(ahu, 'W2', { micron: '1' });
+    const g1 = await filterUnder(ahu, 'G1', { micron: '15' });
     const A = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '1' });
-    const B = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '15' });
+    const B = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '15', qty: 1 });
+    const C = await entry(ahu, { approvalStatus: 'APPROVED', filterMicron: '1', windowStart: day(30), windowEnd: day(34), scheduleDate: day(32) });
+
+    let t = await tasks(ahu);
+    expect(t.get(A)).toMatchObject({ total: 2, remaining: 2, computedStatus: 'DUE' });
+    expect([...t.get(A).toReplaceFilterIds].sort()).toEqual([f1, f2].sort());
+    expect(t.get(B)).toMatchObject({ total: 1, remaining: 1, toReplaceFilterIds: [g1], memberFilterIds: [g1] });
+    // A filter of another micron is refused before the signature, naming both microns.
+    const wrong = await authPost(app, `${R}/entries/${B}/execute`, tok.rpl, { oldFilterId: f1 });
+    expect(wrong.statusCode).toBe(409);
+    expect(wrong.json()).toMatchObject({ error: 'FILTER_NOT_IN_TASK_MICRON' });
+    expect(wrong.json().message).toContain('micron 1');
+    expect(wrong.json().message).toContain('micron 15');
 
     // A retired filter leaves its AHU (parentId cleared), so the afterAll sweep by
     // AHU cannot find the ones replaced twice here: each is registered as made.
     const a1 = (await exec(A, f1)).json().newFilterId as string;
     filterIds.push(a1);
     const a2r = await exec(A, f2);
-    expect(a2r.json()).toMatchObject({ status: 'COMPLETED', replaced: 2, qtyRemaining: 0 });
+    expect(a2r.json()).toMatchObject({ status: 'COMPLETED', total: 2, replaced: 2, qtyRemaining: 0 });
     const a2 = a2r.json().newFilterId as string;
     filterIds.push(a2);
 
-    // Row B replaces the filter row A put in.
-    const b1r = await exec(B, a1);
-    expect(b1r.statusCode, b1r.body).toBe(200);
-    expect(b1r.json()).toMatchObject({ status: 'IN_PROGRESS', replaced: 1, qtyRemaining: 1 });
-    const b1 = b1r.json().newFilterId as string;
-    filterIds.push(b1);
+    // Row C replaces the filter row A put in.
+    const c1r = await exec(C, a1);
+    expect(c1r.statusCode, c1r.body).toBe(200);
+    expect(c1r.json()).toMatchObject({ status: 'IN_PROGRESS', total: 2, replaced: 1, qtyRemaining: 1 });
+    const c1 = c1r.json().newFilterId as string;
+    filterIds.push(c1);
 
-    let t = await tasks(ahu);
+    t = await tasks(ahu);
     expect(t.get(A)).toMatchObject({ total: 2, replaced: 2, remaining: 0, computedStatus: 'COMPLETED' });
-    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([b1, a2].sort());
-    expect(t.get(B)).toMatchObject({ total: 2, replaced: 1, computedStatus: 'IN_PROGRESS', replacedNewFilterIds: [b1] });
+    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([c1, a2].sort());
+    expect(t.get(C)).toMatchObject({ total: 2, replaced: 1, replacedNewFilterIds: [c1], toReplaceFilterIds: [a2] });
+    expect(t.get(B)).toMatchObject({ total: 1, replaced: 0 });
     // The tablet no longer offers the slot to row A, and the server refuses it.
-    expect((await exec(A, b1)).json().error).toBe('ALREADY_COMPLETE');
+    expect((await exec(A, c1)).json().error).toBe('ALREADY_COMPLETE');
 
     // A replace from the Filters page (not a schedule task) keeps the credit too.
     const ctx = { userId: U.rpl, userSub: ids.rpl, userRole: 'SUPER_ADMIN', ipAddress: '127.0.0.1', sessionId: 'two-rows' };
@@ -632,26 +656,154 @@ describe('two schedule rows on one AHU: a replacement stays counted', () => {
     filterIds.push(p);
     t = await tasks(ahu);
     expect(t.get(A)).toMatchObject({ replaced: 2, computedStatus: 'COMPLETED' });
-    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([b1, p].sort());
+    expect([...t.get(A).replacedNewFilterIds].sort()).toEqual([c1, p].sort());
+    // ...and the new filter takes the old one's place on the later row: Qty unchanged.
+    expect(t.get(C)).toMatchObject({ total: 2, replaced: 1, toReplaceFilterIds: [p] });
 
-    // The web schedule page says the same, per filter.
+    // The web schedule page says the same, per filter, and lists each row's filters.
     const web = (await authGet(app, R, tok.up)).json().data.find((x: any) => x.id === scheduleId);
     const row = (id: string) => web.entries.find((e: any) => e.id === id);
-    expect(row(A)).toMatchObject({ computedStatus: 'COMPLETED', total: 2, replaced: 2 });
-    expect(row(A).replacements.map((r: any) => r.filterId).sort()).toEqual([b1, p].sort());
-    expect(row(B)).toMatchObject({ computedStatus: 'IN_PROGRESS', replaced: 1 });
-    expect(row(B).replacements.map((r: any) => r.filterId)).toEqual([b1]);
+    expect(row(A)).toMatchObject({ computedStatus: 'COMPLETED', currentQty: 2, total: 2, replaced: 2 });
+    expect(row(A).replacements.map((r: any) => r.filterId).sort()).toEqual([c1, p].sort());
+    expect(row(C)).toMatchObject({ computedStatus: 'PENDING', replaced: 1 });
+    expect(row(C).replacements.map((r: any) => r.filterId)).toEqual([c1]);
+    expect(row(B)).toMatchObject({ currentQty: 1, memberFilterIds: [g1] });
 
-    // Both windows close: only row B's unreplaced filter is blocked from cleaning.
-    await prisma.replacementScheduleEntry.updateMany({ where: { id: { in: [A, B] } }, data: { windowStart: day(-9), windowEnd: day(-5), scheduleDate: day(-7) } });
+    // Rows A and C close: only C's unreplaced filter is blocked; the 15 µm filter is not.
+    await prisma.replacementScheduleEntry.updateMany({ where: { id: { in: [A, C] } }, data: { windowStart: day(-9), windowEnd: day(-5), scheduleDate: day(-7) } });
     t = await tasks(ahu);
     expect(t.get(A).computedStatus).toBe('COMPLETED');
-    expect(t.get(B).computedStatus).toBe('MISSED');
+    expect(t.get(C).computedStatus).toBe('MISSED');
     const blocked = new Set<string>((await authGet(app, `${R}/blocked-filters`, tok.op)).json().filterIds);
     expect(blocked.has(p)).toBe(true);
-    expect(blocked.has(b1)).toBe(false);
+    expect(blocked.has(c1)).toBe(false);
+    expect(blocked.has(g1)).toBe(false);
     expect(await isFilterBlockedForCleaning(p)).toBe(true);
-    expect(await isFilterBlockedForCleaning(b1)).toBe(false);
+    expect(await isFilterBlockedForCleaning(c1)).toBe(false);
+    expect(await isFilterBlockedForCleaning(g1)).toBe(false);
+  });
+});
+
+// Operator rule 2026-10-26 ("Qty follows the AHU"), the agreed table:
+// added → +1 on future / pending / in-window rows; retired or deleted → −1 (an
+// overdue row too); replaced → no change; overdue → takes no new filter and never
+// blocks it; completed → frozen. A new filter counts once approved.
+describe('Qty follows the AHU (2026-10-26)', () => {
+  const exec = (entryId: string, oldFilterId: string) =>
+    authPost(app, `${R}/entries/${entryId}/execute`, tok.rpl, { oldFilterId }, PW);
+  const task = async (entryId: string) => {
+    const res = await authGet(app, `${R}/tasks`, tok.op);
+    expect(res.statusCode).toBe(200);
+    return res.json().data.find((e: any) => e.id === entryId);
+  };
+  const webRow = async (entryId: string) =>
+    (await authGet(app, R, tok.up)).json().data.find((x: any) => x.id === scheduleId).entries.find((e: any) => e.id === entryId);
+  const OVERDUE = { windowStart: day(-14), windowEnd: day(-10), scheduleDate: day(-12) };
+  const FUTURE = { windowStart: day(20), windowEnd: day(24), scheduleDate: day(22) };
+
+  it('a pending row and an in-window row take a filter of their micron added later; another micron changes nothing', async () => {
+    const ahu = await newAhu('ADD');
+    const f1 = await filterUnder(ahu, 'AD1');
+    const future = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1, ...FUTURE });
+    const now = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1 });
+    expect(await task(future)).toMatchObject({ total: 1, computedStatus: 'PENDING' });
+
+    const fNew = await filterUnder(ahu, 'AD2', { installedAt: new Date() });
+    await filterUnder(ahu, 'AD3', { micron: '5', installedAt: new Date() });
+    expect(await task(future)).toMatchObject({ total: 2, remaining: 2 });
+    expect([...(await task(future)).toReplaceFilterIds].sort()).toEqual([f1, fNew].sort());
+    expect(await task(now)).toMatchObject({ total: 2, remaining: 2, computedStatus: 'DUE' });
+    // The uploaded Qty stays the approved record; the page shows today's beside it.
+    expect(await webRow(future)).toMatchObject({ qty: 1, currentQty: 2 });
+  });
+
+  it('a filter waiting for approval does not count until it is approved, then joins an open row', async () => {
+    const ahu = await newAhu('APPR');
+    await filterUnder(ahu, 'AP1');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1 });
+    const pending = await filterUnder(ahu, 'AP2', { installedAt: new Date() });
+    await prisma.assetInstance.update({ where: { id: pending }, data: { approvalStatus: 'PENDING_REVIEW' } });
+    expect(await task(e)).toMatchObject({ total: 1 });
+    expect((await authPost(app, `${R}/entries/${e}/execute`, tok.rpl, { oldFilterId: pending })).json().message).toContain('has not been approved');
+    await prisma.assetInstance.update({ where: { id: pending }, data: { approvalStatus: 'APPROVED', approvedAt: new Date() } });
+    expect(await task(e)).toMatchObject({ total: 2 });
+  });
+
+  it('an overdue row takes no new filter: it is not counted, not blocked from cleaning, and refused for the row', async () => {
+    const ahu = await newAhu('ODADD');
+    const f1 = await filterUnder(ahu, 'OD1');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1, ...OVERDUE });
+    const fNew = await filterUnder(ahu, 'OD2', { installedAt: new Date() });
+    expect(await task(e)).toMatchObject({ total: 1, remaining: 1, computedStatus: 'MISSED', toReplaceFilterIds: [f1] });
+    expect(await isFilterBlockedForCleaning(f1)).toBe(true);
+    expect(await isFilterBlockedForCleaning(fNew)).toBe(false);
+    const refused = await authPost(app, `${R}/entries/${e}/execute`, tok.rpl, { oldFilterId: fNew });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: 'FILTER_NOT_IN_TASK' });
+    expect(refused.json().message).toContain("after this task's window closed");
+  });
+
+  it('a filter MOVED into the AHU after an overdue row closed is not one of its filters either', async () => {
+    const ahu = await newAhu('ODMOVE');
+    const other = await newAhu('ODMOVE-SRC');
+    await filterUnder(ahu, 'OM1');
+    const moved = await filterUnder(other, 'OM2');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1, ...OVERDUE });
+    // How the Filters page moves one: a new AHU → filter CONTAINS row, written now.
+    await prisma.$transaction([
+      prisma.assetInstance.update({ where: { id: moved }, data: { parentId: ahu } }),
+      prisma.assetRelationship.create({ data: { sourceAssetId: ahu, targetAssetId: moved, relationshipType: 'CONTAINS' } }),
+      prisma.assetRelationship.create({ data: { sourceAssetId: moved, targetAssetId: ahu, relationshipType: 'CONTAINED_IN' } }),
+    ]);
+    expect(await task(e)).toMatchObject({ total: 1 });
+    expect(await isFilterBlockedForCleaning(moved)).toBe(false);
+  });
+
+  it('an overdue row loses a retired or deleted filter (Qty −1) and completes once the rest are replaced', async () => {
+    const ahu = await newAhu('ODRET');
+    const f1 = await filterUnder(ahu, 'OR1');
+    const f2 = await filterUnder(ahu, 'OR2');
+    const f3 = await filterUnder(ahu, 'OR3');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 3, ...OVERDUE });
+    const r1 = await exec(e, f1);
+    expect(r1.statusCode, r1.body).toBe(200);
+    filterIds.push(r1.json().newFilterId);
+    expect(await task(e)).toMatchObject({ total: 3, remaining: 2, computedStatus: 'MISSED' });
+    await prisma.assetInstance.update({ where: { id: f2 }, data: { status: 'Retired' } });
+    expect(await task(e)).toMatchObject({ total: 2, remaining: 1, toReplaceFilterIds: [f3] });
+    await prisma.assetInstance.update({ where: { id: f3 }, data: { isActive: false } });
+    expect(await task(e)).toMatchObject({ total: 1, remaining: 0, computedStatus: 'COMPLETED' });
+    expect(await isFilterBlockedForCleaning(r1.json().newFilterId)).toBe(false);
+  });
+
+  it('a filter replaced for an overdue row keeps its place: Qty unchanged, the replacement counts', async () => {
+    const ahu = await newAhu('ODREP');
+    const f1 = await filterUnder(ahu, 'OP1');
+    const f2 = await filterUnder(ahu, 'OP2');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 2, ...OVERDUE });
+    const r = await exec(e, f1);
+    expect(r.json()).toMatchObject({ total: 2, replaced: 1, qtyRemaining: 1, status: 'IN_PROGRESS' });
+    filterIds.push(r.json().newFilterId);
+    const t = await task(e);
+    expect(t).toMatchObject({ total: 2, replaced: 1, remaining: 1, computedStatus: 'MISSED', toReplaceFilterIds: [f2] });
+    expect(t.replacedNewFilterIds).toEqual([r.json().newFilterId]);
+    expect(await isFilterBlockedForCleaning(r.json().newFilterId)).toBe(false);
+    expect(await isFilterBlockedForCleaning(f2)).toBe(true);
+  });
+
+  it('a completed row is frozen: a filter added afterwards does not reopen it', async () => {
+    const ahu = await newAhu('FROZEN');
+    const f1 = await filterUnder(ahu, 'DN1');
+    const e = await entry(ahu, { approvalStatus: 'APPROVED', qty: 1 });
+    const r = await exec(e, f1);
+    expect(r.json()).toMatchObject({ status: 'COMPLETED' });
+    filterIds.push(r.json().newFilterId);
+    await filterUnder(ahu, 'DN2', { installedAt: new Date() });
+    expect(await task(e)).toMatchObject({ total: 1, replaced: 1, remaining: 0, computedStatus: 'COMPLETED', toReplaceFilterIds: [] });
+    // Also without the stored status: completion is the moment its filters were done.
+    await prisma.replacementScheduleEntry.update({ where: { id: e }, data: { status: 'IN_PROGRESS' } });
+    expect(await task(e)).toMatchObject({ total: 1, computedStatus: 'COMPLETED' });
+    expect((await exec(e, (await task(e)).memberFilterIds[0])).json().error).toBe('ALREADY_COMPLETE');
   });
 });
 
