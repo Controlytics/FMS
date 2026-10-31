@@ -297,6 +297,13 @@ $btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $Backu
 if ($DryRun) { $btArgs['DryRun'] = $true }
 & (Join-Path $scriptsDir 'register-backup-task.ps1') @btArgs
 
+# 4c. Certificate check task (2026-10-31): keeps the FMS's own certificate covering
+#     the network range the server is on. Non-fatal, like the backup task;
+#     upgrade.ps1 registers it too.
+$ctArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot }
+if ($DryRun) { $ctArgs['DryRun'] = $true }
+& (Join-Path $scriptsDir 'register-cert-check-task.ps1') @ctArgs
+
 # 5. Firewall rule (optional - lets the Android tablet reach the API over LAN).
 if ($DryRun) { Write-Host "[dry-run] netsh advfirewall add rule DigiLog-API TCP $ApiPort" -ForegroundColor Yellow }
 else {
@@ -306,13 +313,12 @@ else {
 # 6. Health check.
 if (-not $DryRun) {
   Write-Host "==> Waiting for API health..." -ForegroundColor Cyan
-  $ok = $false
-  foreach ($i in 1..30) {
-    try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
-    Start-Sleep -Seconds 1
-  }
-  if ($ok) { Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
-  else { Write-Host "`nWARN: API did not report healthy within 30s. Check $logDir." -ForegroundColor Yellow; exit 1 }
+  # 127.0.0.1 and no certificate check: health-probe.ps1 says why (2026-10-31:
+  # localhost made every fresh install report "did NOT finish"; a checked probe
+  # does the same on a site with its own company certificate).
+  . (Join-Path $scriptsDir 'health-probe.ps1')
+  if (Wait-DigilogHealth -Port $ApiPort -Seconds 120) { Write-Host "`nDigiLog is running. Open https://localhost:$ApiPort  (login: superadmin)" -ForegroundColor Green }
+  else { Write-Host "`nWARN: API did not report healthy within 120 s. Check $logDir." -ForegroundColor Yellow; exit 1 }
 }
 
 Write-Host "Install orchestration complete." -ForegroundColor Green

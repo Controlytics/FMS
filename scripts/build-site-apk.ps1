@@ -61,7 +61,9 @@ param(
   [string]$OutDir,
   [string]$OpenSsl,
   [string]$JavaHome = $env:JAVA_HOME,
-  [string]$AndroidHome = $env:ANDROID_HOME
+  [string]$AndroidHome = $env:ANDROID_HOME,
+  # Only check the authority (and -ServerCert); build nothing. Needs no JDK / SDK.
+  [switch]$CheckOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,8 +126,8 @@ try {
   if (-not (Test-Path $RootCa)) { Fail "-RootCa file not found: $RootCa" }
   if (-not (Test-Path $baseApk)) { Fail "Released APK not found: $baseApk (build it first)." }
   if (-not (Test-Path $rawFile)) { Fail "Built-in authority file not found: $rawFile" }
-  if (-not $JavaHome -or -not (Test-Path $JavaHome)) { Fail 'JAVA_HOME is not set (JDK 21). Pass -JavaHome.' }
-  if (-not $AndroidHome -or -not (Test-Path $AndroidHome)) { Fail 'ANDROID_HOME is not set (Android SDK). Pass -AndroidHome.' }
+  if (-not $CheckOnly -and (-not $JavaHome -or -not (Test-Path $JavaHome))) { Fail 'JAVA_HOME is not set (JDK 21). Pass -JavaHome.' }
+  if (-not $CheckOnly -and (-not $AndroidHome -or -not (Test-Path $AndroidHome))) { Fail 'ANDROID_HOME is not set (Android SDK). Pass -AndroidHome.' }
   $ossl = Find-OpenSsl
 
   # A previous run that died before restoring would leave the file changed.
@@ -139,7 +141,20 @@ try {
     Fail "$RootCa contains a PRIVATE KEY. Use rootCA.pem, never rootCA.key - a key inside the app lets anyone with the APK impersonate the server."
   }
   $blocks = [regex]::Matches($text, '-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----')
-  if ($blocks.Count -ne 1) { Fail "$RootCa must hold exactly one certificate (found $($blocks.Count))." }
+  if ($blocks.Count -eq 0) {
+    # A company root usually arrives as a Windows-exported .cer: binary (DER), not PEM.
+    $pemCopy = Join-Path ([IO.Path]::GetTempPath()) "site-ca-$([guid]::NewGuid().ToString('n')).pem"
+    $conv = Invoke-Captured $ossl @('x509', '-inform', 'DER', '-in', $RootCa, '-out', $pemCopy)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $pemCopy)) { Fail "$RootCa is neither a PEM nor a binary (DER) certificate: $conv" }
+    $RootCa = $pemCopy
+    $text = [System.IO.File]::ReadAllText($RootCa)
+    $blocks = [regex]::Matches($text, '-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----')
+    Write-Host '  (binary .cer converted to PEM)'
+  }
+  if ($blocks.Count -ne 1) {
+    Fail ("$RootCa must hold exactly one certificate (found $($blocks.Count)). If IT gave a chain, keep only the ROOT " +
+          "(the certificate whose 'Issued to' and 'Issued by' are the same).")
+  }
 
   $info = Invoke-Captured $ossl @('x509', '-in', $RootCa, '-noout', '-subject', '-issuer', '-enddate', '-fingerprint', '-sha256', '-ext', 'basicConstraints')
   if ($LASTEXITCODE -ne 0) { Fail "openssl cannot read $RootCa as a certificate: $info" }
@@ -158,75 +173,91 @@ try {
   Write-Host "  valid until : $notAfter"
   Write-Host "  SHA-256     : $finger"
   if ($expiresSoon) { Write-Host '  WARNING: expires within a year - tablets will stop trusting the server then.' -ForegroundColor Yellow }
+  $issuerDn = (($info | Where-Object { $_ -match '^issuer=' }) -replace '^issuer=\s*', '')
+  if ($issuerDn -ne $subject) {
+    # Android accepts an intermediate as a trust anchor, so this works - until IT
+    # renews the server certificate under ANOTHER intermediate of the same root.
+    Write-Host "  WARNING: this is an INTERMEDIATE authority (issued by $issuerDn), not the root." -ForegroundColor Yellow
+    Write-Host '           Tablets stop trusting the server if IT renews it under another intermediate. Prefer the company ROOT.' -ForegroundColor Yellow
+  }
 
   if ($ServerCert) {
     if (-not (Test-Path $ServerCert)) { Fail "-ServerCert file not found: $ServerCert" }
-    $v = Invoke-Captured $ossl @('verify', '-CAfile', $RootCa, $ServerCert)
+    # -untrusted: a company server.crt carries its intermediate(s) after the
+    # server certificate. Without it openssl reads only the first certificate and
+    # refused every real company chain ("unable to get local issuer", 2026-10-31).
+    # -partial_chain: an INTERMEDIATE given as -RootCa (warned above) is accepted as
+    # the anchor, as Android accepts it.
+    $v = Invoke-Captured $ossl @('verify', '-partial_chain', '-CAfile', $RootCa, '-untrusted', $ServerCert, $ServerCert)
     if ($LASTEXITCODE -ne 0) { Fail "The server certificate is NOT signed by this authority - wrong rootCA.pem? openssl: $($v | Out-String)" }
     Write-Host "  server.crt  : signed by this authority - OK"
   }
   $caBytes = [System.Text.Encoding]::ASCII.GetBytes($blocks[0].Value.Replace("`r`n", "`n") + "`n")
+  if ($CheckOnly) {
+    Write-Host '==> Check only: this authority can be built in. No APK was built.' -ForegroundColor Green
+  } else {
 
-  # --- 2. swap in, build -----------------------------------------------------
-  $original = [System.IO.File]::ReadAllBytes($rawFile)
-  [System.IO.File]::WriteAllBytes($rawFile, $caBytes)
+    # --- 2. swap in, build -----------------------------------------------------
+    $original = [System.IO.File]::ReadAllBytes($rawFile)
+    [System.IO.File]::WriteAllBytes($rawFile, $caBytes)
 
-  Write-Host '==> Building the APK (Gradle)' -ForegroundColor Cyan
-  $env:JAVA_HOME = $JavaHome
-  $env:ANDROID_HOME = $AndroidHome
-  $env:PATH = "$JavaHome\bin;$env:PATH"
-  Push-Location $androidDir
-  try {
-    & .\gradlew.bat --stop | Out-Null
-    if (Test-Path $builtApk) { Remove-Item $builtApk -Force }
-    & .\gradlew.bat clean assembleDebug --no-daemon
-    if ($LASTEXITCODE -ne 0) { Fail "Gradle build failed (exit $LASTEXITCODE)." }
-  } finally { Pop-Location }
-  if (-not (Test-Path $builtApk)) { Fail "Gradle reported success but $builtApk is missing." }
+    Write-Host '==> Building the APK (Gradle)' -ForegroundColor Cyan
+    $env:JAVA_HOME = $JavaHome
+    $env:ANDROID_HOME = $AndroidHome
+    $env:PATH = "$JavaHome\bin;$env:PATH"
+    Push-Location $androidDir
+    try {
+      & .\gradlew.bat --stop | Out-Null
+      if (Test-Path $builtApk) { Remove-Item $builtApk -Force }
+      & .\gradlew.bat clean assembleDebug --no-daemon
+      if ($LASTEXITCODE -ne 0) { Fail "Gradle build failed (exit $LASTEXITCODE)." }
+    } finally { Pop-Location }
+    if (-not (Test-Path $builtApk)) { Fail "Gradle reported success but $builtApk is missing." }
 
-  # --- 3. prove the result ---------------------------------------------------
-  Write-Host '==> Verifying the APK' -ForegroundColor Cyan
-  $siteMap = Get-ZipEntryHashes $builtApk
-  $baseMap = Get-ZipEntryHashes $baseApk
-  $rawEntry = 'res/raw/rootca.pem'
-  if (-not $siteMap.ContainsKey($rawEntry)) { Fail "$rawEntry missing from the built APK." }
-  if ($siteMap[$rawEntry] -ne (Get-Sha256Hex $caBytes)) { Fail "$rawEntry in the APK is not the site authority." }
-  $diff = @()
-  foreach ($k in (@($siteMap.Keys) + @($baseMap.Keys) | Select-Object -Unique)) {
-    if ($k -eq $rawEntry -or $k -like 'META-INF/*') { continue }
-    if ($siteMap[$k] -ne $baseMap[$k]) { $diff += $k }
+    # --- 3. prove the result ---------------------------------------------------
+    Write-Host '==> Verifying the APK' -ForegroundColor Cyan
+    $siteMap = Get-ZipEntryHashes $builtApk
+    $baseMap = Get-ZipEntryHashes $baseApk
+    $rawEntry = 'res/raw/rootca.pem'
+    if (-not $siteMap.ContainsKey($rawEntry)) { Fail "$rawEntry missing from the built APK." }
+    if ($siteMap[$rawEntry] -ne (Get-Sha256Hex $caBytes)) { Fail "$rawEntry in the APK is not the site authority." }
+    $diff = @()
+    foreach ($k in (@($siteMap.Keys) + @($baseMap.Keys) | Select-Object -Unique)) {
+      if ($k -eq $rawEntry -or $k -like 'META-INF/*') { continue }
+      if ($siteMap[$k] -ne $baseMap[$k]) { $diff += $k }
+    }
+    if ($diff.Count) {
+      Fail ("The site APK differs from DigiLog-FilterOps.apk in more than the certificate: " + (($diff | Select-Object -First 10) -join ', ') +
+            ". Rebuild DigiLog-FilterOps.apk from the current code first, then run this again.")
+    }
+    Write-Host "  valid zip, $($siteMap.Count) files; only the certificate and signature differ from DigiLog-FilterOps.apk - OK"
+
+    # --- 4. output -------------------------------------------------------------
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $outApk = Join-Path $OutDir "FMS-$Site.apk"
+    Copy-Item $builtApk $outApk -Force
+    # The Gradle output now carries THIS site's authority. Remove it so it can never
+    # be copied to the repo root as the general DigiLog-FilterOps.apk by mistake.
+    Remove-Item $builtApk -Force
+    $apkSha = (Get-FileHash $outApk -Algorithm SHA256).Hash.ToLower()
+    $commit = (& git -C $repoRoot rev-parse --short HEAD)
+    $baseSha = (Get-FileHash $baseApk -Algorithm SHA256).Hash.ToLower()
+    $notes = @(
+      "Site            : $Site"
+      "Built           : $(Get-Date -Format 'yyyy-MM-dd HH:mm') on $env:COMPUTERNAME, code $commit"
+      "APK SHA-256     : $apkSha"
+      "Same app as     : DigiLog-FilterOps.apk $baseSha (only the built-in certificate differs)"
+      "Trusts CA       : $subject"
+      "CA valid until  : $notAfter"
+      "CA SHA-256      : $finger"
+      "Server cert     : $(if ($ServerCert) { 'checked - signed by this CA' } else { 'not checked (-ServerCert not given)' })"
+      "Signed with     : this PC's debug key - installs as an update over DigiLog-FilterOps.apk"
+      "Rebuild when    : this site's CA changes. NOT for an IP change."
+    )
+    [System.IO.File]::WriteAllLines((Join-Path $OutDir "FMS-$Site.txt"), $notes)
+    Write-Host "==> Site APK: $outApk" -ForegroundColor Green
+    $notes | ForEach-Object { Write-Host "  $_" }
   }
-  if ($diff.Count) {
-    Fail ("The site APK differs from DigiLog-FilterOps.apk in more than the certificate: " + (($diff | Select-Object -First 10) -join ', ') +
-          ". Rebuild DigiLog-FilterOps.apk from the current code first, then run this again.")
-  }
-  Write-Host "  valid zip, $($siteMap.Count) files; only the certificate and signature differ from DigiLog-FilterOps.apk - OK"
-
-  # --- 4. output -------------------------------------------------------------
-  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $outApk = Join-Path $OutDir "FMS-$Site.apk"
-  Copy-Item $builtApk $outApk -Force
-  # The Gradle output now carries THIS site's authority. Remove it so it can never
-  # be copied to the repo root as the general DigiLog-FilterOps.apk by mistake.
-  Remove-Item $builtApk -Force
-  $apkSha = (Get-FileHash $outApk -Algorithm SHA256).Hash.ToLower()
-  $commit = (& git -C $repoRoot rev-parse --short HEAD)
-  $baseSha = (Get-FileHash $baseApk -Algorithm SHA256).Hash.ToLower()
-  $notes = @(
-    "Site            : $Site"
-    "Built           : $(Get-Date -Format 'yyyy-MM-dd HH:mm') on $env:COMPUTERNAME, code $commit"
-    "APK SHA-256     : $apkSha"
-    "Same app as     : DigiLog-FilterOps.apk $baseSha (only the built-in certificate differs)"
-    "Trusts CA       : $subject"
-    "CA valid until  : $notAfter"
-    "CA SHA-256      : $finger"
-    "Server cert     : $(if ($ServerCert) { 'checked - signed by this CA' } else { 'not checked (-ServerCert not given)' })"
-    "Signed with     : this PC's debug key - installs as an update over DigiLog-FilterOps.apk"
-    "Rebuild when    : this site's CA changes. NOT for an IP change."
-  )
-  [System.IO.File]::WriteAllLines((Join-Path $OutDir "FMS-$Site.txt"), $notes)
-  Write-Host "==> Site APK: $outApk" -ForegroundColor Green
-  $notes | ForEach-Object { Write-Host "  $_" }
 }
 catch {
   Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red

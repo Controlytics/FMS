@@ -67,6 +67,30 @@ describe('findServer', () => {
     expect(r).toMatchObject({ found: null, reason: 'no-match' });
   });
 
+  // 2026-10-31: the identity is the certificate issuer's key id, so a renewal
+  // under another intermediate changes it. With the IP changed too, "Find server"
+  // refused and only typing the address helped.
+  it('manual search OFFERS the one trusted server with a new identity, never adopts it', async () => {
+    setApiBase('https://192.168.1.58:3000');
+    rememberServerId(ID);
+    const r = await findServer({ manual: true, scan: async () => ['192.168.1.9'], health: healthOf({ 'https://192.168.1.9:3000': OTHER }) });
+    expect(r).toMatchObject({ found: null, reason: 'identity-changed', candidate: 'https://192.168.1.9:3000' });
+    expect(getApiBase()).toBe('https://192.168.1.58:3000');
+    expect(getRememberedServerId()).toBe(ID);
+  });
+
+  it('manual search with a remembered identity and TWO other servers offers neither', async () => {
+    setApiBase('https://192.168.1.58:3000');
+    rememberServerId(ID);
+    const r = await findServer({
+      manual: true,
+      scan: async () => ['192.168.1.9', '192.168.1.10'],
+      health: healthOf({ 'https://192.168.1.9:3000': OTHER, 'https://192.168.1.10:3000': null }),
+    });
+    expect(r).toMatchObject({ found: null, reason: 'ambiguous' });
+    expect(r.candidate).toBeUndefined();
+  });
+
   it('skips hosts whose TLS/health fails (impostor or other service on the port)', async () => {
     setApiBase('https://192.168.1.58:3000');
     rememberServerId(ID);
@@ -133,6 +157,14 @@ describe('maybeDiscoverServer (automatic trigger)', () => {
     expect(localStorage.getItem('digilog.serverUrl')).toBe(moved);
     expect(seen).toEqual([`${base}->${moved}`]);
     off();
+  });
+
+  it('never adopts a server with a different identity, even when it is the only one', async () => {
+    const o = opts({ health: healthOf({ [moved]: OTHER }) });
+    expect(await maybeDiscoverServer(PROBE_FAILURES_BEFORE_DISCOVERY, o)).toBeNull();
+    expect(o.scan).toHaveBeenCalledTimes(1);
+    expect(getApiBase()).toBe(base);
+    expect(getRememberedServerId()).toBe(ID);
   });
 
   it('does nothing off-tablet, without a remembered id, for a host-name address, or with no network', async () => {

@@ -10,6 +10,8 @@ const FIND_REASON: Record<string, string> = {
   'no-match': 'A server answered, but it is not the FMS server this tablet was using. Type the address shown on the FMS server PC.',
   'ambiguous': 'More than one FMS server answered. Type the address shown on the FMS server PC.',
   'no-address': 'Type the address shown on the FMS server PC.',
+  'identity-changed': 'One FMS server answered, but its security certificate is not the one this tablet knew. ' +
+    "That is normal after IT replaced the server's certificate. If this is your FMS server, press \"Use this server\", then Connect.",
 };
 
 // First-launch (and re-configure) screen where the tablet operator sets the
@@ -20,16 +22,24 @@ export default function ServerConfigPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [finding, setFinding] = useState(false);
+  // 'identity-changed': the one trusted server that answered, waiting for the operator.
+  const [candidate, setCandidate] = useState<string | null>(null);
 
   // 2026-10-10: search the local network for the server (lib/server-discovery.ts).
   // Fills the box; the operator still presses Connect, which re-checks it.
   async function find() {
     setError('');
+    setCandidate(null);
     setFinding(true);
     try {
       const r = await findServer({ manual: true, base: url.trim() || undefined });
       if (r.found) setUrl(r.found);
-      else setError(FIND_REASON[r.reason ?? 'nothing-open']);
+      else {
+        setError(FIND_REASON[r.reason ?? 'nothing-open']);
+        // Offered, never adopted: the operator presses "Use this server" (fills
+        // the box) and then Connect, which re-checks it and learns its identity.
+        if (r.reason === 'identity-changed' && r.candidate) setCandidate(r.candidate);
+      }
     } catch (e: any) {
       setError(`Search failed: ${e?.message ?? e}`);
     } finally {
@@ -76,6 +86,15 @@ export default function ServerConfigPage() {
           onChange={(e) => setUrl(e.target.value)}
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {candidate && (
+          <button
+            type="button"
+            onClick={() => { setUrl(candidate); setCandidate(null); setError(''); }}
+            className="w-full rounded-lg border border-amber-300 bg-amber-50 text-amber-800 py-2 font-medium"
+          >
+            Use this server: {candidate}
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}

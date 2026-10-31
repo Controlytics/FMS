@@ -521,6 +521,25 @@ Body: multipart/form-data (backup file)
 
 ---
 
+## System Health
+
+```
+GET  /api/health                      (no auth)
+Response: { status, db, jobRunner, serverId }   serverId = served certificate's authorityKeyIdentifier
+
+GET  /api/system-health
+Role: SUPER_ADMIN or ADMIN
+Response: os, memory, cpu, disk, process, api, database, timestamp
+
+GET  /api/system-health/certificate   (2026-10-31)
+Role: SUPER_ADMIN
+Response: { certificate: { subject, issuer, validFrom, validTo, daysLeft, fingerprint256 } | null,
+            warnDays: 14, warning }   - the certificate this process LOADED at start; warning from 14 days
+            before expiry (dashboard banner). null = plain HTTP.
+```
+
+---
+
 ## Notifications
 
 ```

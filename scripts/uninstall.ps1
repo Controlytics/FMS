@@ -35,6 +35,13 @@ else {
   Unregister-ScheduledTask -TaskName 'DigiLog Nightly Backup' -Confirm:$false -ErrorAction SilentlyContinue
   Write-Host "Removed scheduled task 'DigiLog Nightly Backup' (existing dumps kept)." -ForegroundColor Gray
 }
+# Same for the certificate check (points at {app}\scripts\check-lan-cert.ps1).
+# The certificates stay under $DataRoot\certs.
+if ($DryRun) { Write-Host "[dry-run] unregister scheduled task 'DigiLog Certificate Check'" -ForegroundColor Yellow }
+else {
+  Unregister-ScheduledTask -TaskName 'DigiLog Certificate Check' -Confirm:$false -ErrorAction SilentlyContinue
+  Write-Host "Removed scheduled task 'DigiLog Certificate Check' (certificates kept)." -ForegroundColor Gray
+}
 
 # Firewall rule cleanup (best-effort)
 if ($DryRun) { Write-Host "[dry-run] netsh advfirewall delete rule 'DigiLog API'" -ForegroundColor Yellow }

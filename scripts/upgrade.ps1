@@ -156,6 +156,11 @@ if ($DryRun) {
 $btArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot; RetainDays = $BackupRetainDays }
 if ($DryRun) { $btArgs['DryRun'] = $true }
 & (Join-Path $PSScriptRoot 'register-backup-task.ps1') @btArgs
+# 5b2. Certificate check task (2026-10-31; see install.ps1 4c). Same reason as
+#      5b: this is the only place an existing customer picks it up.
+$ctArgs = @{ InstallDir = $InstallDir; DataRoot = $DataRoot }
+if ($DryRun) { $ctArgs['DryRun'] = $true }
+& (Join-Path $PSScriptRoot 'register-cert-check-task.ps1') @ctArgs
 
 # 5c. Server addresses (2026-10-10, tasks/AUTO-IP-RECOVERY-PLAN.md Part 3):
 #     creates config\digilog-addresses.ini from this PC's IP + the current port if
@@ -174,20 +179,17 @@ $envPortNow = (Get-Content $envFile -ErrorAction SilentlyContinue | Where-Object
 if ($envPortNow -match '=\s*(\d+)') { $ApiPort = [int]$Matches[1] }
 
 # 6. Start the API service + health check.
-if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll https://localhost:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
+if ($DryRun) { Write-Host "[dry-run] sc start $ApiService; poll https://127.0.0.1:$ApiPort/api/health" -ForegroundColor Yellow; exit 0 }
 Write-Host "==> Starting $ApiService" -ForegroundColor Cyan
 sc.exe start $ApiService | Out-Null
-$ok = $false
-foreach ($i in 1..30) {
-  try { $r = Invoke-WebRequest "https://localhost:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
-  Start-Sleep -Seconds 1
-}
-if ($ok) {
+# 127.0.0.1, no certificate check - see health-probe.ps1.
+. (Join-Path $PSScriptRoot 'health-probe.ps1')
+if (Wait-DigilogHealth -Port $ApiPort -Seconds 120) {
   Write-Host "`nUpgrade to v$Version complete. API healthy at https://localhost:$ApiPort" -ForegroundColor Green
   Write-Host "Pre-upgrade backup retained: $backupFile" -ForegroundColor Gray
   exit 0
 } else {
-  Write-Host "`nWARN: API did not report healthy within 30s after upgrade." -ForegroundColor Yellow
+  Write-Host "`nWARN: API did not report healthy within 120 s after upgrade." -ForegroundColor Yellow
   Write-Host "Migrations applied + backup at $backupFile. Check $DataRoot\logs, then restart $ApiService." -ForegroundColor Yellow
   exit 1
 }

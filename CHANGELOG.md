@@ -6,6 +6,127 @@ Release decision: **CONDITIONAL PASS** (test-results/FINAL-RELEASE-DECISION.md).
 clean-machine install, Super Admin probe session and the performance / endurance re-run were NOT run
 ("finish right now"); they are the go-live conditions.
 
+### 2026-10-31 (later) - IP and SSL certificate changes need no one at the tablets (operator: "do best plan")
+
+Operator: "some times ssl will change, some times ip will change". The rule everything below follows: tablets and
+PCs trust the ROOT certificate, never the server certificate or the IP, so a renewal under the same root or an IP
+change costs nothing on the tablets. Six planned fixes plus two bugs found while doing them.
+
+- **Bug: Start menu "Apply server addresses" never ran** (since 2026-10-10). In an advanced script
+  (`[CmdletBinding()]`) Windows PowerShell 5.1 leaves `$PSScriptRoot` EMPTY while it evaluates `param()` defaults;
+  `apply-addresses.ps1` had `[string]$InstallDir = (Split-Path -Parent $PSScriptRoot)`, so the shortcut (no
+  arguments) died binding it, before doing anything. `upgrade.ps1` passes `-InstallDir`, so upgrades worked.
+  Defaults now resolved in the body (same in the dev-only `install-services-phase5.ps1`, where it silently made the
+  worktree the drive root). Guard: `windows-scripts.test.ts` (no `$PSScriptRoot` in any advanced script's
+  `param()` block, across `scripts/` and `installer/test/`).
+- **Bug: `issue-lan-cert.ps1` died mid-issue whenever its caller captured its output.** OpenSSL 3 prints
+  "Certificate request self-signature ok" on stderr for every certificate it signs; under `'Stop'` PS 5.1 turns
+  that into a terminating error when the output is redirected (Setup does not, which is why installs worked; the new
+  certificate check task logs it). Every OpenSSL call now goes through `Invoke-Ssl` (exit codes checked instead).
+- **Bug: a failed certificate issue destroyed the working certificate.** `issue-lan-cert.ps1` signed straight onto
+  `server.crt`; OpenSSL opens `-out` before it fails, so any failure (unreadable `rootCA.key`, full disk) left an
+  EMPTY `server.crt` - the running API kept its in-memory copy and then could not start at the next boot. Now it signs
+  into `server.crt.new`, verifies it, and only then backs up and replaces `server.crt`. Tested with a corrupt CA key:
+  FATAL + exit 1 (direct and captured), `server.crt` byte-identical afterwards; fresh / unchanged / re-issue still pass.
+- **1. One health probe, no certificate check** (`scripts/health-probe.ps1`, `Wait-DigilogHealth`): install,
+  upgrade, restore, apply-addresses, set-certificate and the certificate check all ask `https://127.0.0.1:<port>`
+  "is FMS answering?" with `curl.exe -k --ssl-no-revoke` (Server 2016: an `HttpWebRequest` with its own callback,
+  compiled C#). Before, a site on its company certificate (names neither 127.0.0.1 nor localhost) got "did NOT
+  finish" on every upgrade. Waits are 120 s wall-clock (were 30-60 tries of up to ~3 s). Tested against a
+  throwaway HTTPS server whose certificate names only `fms.example.test`: 200 on both paths; the old checked probe
+  fails on it.
+- **2. Start menu "Change SSL certificate"** (`set-certificate.ps1` + `.cmd`, checker `check-certificate.mjs` on
+  the FMS's own node.exe). Takes a `.pfx`/`.p12` (incl. old RC2-40 ones: `ossl-modules\legacy.dll` is now staged,
+  `-legacy` retry) or `.crt`/`.pem`/`.cer` + `.key` (a password-protected key is opened). Refuses, changing
+  nothing: key not matching, a CA as server certificate, expired / not yet valid, not for servers (EKU), a missing
+  INTERMEDIATE (Android never fetches one), no trusted root (this PC's store, or `-RootCa`), no name of this server
+  (`digilog-addresses.ini` + this PC's IP; `-Force`), RSA < 2048, or a pair Node cannot load. Then: files to
+  `C:\ProgramData\DigiLog\custom-cert\<time>\` (SYSTEM + Administrators only; `root-ca.pem` = what the tablets
+  trust), `TLS_KEY_PATH`/`TLS_CERT_PATH` switched (backup first), DigiLogAPI restarted, and the SERVED certificate's
+  fingerprint compared; otherwise `digilog.env` is put back and the API restarted on the old one. Says what the
+  tablets need (same root: nothing). `-UseBuiltIn` returns to the FMS certificate (re-issued for the current
+  network first), `-CheckOnly` changes nothing. One line per change in `logs\certificate-changes.log` - NOT the
+  21 CFR Part 11 audit trail (a certificate is not an electronic record; the audited in-app upload page of
+  2026-10-22 stays deferred). Sandbox-tested (scratch data folder + a stand-in API reading `digilog.env` on
+  :39461, never :3000): AES / 3DES / RC2 `.pfx`, wrong password, wrong key, forced boot failure -> automatic
+  rollback, renewal under the same root, unmatched names (+ `-Force`), encrypted key, back to built-in.
+- **3. Expiry warning:** `GET /api/system-health/certificate` (SUPER_ADMIN only) reports the certificate the
+  process LOADED (`lib/served-certificate.ts`, same bytes as the HTTPS server) and `warning` from 14 days before
+  expiry; a dashboard banner (`components/certificate-expiry-banner.tsx`, Super Admin only, amber / red once
+  expired) and a warn line at boot (lands in `logs/app/error/`). No new cron job. The FMS's own certificate lasts
+  10 years, so on most installs it never shows.
+- **4. Scheduled task "DigiLog Certificate Check"** (`check-lan-cert.ps1`, `register-cert-check-task.ps1`;
+  SYSTEM; at startup + on NetworkProfile event 10000 "network connected"; no timer). Keeps the FMS's OWN certificate
+  covering the network range the PC is on: a move 192.168.1.x -> 192.168.5.x / 10.x used to need "Apply server
+  addresses" by hand. Re-issues from the SAME CA (tablets keep trusting it), restarts DigiLogAPI only when the file
+  changed, never touches a company certificate, logs to `logs\certificate-check.log`. Registered by install AND
+  upgrade, removed by uninstall (guard test). Each range causes at most one re-issue + restart: once covered, it
+  stays covered (a VPN adapter that takes the default route can cause that one restart).
+- **5. Tablet "Find server" after a certificate change.** The tablet's server identity is the certificate
+  ISSUER's key id, so a renewal under another intermediate (or a move to / from a company certificate) changes it;
+  with the IP changed too, both the automatic search and "Find server" refused the server. Now "Find server"
+  offers the ONE trusted FMS server that answered ("Use this server" fills the box; Connect re-checks it and learns
+  the new identity). The automatic search still never adopts a different identity (test).
+- **6. `build-site-apk.ps1`:** `-ServerCert` now accepts a company chain (`-untrusted`; the old command refused
+  every real one: "unable to get local issuer certificate"), a binary `.cer` root is converted, an intermediate
+  given as `-RootCa` is accepted with a warning (it breaks when IT changes intermediates), a bundle is refused with
+  "keep only the ROOT", and `-CheckOnly` checks without building.
+- Start menu: + "Change SSL certificate". Staged: `health-probe.ps1`, `set-certificate.{ps1,cmd}`,
+  `check-certificate.mjs`, `check-lan-cert.ps1`, `register-cert-check-task.ps1`, `openssl\ossl-modules\legacy.dll`.
+- Tests: `health-probe-address.test.ts` (rewritten), `windows-scripts.test.ts` (new: param defaults, every sibling a
+  shipped script calls is shipped, ASCII code, task register/unregister pairs, legacy provider),
+  `check-certificate-script.test.ts` (new, real OpenSSL chain), `system-health/__tests__/certificate-expiry.test.ts`,
+  `components/__tests__/certificate-expiry-banner.test.tsx`, `server-discovery.test.ts` +3,
+  `server-config-find-and-tablet-access.test.tsx` +1.
+- **Not run here:** registering the task as SYSTEM and the restart branch of `check-lan-cert.ps1` (needs admin and
+  a DigiLogAPI service; the triggers were registered under a user account and read back), and the interactive
+  file dialogs of "Change SSL certificate" (the parameter path they feed was tested).
+- Suites: API 4,665 passed / 15 skipped (351 files, single fork); web 5,209 of 5,210 - the one failure,
+  `profile-page.test.tsx` "Escape dismisses the success dialog", passes alone (3/3): it pressed Escape before the
+  dialog's effect had attached its listener on a loaded machine; it now presses until the key lands. Installer
+  self-tests 43/43 + 4/4; every script parses (PS 5.1 parser).
+- **Built:** APK `DigiLog-FilterOps.apk` sha256 `23e68262…` (10,341,735 B, same debug key `5d3f9c76…`, blank
+  server address, bundle = this web build). Setup 1.1.0 was built (177,603,003 B, sha256 `48d30f14…`, leak scan
+  clean; its STAGED `set-certificate.ps1` on its own node.exe + OpenSSL + legacy.dll opened an RC2 `.pfx`), but it
+  predates the `server.crt` fix above, so it was moved to `dist\superseded\` (never handed out). **The rebuild with
+  that fix was stopped by Claude Code for low system memory during compression** - its 69 MB partial output was renamed
+  `dist\superseded\...-PARTIAL-build-killed-DO-NOT-USE.exe.partial`. **Rebuilt (operator "rebuild exe with 1.1.0"):
+  `dist\FMS-Setup-1.1.0.exe`, 177,602,380 B, sha256 `bc366c16…`, unsigned, ISCC 899 s, leak scan clean, bundles APK
+  `23e68262…`, staged `issue-lan-cert.ps1` carries the `server.crt` fix, no checked health probe staged, version 1.1.0.
+  THIS is the 1.1.0 to hand out**; every other 1.1.0 build is in `dist\superseded\` (08e3a332, 48d30f14, the partial).
+
+### 2026-10-31 - installer: every fresh install reported "did NOT finish" (health probe on localhost) - in Setup 1.1.0 rebuilt 2026-10-31
+
+A laptop install of Setup 1.1.0 (and of 1.2.3 on 2026-10-23, `failure.jpg`) ended on "The FMS installation did
+NOT finish - WARN: API did not report healthy within 30s". It had finished: both services Running/Automatic,
+backup task and firewall rule in place, and `/api/health` answered 200 when checked afterwards. Its own log shows
+the API listening at 11:41:35 and the health loop still failing until 11:42:29.
+
+- **Cause.** The API listens on IPv4 only (`app.listen({ host: '0.0.0.0' })`). The scripts probed
+  `https://localhost`, which Windows tries as `::1` first; a refused `::1` connection takes ~2.1 s to fail, longer
+  than the probe's `-TimeoutSec 2`, so EVERY try timed out before reaching 127.0.0.1 (reproduced on this PC:
+  timed out in 2,174 ms vs 200 in 33 ms on a dual-stack listener). The probe has been like this since the
+  installer was written (2026-06-30); it surfaced on 2026-10-23 because only from 1.2.3 does Setup read the
+  script's exit code (before, the WARN was hidden and the Finish page shown).
+- **Fix.** The probes in `install.ps1`, `upgrade.ps1`, `restore-database.ps1` and `apply-addresses.ps1` call
+  `https://127.0.0.1:<port>/api/health` (every certificate `issue-lan-cert.ps1` writes names 127.0.0.1, so the
+  certificate is still checked). Messages and the `DigiLog.url` shortcut keep `localhost` - a browser falls back
+  to IPv4 by itself. Tries and timeouts unchanged: a refused 127.0.0.1 try also lasts ~2.1 s, so the 30 tries
+  span ~90 s, which covers the laptop's 40 s first start.
+- **`collect-logs.ps1` reported a healthy API as "UNREACHABLE".** Its HttpClient used a PowerShell scriptblock as
+  the certificate callback, which Windows PowerShell 5.1 cannot run on the TLS thread. Now `curl.exe -k` against
+  127.0.0.1 (Windows Server 2016 and older, which have no curl.exe: a certificate-checked `Invoke-WebRequest`).
+- Guard: `apps/api/src/lib/__tests__/health-probe-address.test.ts` (fails on the old scripts, 5 of 6).
+- `installer/test/test-provision-db-pipe.ps1` failed before running when started with no arguments: Windows
+  PowerShell 5.1 leaves `$PSScriptRoot` empty inside `param()` defaults. The `-PgBin` default is now resolved in
+  the body. Both installer self-tests pass (43/43, 4/4).
+- **Setup rebuilt as 1.1.0** (operator, same version number): `dist\FMS-Setup-1.1.0.exe`, 172,260,608 bytes,
+  sha256 `08e3a332…`, unsigned, from `76a5123` + these uncommitted fixes, APK `615a990f…` (same app code as
+  `83be0cbf…`), leak scan clean. The 2026-10-28 build (`c51512f2…`, with the bug) is kept in `dist\superseded\`.
+- **Known limit:** a site that switched to its own company certificate (`TLS_CERT_PATH`) that names neither
+  `localhost` nor `127.0.0.1` still fails the certificate check in these probes - unchanged by this fix.
+  (Fixed later the same day: the probes no longer check the certificate - entry above.)
+
 ### 2026-10-26 - replacement + PM: Qty follows the AHU (operator rule) - NOT in Setup 1.2.3 or its APK
 
 Operator rule, agreed as a table before any code: a replacement row is matched on **micron only** (filter

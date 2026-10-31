@@ -19,12 +19,17 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$PgBin = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'dist\stage\pgsql\bin'),
+  # Default (the staged binaries of the last build) is resolved below: Windows
+  # PowerShell 5.1 leaves $PSScriptRoot empty inside param() defaults, so a
+  # default computed here failed before the test ran (2026-10-31).
+  [string]$PgBin,
   [int]$Port = 5497,
   [string]$WorkDir = (Join-Path $env:TEMP "fms-provision-db-pipe-test-$(Get-Date -Format 'yyyyMMdd-HHmmss')")
 )
 
-$source = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'scripts\provision-db.ps1'
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+if (-not $PgBin) { $PgBin = Join-Path $repoRoot 'dist\stage\pgsql\bin' }
+$source = Join-Path $repoRoot 'scripts\provision-db.ps1'
 if (-not (Test-Path (Join-Path $PgBin 'pg_ctl.exe'))) { Write-Host "FAILED: no pg_ctl.exe in $PgBin (pass -PgBin)" -ForegroundColor Red; exit 1 }
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { Write-Host "FAILED: port $Port is in use (pass -Port)" -ForegroundColor Red; exit 1 }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null

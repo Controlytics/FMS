@@ -249,7 +249,13 @@ Copy-Item $VcRedistExe (Join-Path $stage 'prereq\VC_redist.x64.exe') -Force
 # restore-database.ps1 + its helper + launcher restore a nightly/pre-upgrade/in-app
 # backup of any size (docs/RESTORE-LARGE-DATABASE.md, D-DB-6); the .ps1 calls the
 # .mjs and apply-schema.ps1 as siblings.
-foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1','register-backup-task.ps1','backup-db.ps1','issue-lan-cert.ps1','address-config.ps1','apply-addresses.ps1','apply-addresses.cmd','edit-addresses.cmd','restore-database.ps1','restore-database-helper.mjs','restore-database.cmd') {
+# 2026-10-31: health-probe.ps1 is dot-sourced by install / upgrade / restore / apply-
+# addresses / set-certificate / check-lan-cert ("is FMS answering?", no certificate
+# check); set-certificate.{ps1,cmd} + check-certificate.mjs = Start menu "Change SSL
+# certificate"; check-lan-cert.ps1 + register-cert-check-task.ps1 = the "DigiLog
+# Certificate Check" task. A sibling missing here fails ON THE CUSTOMER'S PC - locked by
+# apps/api/src/lib/__tests__/windows-scripts.test.ts.
+foreach ($s in 'provision-db.ps1','apply-schema.ps1','register-services.ps1','unregister-services.ps1','install.ps1','upgrade.ps1','uninstall.ps1','register-backup-task.ps1','backup-db.ps1','issue-lan-cert.ps1','address-config.ps1','apply-addresses.ps1','apply-addresses.cmd','edit-addresses.cmd','restore-database.ps1','restore-database-helper.mjs','restore-database.cmd','health-probe.ps1','set-certificate.ps1','set-certificate.cmd','check-certificate.mjs','check-lan-cert.ps1','register-cert-check-task.ps1') {
   Copy-Item (Join-Path $PSScriptRoot $s) (Join-Path $stage 'scripts') -Force
 }
 Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime\api\prisma\sql') -Recurse -Force -ErrorAction SilentlyContinue
@@ -259,7 +265,7 @@ Copy-Item (Join-Path $repoRoot 'apps\api\prisma\sql') (Join-Path $stage 'runtime
 #     under the SAME filenames PostgreSQL uses, at a different patch level (3.5.7 vs
 #     PG's 3.5.5). Copying them over PostgreSQL's would silently swap the crypto
 #     libraries the database itself loads - never do that to get a CLI.
-#     Only 3 files are needed; the .pdb debug symbols in the zip are 37 MB of the 46
+#     Only 3 files are needed (+ ossl-modules\legacy.dll since 2026-10-31, below); the .pdb debug symbols in the zip are 37 MB of the 46
 #     and are deliberately excluded. LICENSE.txt ships because we redistribute.
 Write-Host "==> Stage openssl" -ForegroundColor Cyan
 $sslTmp = Join-Path $OutDir 'ssl-extract'
@@ -282,12 +288,19 @@ foreach ($f in 'openssl.exe','libcrypto-3-x64.dll','libssl-3-x64.dll') {
 # "No store loader found ... default or base providers", while `genrsa` still works -
 # so the failure looks like a certificate bug rather than a missing file.
 # install.ps1 points OPENSSL_CONF at this copy. Verified end-to-end: CA + server cert
-# + correct SANs + `openssl verify` OK. (Provider modules are NOT needed - default and
-# base are built into libcrypto.)
+# + correct SANs + `openssl verify` OK. Default and base providers are built into
+# libcrypto; the LEGACY provider (ossl-modules\legacy.dll) is staged since 2026-10-31
+# for set-certificate.ps1: a .pfx exported by older Windows / OpenSSL 1.x is encrypted
+# with RC2-40, which OpenSSL 3 opens only with -legacy ("unsupported ... RC2-40-CBC").
+# set-certificate.ps1 points OPENSSL_MODULES at it; nothing else loads it.
 $sslCnf = Join-Path $sslTmp 'ssl\openssl.cnf'
 if (-not (Test-Path $sslCnf)) { Write-Host "FAILED: ssl\openssl.cnf missing from the OpenSSL zip." -ForegroundColor Red; exit 1 }
 Copy-Item $sslCnf (Join-Path $sslDest 'openssl.cnf') -Force
 Copy-Item (Join-Path $sslTmp 'LICENSE.txt') (Join-Path $sslDest 'LICENSE.txt') -Force -ErrorAction SilentlyContinue
+$sslLegacy = Join-Path $sslTmp 'x64\lib\ossl-modules\legacy.dll'
+if (-not (Test-Path $sslLegacy)) { Write-Host "FAILED: lib\ossl-modules\legacy.dll missing from the OpenSSL zip (needed for old .pfx files)." -ForegroundColor Red; exit 1 }
+New-Item -ItemType Directory -Force -Path (Join-Path $sslDest 'ossl-modules') | Out-Null
+Copy-Item $sslLegacy (Join-Path $sslDest 'ossl-modules\legacy.dll') -Force
 $sslMb = [math]::Round(((Get-ChildItem $sslDest -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
 Write-Host "    staged openssl: $sslMb MB (pdb symbols excluded)" -ForegroundColor DarkGray
 

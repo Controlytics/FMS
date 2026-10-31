@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { errorResponses } from '../../lib/error-schemas.js';
 import { UPLOADS_ROOT } from '../../lib/uploads-dir.js';
 import { getLogger } from '../../lib/logger.js';
+import { servedCertificateInfo, CERTIFICATE_WARN_DAYS } from '../../lib/served-certificate.js';
 
 const log = getLogger('system-health', 'services');
 
@@ -273,6 +274,53 @@ const systemHealthRoutes: FastifyPluginAsync = async (app) => {
         },
         database: dbStats,
         timestamp: new Date().toISOString(),
+      };
+    },
+  );
+
+  // GET /api/system-health/certificate — the HTTPS certificate being served and
+  // when it expires (2026-10-31). SUPER_ADMIN only, like the dashboard banner
+  // that reads it: the remedy (Start menu "Change SSL certificate" on the server
+  // PC) is a Super Admin's. The certificate itself is public (every TLS handshake
+  // sends it); the gate is about who is shown the warning.
+  app.get(
+    '/certificate',
+    {
+      preHandler: [app.requireRole('SUPER_ADMIN')],
+      schema: {
+        tags: ['System Health'],
+        summary: 'HTTPS certificate in use and its expiry',
+        description: `The certificate this API process loaded at start. \`warning\` is true from ${CERTIFICATE_WARN_DAYS} days before it expires. SUPER_ADMIN only.`,
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              certificate: {
+                type: 'object',
+                nullable: true,
+                properties: {
+                  subject: { type: 'string' },
+                  issuer: { type: 'string' },
+                  validFrom: { type: 'string' },
+                  validTo: { type: 'string' },
+                  daysLeft: { type: 'integer' },
+                  fingerprint256: { type: 'string' },
+                },
+              },
+              warnDays: { type: 'integer' },
+              warning: { type: 'boolean' },
+            },
+          },
+          ...errorResponses,
+        },
+      },
+    },
+    async () => {
+      const certificate = servedCertificateInfo();
+      return {
+        certificate,
+        warnDays: CERTIFICATE_WARN_DAYS,
+        warning: !!certificate && certificate.daysLeft <= CERTIFICATE_WARN_DAYS,
       };
     },
   );

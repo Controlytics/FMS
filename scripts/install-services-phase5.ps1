@@ -40,11 +40,14 @@
 
 [CmdletBinding()]
 param(
-    [string]$Worktree = (Resolve-Path "$PSScriptRoot\..").Path,
+    # Default resolved below: PS 5.1 leaves $PSScriptRoot empty in an advanced
+    # script's param() defaults, which made this the DRIVE ROOT (2026-10-31).
+    [string]$Worktree,
     [string]$NssmPath = $null
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Worktree) { $Worktree = (Resolve-Path "$PSScriptRoot\..").Path }
 
 # 1. Resolve NSSM
 if (-not $NssmPath) {

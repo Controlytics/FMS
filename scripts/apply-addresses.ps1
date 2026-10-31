@@ -26,12 +26,16 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$InstallDir = (Split-Path -Parent $PSScriptRoot),
+  # Defaults are resolved below, not here: in an advanced script ([CmdletBinding()])
+  # Windows PowerShell 5.1 leaves $PSScriptRoot EMPTY inside param() defaults, so
+  # the Start-menu shortcut (no arguments) died binding them, before doing anything
+  # (2026-10-31; upgrade.ps1 passes -InstallDir, so upgrades were unaffected).
+  [string]$InstallDir,
   [string]$DataRoot   = 'C:\ProgramData\DigiLog',
   [string]$ApiService = 'DigiLogAPI',
   # Defaults to the bundled OpenSSL; overridable for testing outside an install.
-  [string]$OpenSsl     = (Join-Path $InstallDir 'openssl\openssl.exe'),
-  [string]$OpenSslConf = (Join-Path $InstallDir 'openssl\openssl.cnf'),
+  [string]$OpenSsl,
+  [string]$OpenSslConf,
   # Port for a NEW file when digilog.env has no PORT either.
   [int]$DefaultApiPort = 3000,
   [switch]$CreateIfMissing,
@@ -41,6 +45,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $InstallDir)  { $InstallDir  = Split-Path -Parent $PSScriptRoot }
+if (-not $OpenSsl)     { $OpenSsl     = Join-Path $InstallDir 'openssl\openssl.exe' }
+if (-not $OpenSslConf) { $OpenSslConf = Join-Path $InstallDir 'openssl\openssl.cnf' }
 . (Join-Path $PSScriptRoot 'address-config.ps1')
 
 $configDir = Join-Path $DataRoot 'config'
@@ -135,12 +142,10 @@ if ($NoRestart -or $DryRun) {
 } else {
   Write-Step "Restarting $ApiService..."
   Restart-Service -Name $ApiService -Force
-  $ok = $false
-  foreach ($i in 1..45) {
-    try { $r = Invoke-WebRequest "$url/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
-    Start-Sleep -Seconds 1
-  }
-  if (-not $ok) { Fail "$ApiService did not answer on $url within 45 s. Check $DataRoot\logs\app\error. Previous settings: digilog.env.bak-$stamp" }
+  # 127.0.0.1 with no certificate check (health-probe.ps1); $url stays
+  # localhost for the shortcut and the messages.
+  . (Join-Path $PSScriptRoot 'health-probe.ps1')
+  if (-not (Wait-DigilogHealth -Port $cfg.ApiPort -Seconds 120)) { Fail "$ApiService did not answer on $url within 120 s. Check $DataRoot\logs\app\error. Previous settings: digilog.env.bak-$stamp" }
   Write-Step "DigiLog is answering on $url"
 }
 

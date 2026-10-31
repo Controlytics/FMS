@@ -154,27 +154,35 @@ $snap.Add("")
 
 $snap.Add("=== API health ===")
 # The API uses a private CA, so certificate validation is deliberately bypassed
-# HERE ONLY - this is a loopback diagnostic call, not a trust decision.
-try {
-  Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
-  $handler = New-Object System.Net.Http.HttpClientHandler
-  $handler.ServerCertificateCustomValidationCallback = { $true }
-  $client = New-Object System.Net.Http.HttpClient($handler)
-  $client.Timeout = [TimeSpan]::FromSeconds(10)
+# HERE ONLY (curl -k) - this is a loopback diagnostic call, not a trust decision.
+# Until 2026-10-31 this used an HttpClient with a PowerShell scriptblock as the
+# certificate callback; Windows PowerShell 5.1 cannot run that on the TLS thread,
+# so it reported UNREACHABLE for a healthy API. 127.0.0.1, never localhost: the
+# API listens on IPv4 only and Windows tries ::1 first (see install.ps1 step 6).
+$curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+if (Test-Path $curl) {
   $ok = $false
   foreach ($scheme in 'https', 'http') {
-    try {
-      $resp = $client.GetAsync("${scheme}://localhost:$ApiPort/api/health").Result
-      $body = $resp.Content.ReadAsStringAsync().Result
-      $snap.Add("  ${scheme}://localhost:$ApiPort/api/health -> $([int]$resp.StatusCode)")
-      $snap.Add("  $body")
+    $url = "${scheme}://127.0.0.1:$ApiPort/api/health"
+    $out = & $curl -sk --max-time 10 -w "`n%{http_code}" $url 2>$null
+    $code = if ($out) { [string]@($out)[-1] } else { '000' }
+    if ($LASTEXITCODE -eq 0 -and $code -ne '000') {
+      $snap.Add("  $url -> $code")
+      $snap.Add("  $((@($out) | Select-Object -SkipLast 1) -join ' ')")
       $ok = $true
       break
-    } catch { }
+    }
   }
   if (-not $ok) { $snap.Add("  UNREACHABLE on both https and http (port $ApiPort)") }
-} catch {
-  $snap.Add("  probe failed: $($_.Exception.Message)")
+} else {
+  # Windows Server 2016 and older have no curl.exe: validated probe instead.
+  try {
+    $r = Invoke-WebRequest "https://127.0.0.1:$ApiPort/api/health" -UseBasicParsing -TimeoutSec 10
+    $snap.Add("  https://127.0.0.1:$ApiPort/api/health -> $($r.StatusCode)")
+    $snap.Add("  $($r.Content)")
+  } catch {
+    $snap.Add("  probe failed (certificate checked, no curl.exe): $($_.Exception.Message)")
+  }
 }
 $snap.Add("")
 

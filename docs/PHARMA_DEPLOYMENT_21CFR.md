@@ -122,6 +122,7 @@ Build `DigiLog-Setup.exe` with **Inno Setup** or **NSIS**. On run it:
 6. Registers **NSSM services**: `PostgreSQL` and `DigiLogAPI` (auto-start, restart-on-crash).
 7. Creates a **shortcut** to `https://digilog.pharma.local:3000`.
 8. Registers a **nightly DB backup** (Task Scheduler task "DigiLog Nightly Backup" → `scripts\backup-db.ps1` → `pg_dump` of `digilog_db` into `%ProgramData%\DigiLog\backups`, 14-day rotation, runs as SYSTEM with no stored password). Outcome is written every run to `backups\LAST-BACKUP-STATUS.txt` (OK/FAIL + timestamp) and appended to `logs\backup.log`; a failed run also sets a non-zero Task Scheduler "Last Run Result". **Copying dumps off-box, and periodically test-restoring them, are site procedures the installer does not perform** — see §5.2.
+9. Registers **"DigiLog Certificate Check"** (2026-10-31; Task Scheduler, SYSTEM, at startup + when a network connects → `scripts\check-lan-cert.ps1`): keeps the FMS's own HTTPS certificate covering the network range the server is on (re-issued from the same install CA; a company certificate set with Start menu → *Change SSL certificate* is never touched). Actions are logged in `logs\certificate-check.log`.
 
 **Result:** the customer double-clicks one `.exe`, clicks through Setup, and DigiLog runs as a service with no Node/npm/terminal and **no reverse proxy**.
 

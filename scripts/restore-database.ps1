@@ -201,6 +201,7 @@ $psql      = Join-Path $pgBin 'psql.exe'
 $pgDump    = Join-Path $pgBin 'pg_dump.exe'
 $pgRestore = Join-Path $pgBin 'pg_restore.exe'
 $helper    = Join-Path $PSScriptRoot 'restore-database-helper.mjs'
+. (Join-Path $PSScriptRoot 'health-probe.ps1')   # Wait-DigilogHealth (Start-Api)
 $migrationsDir = Join-Path $apiDir 'prisma\migrations'
 $stateFile = Join-Path $backupDir 'restore-in-progress.json'
 $workDir   = Join-Path $backupDir "restore-work-$stamp"
@@ -449,11 +450,9 @@ function Start-Api([string]$startType) {
   & sc.exe start $ApiService | Out-Null
   $port = Get-EnvValue $envFile 'PORT'
   if (-not $port) { $port = '3000' }
-  foreach ($i in 1..60) {
-    try { $r = Invoke-WebRequest "https://localhost:$port/api/health" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { Log "API healthy at https://localhost:$port" Green; return $true } } catch {}
-    Start-Sleep -Seconds 1
-  }
-  Log "WARNING: the API did not report healthy within 60 seconds. Check $logDir\app\error and the WinSW logs in $logDir." Yellow
+  # 127.0.0.1 with no certificate check - see health-probe.ps1.
+  if (Wait-DigilogHealth -Port ([int]$port) -Seconds 120) { Log "API healthy at https://localhost:$port" Green; return $true }
+  Log "WARNING: the API did not report healthy within 120 seconds. Check $logDir\app\error and the WinSW logs in $logDir." Yellow
   return $false
 }
 

@@ -97,7 +97,10 @@ export interface FindOptions {
 export interface FindResult {
   found: string | null;
   /** why nothing was adopted — shown on the Server Address screen */
-  reason?: 'not-native' | 'no-address' | 'nothing-open' | 'no-match' | 'ambiguous';
+  reason?: 'not-native' | 'no-address' | 'nothing-open' | 'no-match' | 'ambiguous' | 'identity-changed';
+  /** 'identity-changed' only: the ONE trusted FMS server that answered, with a
+   *  different identity. Offered to the operator, never adopted here. */
+  candidate?: string;
   checked: number;
 }
 
@@ -133,6 +136,17 @@ export async function findServer(opts: FindOptions = {}): Promise<FindResult> {
 
   if (!expected && opts.manual) {
     if (servers.length === 1) return { found: servers[0].base, checked };
+    if (servers.length > 1) return { found: null, reason: 'ambiguous', checked };
+  }
+  // 2026-10-31: the remembered identity is the certificate's ISSUER key id, so it
+  // changes when IT renews the server's certificate under another intermediate
+  // (or the site moves to / from its company certificate). If the server's IP
+  // changed too before this tablet reconnected, nothing matched and even "Find
+  // server" refused - only typing the address helped. Now the operator is shown
+  // the ONE trusted server that answered and decides; the automatic search
+  // (maybeDiscoverServer, no `manual`) still never adopts a different identity.
+  if (expected && opts.manual) {
+    if (servers.length === 1) return { found: null, reason: 'identity-changed', candidate: servers[0].base, checked };
     if (servers.length > 1) return { found: null, reason: 'ambiguous', checked };
   }
   return { found: null, reason: 'no-match', checked };

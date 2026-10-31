@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { registerSwagger, isApiDocsEnabled } from './lib/swagger.js';
 import { rateLimitKeyGenerator } from './lib/rate-limit-key.js';
 import { serverIdFromCertPem } from './lib/server-id.js';
+import { recordServedCertificate, servedCertificateInfo, CERTIFICATE_WARN_DAYS } from './lib/served-certificate.js';
 import { rootLogger, getLogger, initFileLogging, flushLogs, LOG_PATHS } from './lib/logger.js';
 import { pruneAllLogs, retentionDays, logDirSizeBytes, formatBytes } from './lib/log-retention.js';
 import { JWT_MAX_EXPIRY_HOURS } from './lib/jwt.js';
@@ -116,6 +117,8 @@ const httpsOptions = process.env.API_HTTPS === 'true'
     }
   : null;
 const SERVER_ID = serverIdFromCertPem(httpsOptions?.cert);
+// Same bytes, for the Super Admin's expiry warning (lib/served-certificate.ts).
+recordServedCertificate(httpsOptions?.cert);
 
 // May 16 H2 fix (2026-05-20): trustProxy was unconditionally 1. When the
 // API serves browsers DIRECTLY (no reverse proxy in front — the local
@@ -528,6 +531,16 @@ try {
     },
     'Startup configuration',
   );
+  // A warn line also lands in logs/app/error/, so collect-logs shows it.
+  const servedCert = servedCertificateInfo();
+  if (servedCert && servedCert.daysLeft <= CERTIFICATE_WARN_DAYS) {
+    app.log.warn(
+      { subject: servedCert.subject, validTo: servedCert.validTo, daysLeft: servedCert.daysLeft },
+      servedCert.daysLeft < 0
+        ? 'The HTTPS certificate has EXPIRED - browsers and tablets refuse this server. Start menu: FMS > Change SSL certificate.'
+        : `The HTTPS certificate expires in ${servedCert.daysLeft} day(s). Start menu: FMS > Change SSL certificate.`,
+    );
+  }
 
   // Probe + record the DB connection at boot (log type 4). Non-fatal: DigiLogDB
   // and DigiLogAPI start together and the API must be able to come up and retry.

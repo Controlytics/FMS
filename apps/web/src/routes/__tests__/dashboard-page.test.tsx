@@ -48,6 +48,8 @@ function routes(opts: { cards?: Record<string, string[]>; stats?: unknown; brand
     { path: '/api/audit', body: { total: 1234, data: [] } },
     { path: '/api/notifications', body: { total: 7, data: [] } },
     { path: '/api/filters/dashboard-stats', body: opts.stats ?? STATS },
+    // SUPER_ADMIN's certificate-expiry banner (components/certificate-expiry-banner.tsx): not due here.
+    { path: '/api/system-health/certificate', body: { certificate: { subject: 'CN=x', validTo: '2036-01-01T00:00:00.000Z', daysLeft: 3000 }, warnDays: 14, warning: false } },
     { path: '/api/hierarchy/filters', body: { data: FILTERS, total: FILTERS.length } },
     { path: '/api/hierarchy/ahus', body: { data: AHUS, total: AHUS.length } },
   ];

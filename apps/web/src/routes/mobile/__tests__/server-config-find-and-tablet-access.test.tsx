@@ -67,6 +67,23 @@ describe('server config — Find server (tablet app only)', () => {
     expect(await screen.findByText('Search failed: plugin missing')).toBeInTheDocument();
   });
 
+  // 2026-10-31: one trusted FMS server answered with a NEW identity (certificate
+  // renewed under another issuer). Offered, never adopted: "Use this server"
+  // only fills the box; Connect still re-checks it and saves.
+  it('a server with a new identity is offered: "Use this server" fills the box, saves nothing', async () => {
+    native();
+    findServer.mockResolvedValueOnce({ found: null, reason: 'identity-changed', candidate: 'https://192.168.1.80:3000' });
+    render();
+    fireEvent.change(screen.getByPlaceholderText(/https:\/\//), { target: { value: 'https://192.168.1.58:3000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find server' }));
+    expect(await screen.findByText(/its security certificate is not the one this tablet knew/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Use this server: https://192.168.1.80:3000' }));
+    expect(screen.getByPlaceholderText(/https:\/\//)).toHaveValue('https://192.168.1.80:3000');
+    expect(screen.queryByRole('button', { name: /Use this server/ })).toBeNull();
+    expect(screen.queryByText(/its security certificate is not the one/)).toBeNull();
+    expect(localStorage.getItem('digilog.serverUrl')).toBeNull();
+  });
+
   it('Connect refuses a non-2xx health reply and saves nothing', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }));
     render();

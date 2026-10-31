@@ -113,6 +113,9 @@ Name: "{group}\Tablet app (FMS.apk)"; Filename: "{app}\tablet"; Comment: "Copy F
 ; Administrator itself. tasks/AUTO-IP-RECOVERY-PLAN.md, Part 3.
 Name: "{group}\Edit server addresses"; Filename: "{app}\scripts\edit-addresses.cmd"; Comment: "Change the server's IP, name or port, then run Apply server addresses"
 Name: "{group}\Apply server addresses"; Filename: "{app}\scripts\apply-addresses.cmd"; Comment: "Apply digilog-addresses.ini: certificate, port, allowed origins, firewall, restart"
+; Switch to a company / bought HTTPS certificate (.pfx, or .crt + .key) or back to the
+; FMS's own: checked first, rolled back automatically. Asks for Administrator itself.
+Name: "{group}\Change SSL certificate"; Filename: "{app}\scripts\set-certificate.cmd"; Comment: "Use a certificate from IT (checked first, rolled back if FMS does not start), or go back to the FMS certificate"
 ; Restore the database from a nightly / pre-upgrade / downloaded backup of any size
 ; (the in-app restore stops at 100 MB). Asks for Administrator itself. D-DB-6.
 Name: "{group}\Restore database from backup"; Filename: "{app}\scripts\restore-database.cmd"; Comment: "Replace the database with a backup file (safety backup first; see the restore guide)"

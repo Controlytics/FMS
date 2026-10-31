@@ -50,12 +50,27 @@ if (-not $lanIp) { $lanIp = '127.0.0.1' }
 $prefix = ($lanIp -split '\.')[0..2] -join '.'
 $subnet = if ($lanIp -eq '127.0.0.1') { @() } else { 1..254 | ForEach-Object { "$prefix.$_" } }
 
+# OpenSSL through here, never `& $OpenSsl` bare. OpenSSL 3 writes "Certificate
+# request self-signature ok" to stderr for every certificate it signs, and under
+# 'Stop' Windows PowerShell 5.1 turns that line into a terminating error whenever
+# the caller captures this script's output (check-lan-cert.ps1 logs it; found
+# 2026-10-31 driving set-certificate.ps1 -UseBuiltIn). Exit codes are checked
+# instead. Output goes to the host, as before.
+function Invoke-Ssl {
+  $eap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $OpenSsl @args 2>&1 | ForEach-Object { Write-Host "    openssl: $_" -ForegroundColor DarkGray } }
+  finally { $ErrorActionPreference = $eap }
+}
+
 # One spelling per IP (openssl prints IPv6 expanded: 0:0:0:0:0:0:0:1).
 function Format-Ip([string]$ip) { return [System.Net.IPAddress]::Parse($ip).ToString().ToLowerInvariant() }
 function Test-IsIp([string]$s) { $a = $null; return [System.Net.IPAddress]::TryParse($s, [ref]$a) }
 
 function Get-CertSans([string]$path) {
-  $text = (& $OpenSsl x509 -in $path -noout -text) -join "`n"
+  $eap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $text = (& $OpenSsl x509 -in $path -noout -text 2>$null) -join "`n" } finally { $ErrorActionPreference = $eap }
   if ($LASTEXITCODE -ne 0) { throw "openssl could not read $path" }
   return @{
     Ips = @([regex]::Matches($text, 'IP Address:([0-9A-Fa-f.:]+)') | ForEach-Object { Format-Ip $_.Groups[1].Value })
@@ -126,25 +141,37 @@ Set-Content -Path $ext -Encoding ascii -Value $lines
 
 $newCa = -not (Test-Path $caKey)
 if ($newCa) {
-  & $OpenSsl genrsa -out $caKey 2048
+  Invoke-Ssl genrsa -out $caKey 2048
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (CA) failed." -ForegroundColor Red; exit 1 }
-  & $OpenSsl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
+  Invoke-Ssl req -x509 -new -nodes -key $caKey -sha256 -days 3650 -subj "/CN=DigiLog Local CA" -out $caPem
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl CA cert failed." -ForegroundColor Red; exit 1 }
 }
 if (-not (Test-Path $srvKey)) {
-  & $OpenSsl genrsa -out $srvKey 2048
+  Invoke-Ssl genrsa -out $srvKey 2048
   if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl genrsa (server) failed." -ForegroundColor Red; exit 1 }
+}
+Invoke-Ssl req -new -key $srvKey -subj "/CN=$lanIp" -out $csr
+if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl server CSR failed." -ForegroundColor Red; exit 1 }
+# Into a NEW file, verified, and only then over server.crt. OpenSSL opens -out
+# before it fails, so issuing straight onto server.crt left an EMPTY certificate
+# behind on any failure (an unreadable rootCA.key, a full disk): the running API
+# kept its in-memory copy and then could not start at the next boot (2026-10-31).
+$newCrt = "$srvCrt.new"
+Remove-Item $newCrt -Force -ErrorAction SilentlyContinue
+Invoke-Ssl x509 -req -in $csr -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $newCrt
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $newCrt) -or (Get-Item $newCrt).Length -eq 0) {
+  Remove-Item $newCrt -Force -ErrorAction SilentlyContinue
+  Write-Host "FATAL: server cert generation failed$(if (Test-Path $srvCrt) { ' - the current certificate is unchanged' })." -ForegroundColor Red; exit 1
+}
+Invoke-Ssl verify -CAfile $caPem $newCrt
+if ($LASTEXITCODE -ne 0) {
+  Remove-Item $newCrt -Force -ErrorAction SilentlyContinue
+  Write-Host "FATAL: new server cert does not verify against $caPem$(if (Test-Path $srvCrt) { ' - the current certificate is unchanged' })." -ForegroundColor Red; exit 1
 }
 if (Test-Path $srvCrt) {
   Copy-Item $srvCrt "$srvCrt.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 }
-& $OpenSsl req -new -key $srvKey -subj "/CN=$lanIp" -out $csr
-if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: openssl server CSR failed." -ForegroundColor Red; exit 1 }
-& $OpenSsl x509 -req -in $csr -CA $caPem -CAkey $caKey -CAcreateserial -days 3650 -sha256 -extfile $ext -out $srvCrt
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $srvCrt)) { Write-Host "FATAL: server cert generation failed." -ForegroundColor Red; exit 1 }
-
-& $OpenSsl verify -CAfile $caPem $srvCrt | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Host "FATAL: new server cert does not verify against $caPem." -ForegroundColor Red; exit 1 }
+Move-Item -Force $newCrt $srvCrt
 
 if ($newCa) {
   # Trust the CA on the SERVER so the PC browser does not warn under HTTPS.

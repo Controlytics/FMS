@@ -8,6 +8,7 @@ import useSWR from 'swr';
 import { useMemo, useState } from 'react';
 import { StatCard } from '@/components/ui/stat-card';
 import { formatListTotal } from '@/components/ui/pagination';
+import { CertificateExpiryBanner } from '@/components/certificate-expiry-banner';
 
 // <path> content for the Quick Overview tiles (drawn by the shared StatCard).
 const statCardIcons = {
@@ -61,6 +62,8 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {/* Super Admin only, and only within 14 days of the HTTPS certificate's expiry. */}
+      <CertificateExpiryBanner />
       {/* Welcome Section */}
       <div className="relative overflow-hidden rounded-2xl bg-brand-600 p-8 text-white shadow-xs">
         <div className="relative z-10">

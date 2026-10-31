@@ -140,8 +140,13 @@ describe('Profile — editing', () => {
     await screen.findByRole('heading', { name: 'Jane Doe' });
     save();
     await findDialog('Profile Updated');
-    fireEvent.keyDown(window, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByText('Profile Updated')).toBeNull());
+    // Dialog attaches its Escape listener in an effect, which on a busy machine can
+    // run after the dialog is already on screen; a key pressed in between is lost
+    // (full-suite run 2026-10-31). Press until it lands - Escape on a closed dialog does nothing.
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(screen.queryByText('Profile Updated')).toBeNull();
+    });
   });
 
   it('a server refusal shows its message and re-enables Save', async () => {

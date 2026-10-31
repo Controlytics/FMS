@@ -1,3 +1,42 @@
+# IP + SSL CHANGES: "do best plan" (operator 2026-10-31)
+
+Goal: an IP change or a company SSL renewal costs nothing on the tablets, and our own tools never
+report a false failure. Plan agreed in chat (fixes 1-6), plus a bug found while checking (0).
+
+- [x] 0. Start menu "Apply server addresses" dies at parameter binding: `[CmdletBinding()]` + PS 5.1
+      leaves $PSScriptRoot empty in param() defaults (apply-addresses.ps1:29). Broken since 10-10;
+      upgrade.ps1 passes -InstallDir so upgrades worked. Fix + guard test (no $PSScriptRoot in an
+      advanced script's param block). Same pattern in dev install-services-phase5.ps1.
+- [x] 1. One health probe for install / upgrade / restore / apply-addresses (`scripts/health-probe.ps1`):
+      127.0.0.1, no certificate check (curl.exe -sk --ssl-no-revoke; Server 2016 fallback = per-request
+      callback in C#). Company-certificate sites no longer report "did NOT finish". Staged; guard test.
+- [x] 2. Start menu "Change SSL certificate" (`set-certificate.ps1` + `.cmd` + `check-certificate.mjs`):
+      .pfx or .crt+.key; checks key matches, chain complete (intermediates in the file), not expired,
+      server use, names; switches TLS_KEY_PATH/TLS_CERT_PATH, restarts, verifies the SERVED certificate,
+      rolls back automatically; -UseBuiltIn returns to the FMS certificate; log file. legacy.dll staged
+      for old .pfx files. Tested against a throwaway HTTPS process, never :3000.
+- [x] 3. Expiry warning: SUPER_ADMIN-only `GET /api/system-health/certificate` + dashboard banner
+      (14 days); warn log at boot. No new cron job.
+- [x] 4. Scheduled task "DigiLog Certificate Check" (startup + network connected): re-issues the FMS
+      certificate from the SAME CA when the network range changed, restarts the API only when the file
+      changed, skips a company certificate. install + upgrade register, uninstall removes. Staged.
+- [x] 5. Tablet "Find server": one FMS answering with a NEW identity is offered ("Use this server"),
+      never adopted automatically. Tests.
+- [x] 6. build-site-apk.ps1: -ServerCert with intermediates (-untrusted), warn on an intermediate given as
+      -RootCa, -CheckOnly. Tested with a generated root > intermediate > leaf chain.
+- [x] Found on the way: issue-lan-cert.ps1 died mid-issue whenever a caller CAPTURED its output (OpenSSL 3
+      "Certificate request self-signature ok" on stderr + 'Stop' = terminating in PS 5.1) -> Invoke-Ssl.
+- [x] Tests: health-probe-address (9), windows-scripts (37), check-certificate-script (9), certificate-expiry (6),
+      banner (4), server-discovery + server-config (+4); sandbox runs of set-certificate (10 scenarios incl.
+      RC2 .pfx + automatic rollback), check-lan-cert (4), build-site-apk -CheckOnly (6), health probe (both paths).
+      NOT run: the task's SYSTEM registration + the service-restart branch (no admin, no DigiLogAPI service here).
+- [x] Build: APK 23e68262 (blank URL, same key). Self-tests 43/43 + 4/4. Suites: API 4665/0 failed; web 5209/5210
+      (profile Escape race fixed, passes alone). Setup 48d30f14 built + checked, then SUPERSEDED (lacks the
+      server.crt-temp-file fix found afterwards).
+- [x] Setup 1.1.0 rebuilt: dist/FMS-Setup-1.1.0.exe 177,602,380 B sha256 bc366c16 (with the server.crt fix, APK 23e68262).
+- [x] Docs: CHANGELOG, CLAUDE.md (TLS notes, PS 5.1 traps, scheduler line, IP-change note), memory.
+- [ ] Operator: commit (offered as 2 commits: morning probe fix, then this); install the new Setup on the laptop.
+
 # REPLACEMENT + PM: Qty follows the AHU (operator 2026-10-26, "go")
 
 Operator rule (agreed table): match on MICRON ONLY (dimensions = info). A filter of that micron
@@ -33,7 +72,12 @@ Touchpoints:
       throwaway demo-DB copy (:3911, dropped); full API + web suites — see the session report
 - [x] Found on the way: start-cycle gate test fixture; P-1 flake root cause (batch-preload, Prisma findUnique batching)
 - [x] APK rebuilt 2026-10-27 (sha 83be0cbf…, blank server address, same signing key) — uncommitted
-- [ ] Operator: commit when asked; push; rebuild Setup
+- [x] Committed 2026-10-28 (operator): `43eb1a9` feature, `6169781` batch-preload, `c9f2a3f` test row, `76a5123` APK.
+      0-member closed-visit rule confirmed ("Keep it").
+- [x] Setup rebuilt 2026-10-28 as **1.1.0** (operator's number): `dist\FMS-Setup-1.1.0.exe`, 172,259,194 B,
+      sha256 c51512f2…, unsigned, from `76a5123`, bundles APK 83be0cbf…, leak scan clean. NOT installed anywhere yet.
+      An August 1.1.0 build (openssl blocker) shares the filename — never hand that one out.
+- [ ] Operator: push
 - [x] Docs: CLAUDE.md replacement section, CHANGELOG, stale "All-AHU-filters" comments, memory
 
 # SUPER ADMIN — "own work not held" (operator 2026-10-24)
